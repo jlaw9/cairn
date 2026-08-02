@@ -64,10 +64,20 @@ project lane. Research history has a real time axis and a force layout throws
 it away; it also means node positions are stable between builds, so the map
 stays memorable.
 
-- colour = status, shape = type, filter by project / type / status
-- click a node → rendered body, commit link, parents, children, paper backlinks
+It's a full interactive app, just one served from disk instead of a server:
+
+- **hover** a node → card with its status, date and latest history note
+- **click** → side panel: rendered body, clickable commit link, DOI links,
+  parent/child links you can navigate, and a link to the node's markdown source
+- **isolate lineage** → collapse to one node's full ancestry and descent. On a
+  milestone that's every experiment that fed the paper, dead ends included
+- **copy link** → deep link to a node (`graph.html#<node-id>`)
 - **the "as of" slider replays history** from the `history` log — drag it back
-  and the graph shows what was known then, with the statuses of that date
+  and the graph shows what was known then, with the statuses of that date, and
+  the panel follows
+- filter by project / type / status, search, pan, wheel-zoom, `/` to search,
+  `Esc` to close; colour = status, shape = type
+- URL params: `?since=YYYY-MM-DD`, `?project=<key>`, `#<node-id>`
 
 `build/graph.md` is a Mermaid fallback that renders in GitHub, an editor, or a
 terminal.
