@@ -1,0 +1,608 @@
+"""Cairn — parsing, serialization and validation for the research graph.
+
+One file per node. Markdown body, YAML frontmatter. Nodes are append-only:
+never delete one, change its status.
+
+The only hard dependency is PyYAML. Everything else is stdlib, deliberately —
+this has to run on a laptop and on an HPC login node without a venv dance.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import os
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - environment problem, not a code path
+    sys.exit(
+        "Cairn needs PyYAML.\n"
+        "  pip install pyyaml     (or: conda install pyyaml)\n"
+    )
+
+#: CAIRN_ROOT lets the test suite point the whole library at a fixture graph.
+REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or Path(__file__).resolve().parent.parent)
+
+# --------------------------------------------------------------------------
+# Schema
+# --------------------------------------------------------------------------
+
+# Every optional field is a field that stops getting filled in. Adding to this
+# table is a real decision, not a convenience. See docs/schema.md.
+
+COMMON_REQUIRED = ["id", "type", "title", "project", "status", "created", "updated"]
+COMMON_OPTIONAL = ["parents", "refs", "history"]
+
+
+@dataclass(frozen=True)
+class TypeSpec:
+    statuses: list[str]
+    #: statuses that mean "this thread is finished, stop nagging about it"
+    terminal: set[str]
+    required: list[str]
+    optional: list[str]
+
+
+TYPES: dict[str, TypeSpec] = {
+    "experiment": TypeSpec(
+        statuses=["running", "worked", "dead", "parked"],
+        terminal={"worked", "dead"},
+        required=[],
+        optional=["repo", "commit", "host", "artifacts"],
+    ),
+    "direction": TypeSpec(
+        statuses=["open", "parked", "closed"],
+        terminal={"closed"},
+        required=[],
+        optional=[],
+    ),
+    "seed": TypeSpec(
+        statuses=["seed", "promoted", "killed"],
+        terminal={"promoted", "killed"},
+        required=[],
+        optional=["origin", "contacts"],
+    ),
+    "milestone": TypeSpec(
+        statuses=["planned", "submitted", "accepted", "done"],
+        terminal={"accepted", "done"},
+        required=[],
+        optional=["venue", "date", "url"],
+    ),
+    "task": TypeSpec(
+        statuses=["todo", "doing", "done", "dropped"],
+        terminal={"done", "dropped"},
+        required=[],
+        optional=["due", "source"],
+    ),
+}
+
+ALL_STATUSES = sorted({s for spec in TYPES.values() for s in spec.statuses})
+
+#: Coarse buckets used for colour in the rendered graph. Every status in TYPES
+#: must appear here exactly once; validate_schema_table() enforces that.
+STATUS_CLASS = {
+    "worked": "good", "done": "good", "accepted": "good", "promoted": "good",
+    "dead": "bad", "killed": "bad", "dropped": "bad", "closed": "bad",
+    "running": "active", "doing": "active", "submitted": "active",
+    "open": "pending", "todo": "pending", "seed": "pending", "planned": "pending",
+    "parked": "idle",
+}
+
+ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*$")
+DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$")
+SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+ARTIFACT_RE = re.compile(r"^[A-Za-z0-9_.-]+:/\S*$")
+FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
+
+#: Field emission order. Anything not listed lands after these, alphabetically.
+#: Stable ordering is what keeps diffs readable, which is half the point of
+#: putting this in git at all.
+FIELD_ORDER = [
+    "id", "type", "title", "project", "status", "created", "updated",
+    "repo", "commit", "host", "artifacts",
+    "origin", "contacts",
+    "venue", "date", "url",
+    "due", "source",
+    "doi", "authors", "year",
+    "parents", "refs", "history",
+]
+
+
+def validate_schema_table() -> None:
+    """Guard against the schema table itself drifting out of sync."""
+    for name, spec in TYPES.items():
+        for status in spec.statuses:
+            assert status in STATUS_CLASS, f"{name}.{status} missing from STATUS_CLASS"
+        assert spec.terminal <= set(spec.statuses), f"{name}: bad terminal set"
+
+
+validate_schema_table()
+
+
+# --------------------------------------------------------------------------
+# Node
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class Node:
+    path: Path
+    meta: dict
+    body: str
+
+    @property
+    def id(self) -> str:
+        return str(self.meta.get("id", self.path.stem))
+
+    @property
+    def type(self) -> str:
+        return str(self.meta.get("type", ""))
+
+    @property
+    def status(self) -> str:
+        return str(self.meta.get("status", ""))
+
+    @property
+    def project(self) -> str:
+        return str(self.meta.get("project", ""))
+
+    @property
+    def title(self) -> str:
+        return str(self.meta.get("title", self.id))
+
+    @property
+    def parents(self) -> list[str]:
+        return list(self.meta.get("parents") or [])
+
+    @property
+    def refs(self) -> list[str]:
+        return [str(r) for r in (self.meta.get("refs") or [])]
+
+    @property
+    def history(self) -> list[dict]:
+        return list(self.meta.get("history") or [])
+
+    @property
+    def created(self) -> dt.date | None:
+        return as_date(self.meta.get("created"))
+
+    @property
+    def updated(self) -> dt.date | None:
+        return as_date(self.meta.get("updated"))
+
+    @property
+    def spec(self) -> TypeSpec | None:
+        return TYPES.get(self.type)
+
+    def is_terminal(self) -> bool:
+        return bool(self.spec and self.status in self.spec.terminal)
+
+    def status_on(self, when: dt.date) -> str | None:
+        """Status as of `when`, from the history log. None if not yet created.
+
+        This is what makes replay work: check out an old commit, or just drag
+        the time slider, and the graph shows what was known then.
+        """
+        result = None
+        for entry in self.history:
+            date = as_date(entry.get("date"))
+            if date is not None and date <= when:
+                result = entry.get("status")
+        if result is None and self.created and self.created <= when:
+            result = self.status
+        return result
+
+    def set_status(self, status: str, note: str = "", when: dt.date | None = None) -> None:
+        """Append a history entry and move `status` in lockstep.
+
+        Always go through this. Hand-editing `status:` without touching
+        `history:` is the drift the validator exists to catch.
+        """
+        when = when or dt.date.today()
+        if self.spec and status not in self.spec.statuses:
+            raise ValueError(
+                f"'{status}' is not a valid status for type '{self.type}' "
+                f"(expected one of {', '.join(self.spec.statuses)})"
+            )
+        entry = {"date": when, "status": status}
+        if note:
+            entry["note"] = note
+        self.meta.setdefault("history", []).append(entry)
+        self.meta["status"] = status
+        self.meta["updated"] = when
+
+    def to_text(self) -> str:
+        return f"---\n{dump_frontmatter(self.meta)}---\n\n{self.body.strip()}\n"
+
+    def write(self) -> None:
+        self.path.write_text(self.to_text(), encoding="utf-8")
+
+
+# --------------------------------------------------------------------------
+# Parsing / serialization
+# --------------------------------------------------------------------------
+
+
+def as_date(value) -> dt.date | None:
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    if isinstance(value, str):
+        try:
+            return dt.date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def parse_file(path: Path) -> Node:
+    text = path.read_text(encoding="utf-8")
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        raise ValueError(f"{path}: no YAML frontmatter (file must start with '---')")
+    try:
+        meta = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{path}: malformed YAML frontmatter: {exc}") from exc
+    if not isinstance(meta, dict):
+        raise ValueError(f"{path}: frontmatter must be a mapping")
+    return Node(path=path, meta=meta, body=match.group(2))
+
+
+def _scalar(value) -> str:
+    """Emit a YAML scalar, quoting only when it would otherwise be ambiguous."""
+    if isinstance(value, (dt.date, dt.datetime)):
+        return as_date(value).isoformat()
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "~"
+    if isinstance(value, (int, float)):
+        return str(value)
+    text = str(value)
+    needs_quotes = (
+        text == ""
+        or text.strip() != text
+        or text[0] in "&*!|>%@`{}[]#-?,"
+        or ": " in text
+        or text.endswith(":")
+        or text.lower() in {"true", "false", "null", "yes", "no", "on", "off", "~"}
+    )
+    if needs_quotes:
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return text
+
+
+def _flow_map(mapping: dict) -> str:
+    inner = ", ".join(f"{k}: {_scalar(v)}" for k, v in mapping.items())
+    return "{" + inner + "}"
+
+
+def dump_frontmatter(meta: dict) -> str:
+    """Serialize frontmatter with stable field order and readable diffs.
+
+    Hand-rolled rather than yaml.dump because we want history entries on one
+    line each (a status change should be a one-line diff) and a field order
+    that reads top-down instead of alphabetically.
+    """
+    keys = [k for k in FIELD_ORDER if k in meta]
+    keys += sorted(k for k in meta if k not in FIELD_ORDER)
+
+    lines: list[str] = []
+    for key in keys:
+        value = meta[key]
+        if isinstance(value, list):
+            if not value:
+                lines.append(f"{key}: []")
+                continue
+            if all(isinstance(item, dict) for item in value):
+                lines.append(f"{key}:")
+                lines.extend(f"  - {_flow_map(item)}" for item in value)
+            elif key in {"parents", "refs"} and len(value) <= 4:
+                lines.append(f"{key}: [" + ", ".join(_scalar(v) for v in value) + "]")
+            else:
+                lines.append(f"{key}:")
+                lines.extend(f"  - {_scalar(v)}" for v in value)
+        elif isinstance(value, dict):
+            lines.append(f"{key}: {_flow_map(value)}")
+        else:
+            lines.append(f"{key}: {_scalar(value)}")
+    return "\n".join(lines) + "\n"
+
+
+# --------------------------------------------------------------------------
+# Loading
+# --------------------------------------------------------------------------
+
+
+def node_dir(root: Path | None = None) -> Path:
+    return (root or REPO_ROOT) / "nodes"
+
+
+def paper_dir(root: Path | None = None) -> Path:
+    return (root or REPO_ROOT) / "papers"
+
+
+def load_nodes(root: Path | None = None) -> tuple[dict[str, Node], list[str]]:
+    """Load every node. Returns (by-id map, list of parse errors)."""
+    nodes: dict[str, Node] = {}
+    errors: list[str] = []
+    for path in sorted(node_dir(root).glob("*.md")):
+        try:
+            node = parse_file(path)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        if node.id in nodes:
+            errors.append(
+                f"{path}: duplicate id '{node.id}' (also {nodes[node.id].path.name})"
+            )
+            continue
+        nodes[node.id] = node
+    return nodes, errors
+
+
+def load_papers(root: Path | None = None) -> tuple[dict[str, Node], list[str]]:
+    """Load the papers registry, keyed by canonical DOI.
+
+    Keyed by the `doi:` field, never by un-slugging the filename — the
+    `/` -> `__` slug is not reversibly unique for DOIs containing `__`.
+    """
+    papers: dict[str, Node] = {}
+    errors: list[str] = []
+    for path in sorted(paper_dir(root).glob("*.md")):
+        try:
+            node = parse_file(path)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        doi = str(node.meta.get("doi", "")).strip().lower()
+        if not doi:
+            errors.append(f"{path}: paper has no 'doi:' field")
+            continue
+        papers[doi] = node
+    return papers, errors
+
+
+def slug_doi(doi: str) -> str:
+    """Filename slug for a DOI. Filename only — never parsed back into a DOI."""
+    return doi.strip().lower().replace("/", "__")
+
+
+# --------------------------------------------------------------------------
+# Validation
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class Issue:
+    level: str  # "error" | "warn"
+    where: str
+    message: str
+
+    def __str__(self) -> str:
+        return f"{self.level.upper():5s} {self.where}: {self.message}"
+
+
+def _check_common(node: Node, out: list[Issue]) -> None:
+    where = node.path.name
+    err = lambda m: out.append(Issue("error", where, m))  # noqa: E731
+    warn = lambda m: out.append(Issue("warn", where, m))  # noqa: E731
+
+    for key in COMMON_REQUIRED:
+        value = node.meta.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            err(f"missing required field '{key}'")
+
+    if node.meta.get("id") and node.id != node.path.stem:
+        err(f"id '{node.id}' does not match filename stem '{node.path.stem}'")
+    if node.meta.get("id") and not ID_RE.match(node.id):
+        err(f"id '{node.id}' is not a date-prefixed lowercase slug (YYYY-MM-DD-some-slug)")
+
+    if node.type and node.type not in TYPES:
+        err(f"unknown type '{node.type}' (expected one of {', '.join(sorted(TYPES))})")
+        return
+
+    spec = node.spec
+    if spec and node.status and node.status not in spec.statuses:
+        err(
+            f"status '{node.status}' is not valid for type '{node.type}' "
+            f"(expected one of {', '.join(spec.statuses)})"
+        )
+
+    created, updated = node.created, node.updated
+    if node.meta.get("created") is not None and created is None:
+        err(f"'created' is not an ISO date: {node.meta['created']!r}")
+    if node.meta.get("updated") is not None and updated is None:
+        err(f"'updated' is not an ISO date: {node.meta['updated']!r}")
+    if created and updated and updated < created:
+        err(f"updated ({updated}) is before created ({created})")
+    if created and not node.id.startswith(created.isoformat()):
+        warn(f"id date prefix disagrees with created: {created}")
+
+    # Unknown keys are how schemas rot in silence.
+    known = set(COMMON_REQUIRED) | set(COMMON_OPTIONAL)
+    if spec:
+        known |= set(spec.required) | set(spec.optional)
+    for key in sorted(set(node.meta) - known):
+        warn(f"unknown field '{key}' — add it to the schema or remove it")
+
+    for key in (spec.required if spec else []):
+        if not node.meta.get(key):
+            err(f"type '{node.type}' requires field '{key}'")
+
+    for ref in node.refs:
+        if not DOI_RE.match(ref):
+            err(f"ref '{ref}' is not a bare DOI (expected 10.xxxx/suffix)")
+
+
+def _check_history(node: Node, out: list[Issue]) -> None:
+    where = node.path.name
+    history = node.history
+    if not history:
+        out.append(Issue("error", where, "history is empty — every node needs at least a creation entry"))
+        return
+
+    spec = node.spec
+    previous: dt.date | None = None
+    for index, entry in enumerate(history):
+        label = f"history[{index}]"
+        if not isinstance(entry, dict):
+            out.append(Issue("error", where, f"{label} is not a mapping"))
+            continue
+        date = as_date(entry.get("date"))
+        if date is None:
+            out.append(Issue("error", where, f"{label} has a missing or malformed date"))
+        else:
+            if previous and date < previous:
+                out.append(Issue("error", where, f"{label} date {date} goes backwards"))
+            previous = date
+        status = entry.get("status")
+        if not status:
+            out.append(Issue("error", where, f"{label} has no status"))
+        elif spec and status not in spec.statuses:
+            out.append(Issue("error", where, f"{label} status '{status}' invalid for type '{node.type}'"))
+
+    last = history[-1]
+    if isinstance(last, dict):
+        if last.get("status") and node.status and last["status"] != node.status:
+            out.append(Issue(
+                "error", where,
+                f"status '{node.status}' disagrees with last history entry "
+                f"'{last['status']}' — use set_status(), don't hand-edit",
+            ))
+        last_date = as_date(last.get("date"))
+        if last_date and node.updated and node.updated < last_date:
+            out.append(Issue("error", where, f"updated ({node.updated}) predates last history entry ({last_date})"))
+
+
+def _check_type_extras(node: Node, out: list[Issue]) -> None:
+    where = node.path.name
+    err = lambda m: out.append(Issue("error", where, m))  # noqa: E731
+    warn = lambda m: out.append(Issue("warn", where, m))  # noqa: E731
+
+    if node.type == "experiment":
+        commit = node.meta.get("commit")
+        if commit and not SHA_RE.match(str(commit).strip()):
+            err(f"commit '{commit}' is not a git SHA — reference commits, never branches")
+        if commit and not node.meta.get("repo"):
+            warn("has a commit but no repo — the SHA is unresolvable without it")
+        for artifact in node.meta.get("artifacts") or []:
+            if not ARTIFACT_RE.match(str(artifact)):
+                err(f"artifact '{artifact}' is not host:/absolute/path")
+
+    elif node.type == "seed":
+        for contact in node.meta.get("contacts") or []:
+            if not isinstance(contact, dict) or not contact.get("name"):
+                err(f"contact {contact!r} needs at least a name")
+
+    elif node.type == "milestone":
+        if node.meta.get("date") is not None and as_date(node.meta["date"]) is None:
+            err(f"'date' is not an ISO date: {node.meta['date']!r}")
+
+    elif node.type == "task":
+        if node.meta.get("due") is not None and as_date(node.meta["due"]) is None:
+            err(f"'due' is not an ISO date: {node.meta['due']!r}")
+        if not node.meta.get("due") and node.status in {"todo", "doing"}:
+            warn("open task with no due date — it will never surface in /weekly")
+
+
+def _check_edges(nodes: dict[str, Node], out: list[Issue]) -> None:
+    for node in nodes.values():
+        for parent in node.parents:
+            if parent not in nodes:
+                out.append(Issue("error", node.path.name, f"dangling parent '{parent}'"))
+            elif parent == node.id:
+                out.append(Issue("error", node.path.name, "node is its own parent"))
+
+    # Cycle detection. A cycle isn't just untidy — it makes the milestone
+    # rollup non-terminating and silently corrupts the time axis.
+    WHITE, GREY, BLACK = 0, 1, 2
+    colour = dict.fromkeys(nodes, WHITE)
+
+    def walk(start: str) -> None:
+        stack = [(start, iter(nodes[start].parents))]
+        colour[start] = GREY
+        while stack:
+            current, parents = stack[-1]
+            advanced = False
+            for parent in parents:
+                if parent not in nodes:
+                    continue
+                if colour[parent] == GREY:
+                    out.append(Issue(
+                        "error", nodes[current].path.name,
+                        f"cycle in parents: '{current}' -> '{parent}' closes a loop",
+                    ))
+                elif colour[parent] == WHITE:
+                    colour[parent] = GREY
+                    stack.append((parent, iter(nodes[parent].parents)))
+                    advanced = True
+                    break
+            if not advanced:
+                colour[current] = BLACK
+                stack.pop()
+
+    for node_id in nodes:
+        if colour[node_id] == WHITE:
+            walk(node_id)
+
+
+def _check_refs(nodes: dict[str, Node], papers: dict[str, Node], out: list[Issue]) -> None:
+    for node in nodes.values():
+        for ref in node.refs:
+            if ref.lower() not in papers:
+                out.append(Issue(
+                    "warn", node.path.name,
+                    f"ref '{ref}' has no page in papers/ — backlinks will be thin",
+                ))
+
+
+def validate(root: Path | None = None) -> list[Issue]:
+    """Validate the whole graph. Errors block a commit; warnings don't."""
+    issues: list[Issue] = []
+    nodes, node_errors = load_nodes(root)
+    papers, paper_errors = load_papers(root)
+    issues += [Issue("error", "nodes/", message) for message in node_errors]
+    issues += [Issue("error", "papers/", message) for message in paper_errors]
+
+    for node in nodes.values():
+        _check_common(node, issues)
+        _check_history(node, issues)
+        _check_type_extras(node, issues)
+
+    _check_edges(nodes, issues)
+    _check_refs(nodes, papers, issues)
+    return issues
+
+
+# --------------------------------------------------------------------------
+# Derived views
+# --------------------------------------------------------------------------
+
+
+def children_of(nodes: dict[str, Node]) -> dict[str, list[str]]:
+    kids: dict[str, list[str]] = {node_id: [] for node_id in nodes}
+    for node in nodes.values():
+        for parent in node.parents:
+            if parent in kids:
+                kids[parent].append(node.id)
+    return kids
+
+
+def paper_backlinks(nodes: dict[str, Node]) -> dict[str, list[str]]:
+    """DOI -> node ids that cite it."""
+    links: dict[str, list[str]] = {}
+    for node in nodes.values():
+        for ref in node.refs:
+            links.setdefault(ref.lower(), []).append(node.id)
+    return links
+
+
+def projects(nodes: dict[str, Node]) -> list[str]:
+    return sorted({node.project for node in nodes.values() if node.project})

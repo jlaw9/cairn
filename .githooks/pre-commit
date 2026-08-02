@@ -1,0 +1,27 @@
+#!/bin/sh
+# Cairn pre-commit: block schema drift before it enters history.
+#
+# Install with: scripts/install_hooks.sh
+# Bypass (rarely, and fix it after) with: git commit --no-verify
+
+set -e
+
+root=$(git rev-parse --show-toplevel)
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "cairn: python3 not found, skipping validation" >&2
+  exit 0
+fi
+
+if ! python3 -c "import yaml" >/dev/null 2>&1; then
+  echo "cairn: PyYAML not installed, skipping validation (pip install pyyaml)" >&2
+  exit 0
+fi
+
+if ! python3 "$root/scripts/validate.py" --quiet; then
+  echo "" >&2
+  echo "cairn: validation failed — commit blocked." >&2
+  echo "Silent schema drift is how this rots. Fix the errors above, or use" >&2
+  echo "--no-verify if you genuinely mean it." >&2
+  exit 1
+fi
