@@ -86,7 +86,7 @@ inconsistently-typed edge is worse than an untyped one.
 Add relations to an existing node without a status change:
 
 ```sh
-scripts/new_node.py --update 2026-07-31-mplastic-r1-scramble-panel \
+bin/cairn new_node --update 2026-07-31-mplastic-r1-scramble-panel \
   --relate "contradicts:2026-06-25-mplastic-scramble-control:composition, not order"
 ```
 
@@ -186,7 +186,7 @@ usable from here: one records what the citation is called, the other where the
 readable text lives. The full text never enters this repo — converted papers run
 to tens of thousands of words.
 
-Don't hand-write these. `scripts/add_paper.py <doi>` (or `/paper`) fetches
+Don't hand-write these. `bin/cairn add_paper <doi>` (or `/paper`) fetches
 CrossRef, derives a `bibkey` matching Zotero's Better BibTeX default pattern,
 optionally converts the PDF and ships it to `CAIRN_PAPER_DEST`, and appends the
 BibTeX entry to a `references.bib` you name. It refuses to write a page it

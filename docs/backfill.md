@@ -24,7 +24,7 @@ source available, and better than the repo for the thing that matters most:
 ### 1. Survey
 
 ```sh
-scripts/mine_sessions.py --since 2026-06-01
+bin/cairn mine_sessions --since 2026-06-01
 ```
 
 One line per session: dates, assistant turns, directory, and the session's
@@ -37,8 +37,8 @@ directories (a repo root and its subdirectories each get their own).
 ### 2. Read the dense parts
 
 ```sh
-scripts/mine_sessions.py --project <slug> --summaries
-scripts/mine_sessions.py --project <slug> --detail
+bin/cairn mine_sessions --project <slug> --summaries
+bin/cairn mine_sessions --project <slug> --detail
 ```
 
 `--summaries` prints each session's last compaction summary. These are the

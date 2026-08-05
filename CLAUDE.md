@@ -50,7 +50,7 @@ most in practice:
 3. **Reference commits, never branches.** Branches get merged and deleted;
    a SHA is forever. The validator rejects anything that isn't a SHA.
 4. **`status` and `history` move together.** Never hand-edit `status:`. Use
-   `scripts/new_node.py --update` (or `lib.Node.set_status`), which appends a
+   `bin/cairn new_node --update` (or `lib.Node.set_status`), which appends a
    history entry and moves `status`/`updated` in lockstep. The validator will
    catch you if you don't; that check exists because this is the single most
    likely way the graph rots.
@@ -75,11 +75,11 @@ most in practice:
 Create with the script rather than hand-assembling YAML:
 
 ```sh
-scripts/new_node.py experiment "COSMO-RS baseline on the 40-solvent set" \
+bin/cairn new_node experiment "COSMO-RS baseline on the 40-solvent set" \
   --project prekd --parent 2026-07-20-prekd-scoping \
   --repo git@github.com:jlaw9/prekd.git --commit a3f9c21 --host kestrel
 
-scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \
+bin/cairn new_node --update 2026-08-02-prekd-cosmo-baseline \
   --status dead --note "solvation model wrong for ionics, MAE 1.4"
 ```
 
@@ -160,11 +160,18 @@ install steps is missing — interpreter, pre-commit hook, slash commands,
 the most common thing to be wrong. Each of those four fails in a different way
 and none of the failures names itself.
 
-In particular, "Cairn needs PyYAML" from a `scripts/*.py` command means no
-interpreter on the machine has PyYAML. It no longer means the shebang picked the
-wrong one — the scripts re-exec themselves under whatever `find_python.sh`
-finds. Don't work around it by calling a specific python by hand; either install
-PyYAML or set `CAIRN_PYTHON`, so `make` and the hook agree with you.
+**Run everything through `bin/cairn`, never `scripts/*.py` directly.** The
+dispatcher is `/bin/sh`, so it picks the interpreter via `find_python.sh` — the
+same one `make` and the hook use. Calling a script directly hands the choice to
+whatever `#!/usr/bin/env python3` resolves to, and on an HPC login node that is
+routinely a Python too old to *compile* the file. A re-exec inside the script
+cannot rescue that: compilation precedes execution, so the SyntaxError lands
+before any shim can run.
+
+"cairn: no usable Python found" therefore means what it says — no interpreter on
+this machine has Python >= 3.7 with PyYAML. Don't work around it by invoking a
+specific python by hand; install PyYAML or set `CAIRN_PYTHON`, so `make`, the
+hook and `bin/cairn` all agree with you.
 
 ## Before committing
 
