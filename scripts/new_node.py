@@ -10,6 +10,9 @@ frontmatter is how `status` and `history` drift apart.
 
     scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \\
         --status dead --note "solvation model wrong for ionics"
+
+    scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \\
+        --relate "contradicts:2026-07-20-prekd-scoping:opposite sign on the same set"
 """
 
 from __future__ import annotations
@@ -58,6 +61,26 @@ def shorten(slug: str, keep: int = 1) -> str:
     return "-".join(out)[:SLUG_MAX].strip("-")
 
 
+def parse_relation(spec: str) -> dict:
+    """`type:node-id[:why]` -> a relates entry.
+
+    The note is part of the same argument rather than a separate flag because a
+    typed edge without a reason is an arrow nobody can act on, and a flag you
+    have to remember separately is a flag that gets skipped.
+    """
+    kind, _, rest = spec.partition(":")
+    target, _, note = rest.partition(":")
+    kind, target, note = kind.strip(), target.strip(), note.strip()
+    if kind not in lib.RELATIONS:
+        sys.exit(f"'{kind}' is not a relation: {', '.join(sorted(lib.RELATIONS))}")
+    if not target:
+        sys.exit(f"--relate {spec!r} has no target node id (want type:node-id:why)")
+    entry = {"to": target, "type": kind}
+    if note:
+        entry["note"] = note
+    return entry
+
+
 def build(args: argparse.Namespace) -> lib.Node:
     created = lib.as_date(args.date) or dt.date.today()
     spec = lib.TYPES[args.type]
@@ -87,6 +110,8 @@ def build(args: argparse.Namespace) -> lib.Node:
     if args.artifact:
         meta["artifacts"] = list(args.artifact)
     meta["parents"] = list(args.parent)
+    if getattr(args, "relate", None):
+        meta["relates"] = [parse_relation(r) for r in args.relate]
     if args.ref:
         meta["refs"] = list(args.ref)
     meta["history"] = [{"date": created, "status": status, "note": args.note or "created"}]
@@ -100,8 +125,16 @@ def update(args: argparse.Namespace) -> lib.Node:
     if not path.exists():
         sys.exit(f"no such node: {path}")
     node = lib.parse_file(path)
+    # Relations usually surface later than the node does — you find out a result
+    # contradicts an older one months afterwards — so --update takes them alone,
+    # with no status change. Adding an edge is not a state transition.
+    relate = getattr(args, "relate", None)
+    if relate:
+        node.meta.setdefault("relates", []).extend(parse_relation(r) for r in relate)
     if not args.status:
-        sys.exit("--update requires --status")
+        if relate:
+            return node
+        sys.exit("--update requires --status (or --relate)")
     when = lib.as_date(args.date) or dt.date.today()
     try:
         node.set_status(args.status, args.note or "", when)
@@ -128,6 +161,10 @@ def main() -> int:
     parser.add_argument("--date", help="ISO date; defaults to today")
     parser.add_argument("--slug", help="override the generated id slug")
     parser.add_argument("--parent", action="append", default=[], metavar="ID")
+    parser.add_argument(
+        "--relate", action="append", default=[], metavar="TYPE:ID:WHY",
+        help="typed relation, e.g. contradicts:2026-06-25-mplastic-scramble-control:only on crystalline",
+    )
     parser.add_argument("--ref", action="append", default=[], metavar="DOI")
     parser.add_argument("--repo")
     parser.add_argument("--commit")

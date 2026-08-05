@@ -345,6 +345,61 @@ class FlowScalarRoundTrip(unittest.TestCase):
         )
 
 
+class Relations(unittest.TestCase):
+    """Typed relations: the meaning layer over the untyped `parents` DAG."""
+
+    def two_nodes(self, relates):
+        clear()
+        write("2026-04-10-prekd-first.md", node_text("2026-04-10-prekd-first", created="2026-04-10"))
+        text = node_text("2026-04-20-prekd-second", created="2026-04-20").replace(
+            "parents: []", "parents: []\nrelates:\n" + relates)
+        write("2026-04-20-prekd-second.md", text)
+
+    def test_a_good_relation_validates(self):
+        self.two_nodes("  - {to: 2026-04-10-prekd-first, type: contradicts, note: opposite sign}")
+        self.assertEqual([i for i in lib.validate() if i.level == "error"], [], error_text())
+
+    def test_unknown_relation_type_rejected(self):
+        self.two_nodes("  - {to: 2026-04-10-prekd-first, type: vibes, note: hmm}")
+        self.assertTrue(any("unknown relation" in i.message for i in lib.validate()), error_text())
+
+    def test_dangling_relation_rejected(self):
+        self.two_nodes("  - {to: 2026-01-01-prekd-ghost, type: supports, note: nope}")
+        self.assertTrue(any("dangling target" in i.message for i in lib.validate()), error_text())
+
+    def test_self_relation_rejected(self):
+        self.two_nodes("  - {to: 2026-04-20-prekd-second, type: supports, note: circular}")
+        self.assertTrue(any("points at itself" in i.message for i in lib.validate()), error_text())
+
+    def test_missing_note_warns_but_does_not_block(self):
+        self.two_nodes("  - {to: 2026-04-10-prekd-first, type: supports}")
+        issues = lib.validate()
+        self.assertEqual([i for i in issues if i.level == "error"], [], error_text())
+        self.assertTrue(any("no note explaining why" in i.message for i in issues))
+
+    def test_mutual_contradiction_is_allowed(self):
+        # Unlike parents, relations are not cycle-checked: two results really can
+        # contradict each other, and that is a fact rather than a defect.
+        clear()
+        a, b = "2026-04-10-prekd-first", "2026-04-20-prekd-second"
+        for one, other in ((a, b), (b, a)):
+            write(f"{one}.md", node_text(one, created=one[:10]).replace(
+                "parents: []",
+                f"parents: []\nrelates:\n  - {{to: {other}, type: contradicts, note: mutual}}"))
+        self.assertEqual([i for i in lib.validate() if i.level == "error"], [], error_text())
+
+    def test_backlinks_phrase_the_relation_from_the_target_side(self):
+        self.two_nodes("  - {to: 2026-04-10-prekd-first, type: supersedes, note: replaced it}")
+        nodes, _ = lib.load_nodes()
+        inbound = lib.relation_backlinks(nodes)
+        self.assertEqual(inbound["2026-04-10-prekd-first"][0]["label"], "superseded by")
+
+    def test_cli_parses_type_id_why(self):
+        entry = new_node.parse_relation("contradicts:2026-04-10-prekd-first:opposite sign")
+        self.assertEqual(entry, {"to": "2026-04-10-prekd-first", "type": "contradicts",
+                                 "note": "opposite sign"})
+
+
 class FindPython(unittest.TestCase):
     """scripts/find_python.sh must never hand back an unusable interpreter.
 

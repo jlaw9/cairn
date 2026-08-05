@@ -57,6 +57,12 @@ most in practice:
 5. **Resist new fields.** Every optional field is a field that stops getting
    filled in. Adding one is a real decision — put it in `lib.TYPES` and
    `docs/schema.md`, or don't add it.
+6. **`parents` is lineage; `relates` is meaning.** When one result contradicts,
+   supersedes, supports or resolves another, say so with a typed relation and a
+   one-line reason, rather than burying it in prose that only reads correctly
+   from one of the two nodes. Four types, no more — see `docs/schema.md`.
+   Relations can be added later without a status change:
+   `new_node.py --update <id> --relate "contradicts:<other-id>:why"`.
 
 ## Writing nodes
 

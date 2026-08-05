@@ -78,6 +78,9 @@ It's a full interactive app, just one served from disk instead of a server:
   parent/child links you can navigate, and a link to the node's markdown source
 - **isolate lineage** → collapse to one node's full ancestry and descent. On a
   milestone that's every experiment that fed the paper, dead ends included
+- **typed relations** → grey arrows are lineage; coloured, dashed ones carry
+  meaning (`supports` / `contradicts` / `supersedes` / `resolves`), each with a
+  one-line reason, backlinked so a contradiction is findable from both ends
 - **copy link** → deep link to a node (`graph.html#<node-id>`)
 - **the "as of" slider replays history** from the `history` log — drag it back
   and the graph shows what was known then, with the statuses of that date, and
@@ -126,7 +129,34 @@ shared-file contention is `build/`, which should be regenerated, never merged.
 
 ## Status
 
-Phase 0 and Phase 1 tooling are built. **Next step is 20 real backfilled nodes,
-then two weeks of living with it** — before `/weekly`, `/capture`, `/triage`,
-the papers registry, or `/review`. The failure mode for this project is
-building the whole system and then not using it.
+Phase 0 and Phase 1 tooling are built, and the graph is backfilled: **55 nodes
+across 8 projects**, reconstructed from five weeks of Claude sessions on kestrel
+(2026-06-24 to 2026-08-02) plus the project repos' own reports and git history.
+
+**Next step is two weeks of living with it** — before `/weekly`, `/capture`,
+`/triage`, the papers registry, or `/review`. The failure mode for this project
+is building the whole system and then not using it.
+
+The backfill was also the first real test of the tooling, and using the result
+was the second. Between them they found three things:
+
+1. The pre-commit hook probed for "a `python3` that can `import yaml`", which is
+   satisfied on Kestrel by a 3.6.8 too old to parse `lib.py` — so every commit
+   was blocked with a SyntaxError reported as schema drift. Fixed by
+   `scripts/find_python.sh`.
+2. **Frontmatter did not round-trip.** An unquoted comma inside a flow-style
+   history note split the value and turned its tail into a key: `note: past
+   1,000 systems` silently became `note: past 1` plus a junk key `000 systems`.
+   17 of the 55 backfilled nodes were affected. The writer now quotes flow
+   scalars properly, and the validator rejects unexpected keys in a history
+   entry so the same class of corruption can't return quietly.
+3. **Untyped edges lost information.** Three findings could only be connected in
+   prose. Hence `relates` — the one schema addition, argued for in
+   `docs/schema.md`.
+
+Two node types that wanted extra fields (milestones reaching for
+`repo`/`artifacts`) were made to use their bodies instead.
+
+`refs:` is deliberately empty everywhere. The sessions cite plenty of papers,
+but a DOI recalled rather than resolved is worse than no DOI — populate the
+papers registry with verified metadata rather than backfilling it from memory.

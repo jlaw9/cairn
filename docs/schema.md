@@ -15,6 +15,8 @@ status: running                        # must be valid for the type, see below
 created: 2026-08-02
 updated: 2026-08-05                    # = date of the last history entry
 parents: [2026-07-20-prekd-scoping]    # DAG edges; [] for roots
+relates:                               # typed, non-DAG; see below
+  - {to: 2026-06-25-prekd-scramble, type: contradicts, note: opposite sign, same control}
 refs: [10.1021/acs.jced.3c00123]       # bare DOIs; any node type may cite
 history:
   - {date: 2026-08-02, status: running, note: kicked off on kestrel}
@@ -34,6 +36,61 @@ because it's what you actually grep for and what reads well in a diff.
 The validator enforces `status == history[-1].status`. Use
 `Node.set_status()`, which moves both plus `updated` atomically. Hand-editing
 `status:` is the most likely way this graph rots.
+
+## `parents` vs `relates`
+
+Two edge sets, doing different jobs.
+
+`parents` is **lineage**: what this work grew out of. It is a DAG, it is
+cycle-checked, it drives the layout and the "isolate lineage" view, and it
+carries no meaning beyond descent — every arrow looks the same.
+
+`relates` is the **meaning** layer. It was added 2026-08 because the backfill
+produced three findings that could only be connected in prose: a scramble panel
+that *contradicted* an earlier one, an epitaxial design that *superseded* a
+refuted H-bond hypothesis, and a task that *resolves* a live threat to a paper's
+central claim. On the map those were three identical grey arrows.
+
+| type | means | reads from the other end |
+|---|---|---|
+| `supports` | this result strengthens that one, ideally by an independent route | supported by |
+| `contradicts` | these two results are in tension; a reader must see both | contradicted by |
+| `supersedes` | this replaces that as the approach or answer to use | superseded by |
+| `resolves` | this closes that open question, threat or gap | resolved by |
+
+```yaml
+relates:
+  - {to: <node-id>, type: contradicts, note: why, in one line}
+```
+
+Rules that differ from `parents`:
+
+- **Not cycle-checked.** Two results really can contradict each other, and that
+  is a fact about the research rather than a defect.
+- **May point backwards in time.** A result from August can contradict one from
+  June.
+- **Backlinked.** The renderer shows the inverse phrasing on the target, so a
+  contradiction is equally findable from either node — otherwise you only find
+  it from whichever node happened to be written second, which is the node the
+  reader hasn't got to yet.
+- **A pair joined by both lineage and a relation draws one arrow**, styled by
+  the relation. The typed edge is the more specific claim.
+- `note` is optional but warned about. A typed edge with no reason is an arrow
+  nobody can act on.
+
+Four types, and the bar for a fifth is a real node that needs it. Resist the
+urge to add `refines`, `inspires`, `relates-to` — an edge vocabulary nobody can
+keep in their head is an edge vocabulary that gets used inconsistently, and an
+inconsistently-typed edge is worse than an untyped one.
+
+Add relations to an existing node without a status change:
+
+```sh
+scripts/new_node.py --update 2026-07-31-mplastic-r1-scramble-panel \
+  --relate "contradicts:2026-06-25-mplastic-scramble-control:composition, not order"
+```
+
+Adding an edge is not a state transition, so this appends no history entry.
 
 ## Types
 
@@ -129,11 +186,16 @@ Errors block a commit:
 - required fields present; dates parse; `updated >= created`
 - `history` non-empty, chronological, statuses valid, last entry agrees with `status`
 - `parents` all resolve, nothing is its own parent, **no cycles**
+- `relates` entries are mappings with a known `type` and a resolving, non-self
+  `to` (cycles are legal here)
+- history entries carry only `date`/`status`/`note` — an extra key means an
+  unquoted comma split the note and turned its tail into a bogus key
 - `refs` are bare DOIs; `commit` is a SHA; `artifacts` are `host:/path`
 
 Warnings don't block:
 
 - unknown frontmatter field (schema drift — add it properly or drop it)
+- a `relates` entry with no `note` explaining why
 - `ref` with no page in `papers/`
 - open task with no `due`
 - `id` date prefix disagreeing with `created`

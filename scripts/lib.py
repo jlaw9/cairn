@@ -35,7 +35,28 @@ REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or Path(__file__).resolve().parent
 # table is a real decision, not a convenience. See docs/schema.md.
 
 COMMON_REQUIRED = ["id", "type", "title", "project", "status", "created", "updated"]
-COMMON_OPTIONAL = ["parents", "refs", "history"]
+COMMON_OPTIONAL = ["parents", "relates", "refs", "history"]
+
+#: Typed relations, mapped to how they read from the other end.
+#:
+#: `parents` is lineage: what this work grew out of. It is a DAG, it drives the
+#: layout and the "isolate lineage" view, and it says nothing about *meaning* —
+#: every arrow looks the same. `relates` is the meaning layer, and it earned its
+#: place in the 2026-08 backfill, where three findings could only be connected
+#: in prose: a scramble panel that contradicted an earlier one, an epitaxial
+#: design that superseded a refuted H-bond hypothesis, and a task that resolves
+#: an open threat to a paper's central claim. A reader scanning the map saw
+#: three identical grey arrows.
+#:
+#: Four types, and the bar for a fifth is a real node that needs it. Relations
+#: are deliberately NOT cycle-checked: two results may contradict each other
+#: symmetrically, and that is a fact about the research, not a defect.
+RELATIONS = {
+    "supports": "supported by",
+    "contradicts": "contradicted by",
+    "supersedes": "superseded by",
+    "resolves": "resolved by",
+}
 
 #: Keys a history entry may carry. Anything else means the writer mangled it —
 #: see the flow-scalar quoting note in _scalar().
@@ -112,7 +133,7 @@ FIELD_ORDER = [
     "venue", "date", "url",
     "due", "source",
     "doi", "authors", "year",
-    "parents", "refs", "history",
+    "parents", "relates", "refs", "history",
 ]
 
 
@@ -161,6 +182,11 @@ class Node:
     @property
     def parents(self) -> list[str]:
         return list(self.meta.get("parents") or [])
+
+    @property
+    def relates(self) -> list[dict]:
+        """Typed relations to other nodes: [{to, type, note?}, ...]."""
+        return [r for r in (self.meta.get("relates") or []) if isinstance(r, dict)]
 
     @property
     def refs(self) -> list[str]:
@@ -577,6 +603,51 @@ def _check_edges(nodes: dict[str, Node], out: list[Issue]) -> None:
             walk(node_id)
 
 
+def _check_relations(nodes: dict[str, Node], out: list[Issue]) -> None:
+    """Typed relations. Unlike parents these are not cycle-checked — a mutual
+    contradiction is a legitimate statement about two results."""
+    for node in nodes.values():
+        where = node.path.name
+        raw = node.meta.get("relates") or []
+        if raw and not isinstance(raw, list):
+            out.append(Issue("error", where, "'relates' must be a list"))
+            continue
+
+        seen: set[tuple[str, str]] = set()
+        for index, entry in enumerate(raw):
+            label = f"relates[{index}]"
+            if not isinstance(entry, dict):
+                out.append(Issue("error", where, f"{label} is not a mapping (want {{to: <id>, type: <type>}})"))
+                continue
+            for key in sorted(set(entry) - {"to", "type", "note"}):
+                out.append(Issue("error", where, f"{label} has unexpected key '{key}'"))
+
+            target, kind = str(entry.get("to", "")).strip(), str(entry.get("type", "")).strip()
+            if not target:
+                out.append(Issue("error", where, f"{label} has no 'to'"))
+            elif target == node.id:
+                out.append(Issue("error", where, f"{label} points at itself"))
+            elif target not in nodes:
+                out.append(Issue("error", where, f"{label} dangling target '{target}'"))
+
+            if not kind:
+                out.append(Issue("error", where, f"{label} has no 'type'"))
+            elif kind not in RELATIONS:
+                out.append(Issue(
+                    "error", where,
+                    f"{label} unknown relation '{kind}' (expected one of {', '.join(sorted(RELATIONS))})",
+                ))
+
+            if target and kind:
+                if (target, kind) in seen:
+                    out.append(Issue("warn", where, f"{label} duplicates an earlier '{kind}' to '{target}'"))
+                seen.add((target, kind))
+                # A relation with no note is a claim with no argument. The reader
+                # six months out needs the why, not just the arrow.
+                if not str(entry.get("note", "")).strip():
+                    out.append(Issue("warn", where, f"{label} '{kind}' has no note explaining why"))
+
+
 def _check_refs(nodes: dict[str, Node], papers: dict[str, Node], out: list[Issue]) -> None:
     for node in nodes.values():
         for ref in node.refs:
@@ -601,6 +672,7 @@ def validate(root: Path | None = None) -> list[Issue]:
         _check_type_extras(node, issues)
 
     _check_edges(nodes, issues)
+    _check_relations(nodes, issues)
     _check_refs(nodes, papers, issues)
     return issues
 
@@ -617,6 +689,28 @@ def children_of(nodes: dict[str, Node]) -> dict[str, list[str]]:
             if parent in kids:
                 kids[parent].append(node.id)
     return kids
+
+
+def relation_backlinks(nodes: dict[str, Node]) -> dict[str, list[dict]]:
+    """Target id -> the relations pointing at it, phrased from the target's side.
+
+    Without this a contradiction is only discoverable from whichever node
+    happened to be written second, which is precisely the node a reader won't
+    have found yet.
+    """
+    inbound: dict[str, list[dict]] = {}
+    for node in nodes.values():
+        for rel in node.relates:
+            target, kind = str(rel.get("to", "")), str(rel.get("type", ""))
+            if target not in nodes or kind not in RELATIONS:
+                continue
+            inbound.setdefault(target, []).append({
+                "from": node.id,
+                "type": kind,
+                "label": RELATIONS[kind],
+                "note": str(rel.get("note", "")),
+            })
+    return inbound
 
 
 def paper_backlinks(nodes: dict[str, Node]) -> dict[str, list[str]]:

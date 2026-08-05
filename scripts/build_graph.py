@@ -243,6 +243,7 @@ def commit_url(repo: str, sha: str) -> str | None:
 def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict:
     kids = lib.children_of(nodes)
     backlinks = lib.paper_backlinks(nodes)
+    inbound = lib.relation_backlinks(nodes)
 
     payload_nodes = []
     for node in nodes.values():
@@ -275,6 +276,19 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
             "updated": node.updated.isoformat() if node.updated else "",
             "parents": [p for p in node.parents if p in nodes],
             "children": sorted(kids.get(node.id, [])),
+            # Outbound and inbound relations are merged into one list, each
+            # already phrased from *this* node's point of view — the panel should
+            # never make the reader mentally reverse an arrow.
+            "relations": [
+                {"dir": "out", "id": str(r["to"]), "type": str(r["type"]),
+                 "phrase": str(r["type"]), "note": str(r.get("note", ""))}
+                for r in node.relates
+                if str(r.get("to")) in nodes and str(r.get("type")) in lib.RELATIONS
+            ] + [
+                {"dir": "in", "id": r["from"], "type": r["type"],
+                 "phrase": r["label"], "note": r["note"]}
+                for r in inbound.get(node.id, [])
+            ],
             "refs": refs,
             "history": history,
             "x": round(x, 1),
@@ -301,6 +315,7 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
         "dates": all_dates,
         "types": sorted(lib.TYPES),
         "statuses": lib.ALL_STATUSES,
+        "relations": sorted(lib.RELATIONS),
         "generated": dt.date.today().isoformat(),
     }
 
@@ -344,10 +359,25 @@ def render_mermaid(nodes: dict[str, lib.Node]) -> str:
             lines.append(f'    {safe[node.id]}{open_b}"{label}"{close_b}')
         lines.append("  end")
 
+    # A typed relation supersedes the plain lineage arrow for the same pair —
+    # one arrow per pair, carrying the more specific statement.
+    typed = {
+        frozenset((node.id, str(rel["to"]))): str(rel["type"])
+        for node in nodes.values()
+        for rel in node.relates
+        if str(rel.get("to")) in safe and str(rel.get("type")) in lib.RELATIONS
+    }
+
     for node in nodes.values():
         for parent in node.parents:
-            if parent in safe:
+            if parent in safe and frozenset((node.id, parent)) not in typed:
                 lines.append(f"  {safe[parent]} --> {safe[node.id]}")
+
+    for node in nodes.values():
+        for rel in node.relates:
+            target, kind = str(rel.get("to", "")), str(rel.get("type", ""))
+            if target in safe and kind in lib.RELATIONS:
+                lines.append(f"  {safe[node.id]} -. {kind} .-> {safe[target]}")
 
     for node in nodes.values():
         lines.append(f"  class {safe[node.id]} {lib.STATUS_CLASS.get(node.status, 'idle')};")

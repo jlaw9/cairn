@@ -10,12 +10,18 @@
     --ink: #e6e8ec; --ink-dim: #9aa1ad; --ink-faint: #6b7280;
     --good: #35a06a; --bad: #c0504a; --active: #3d86cc; --pending: #c99a2e; --idle: #6b7280;
     --accent: #7aa7d9;
+    /* Relation hues sit off the status palette (green/red/blue/amber) on
+       purpose, so a typed edge never reads as a status. */
+    --rel-supports: #2aa198; --rel-contradicts: #cc5490;
+    --rel-supersedes: #8f6fd6; --rel-resolves: #3fb0bf;
   }
   @media (prefers-color-scheme: light) {
     :root {
       --bg: #f7f8fa; --panel: #ffffff; --panel-2: #eef0f4; --line: #d8dce3;
       --ink: #1a1d22; --ink-dim: #5b6270; --ink-faint: #8a91a0;
       --accent: #275e9c;
+      --rel-supports: #157f77; --rel-contradicts: #a83a70;
+      --rel-supersedes: #6b4dbd; --rel-resolves: #1f7f8f;
     }
   }
   * { box-sizing: border-box; }
@@ -78,6 +84,21 @@
      canvas (or at a node it happens to pass over) is maddening. */
   .edge { fill: none; stroke: var(--line); stroke-width: 1.4; pointer-events: none; }
   .edge.lit { stroke: var(--accent); stroke-width: 2.2; }
+  /* Typed relations. Colour carries the type and dash carries it again, so the
+     map stays readable in greyscale and for colour-vision deficiency — status
+     already owns colour on the glyphs, and edges must not compete with it. */
+  .edge.rel { stroke-width: 1.8; }
+  .edge.rel-supports    { stroke: var(--rel-supports); }
+  .edge.rel-contradicts { stroke: var(--rel-contradicts); stroke-dasharray: 5 3; }
+  .edge.rel-supersedes  { stroke: var(--rel-supersedes);  stroke-dasharray: 8 3 2 3; }
+  .edge.rel-resolves    { stroke: var(--rel-resolves);    stroke-dasharray: 2 3; }
+  .edge.rel.lit { stroke-width: 2.8; }
+  .relkey { display: flex; align-items: center; gap: 7px; margin: 3px 0; font-size: 11px; color: var(--ink-dim); }
+  .relkey i { width: 22px; height: 0; border-top-width: 2px; flex: none; }
+  .rel-tag {
+    display: inline-block; font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; margin-right: 6px;
+  }
   .node { cursor: pointer; }
   .node .glyph { stroke: var(--bg); stroke-width: 1.5; }
   /* Clickable: the label is a bigger target than the glyph, and people aim at words. */
@@ -181,6 +202,8 @@
     <div class="muted" style="line-height:1.9">
       ● experiment &nbsp; ◆ seed<br>▮ direction &nbsp; ■ task<br>⬢ milestone
     </div>
+    <h2>Edges</h2>
+    <div id="relKey"></div>
   </aside>
 
   <div id="stage">
@@ -269,6 +292,26 @@ function edgePath(a, b) {
   return `M${a.x + R},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x - R - 3},${b.y}`;
 }
 
+/* A relation may run backwards in time (a later result contradicting an earlier
+   one), so its curve bows instead of using the left-to-right lineage bezier —
+   the shape alone says "this is not derivation". */
+function relPath(a, b) {
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  const bow = Math.max(26, Math.abs(b.x - a.x) * 0.14);
+  return `M${a.x},${a.y} Q${mx},${my - bow} ${b.x},${b.y}`;
+}
+
+/* Unordered pair -> relation type. A pair joined by both lineage and a typed
+   relation gets ONE arrow, styled by the relation: the typed edge is the more
+   specific claim, and two arrows between the same two nodes just reads as noise. */
+const pairKey = (a, b) => [a, b].sort().join(' ');
+const typedPair = new Map();
+for (const n of (DATA.nodes || [])) {
+  for (const r of (n.relations || [])) {
+    if (r.dir === 'out') typedPair.set(pairKey(n.id, r.id), r.type);
+  }
+}
+
 /* ---------- render ---------- */
 function draw() {
   const parts = [];
@@ -293,13 +336,27 @@ function draw() {
   const shownIds = new Set(shown.map(n => n.id));
   const sel = state.selected;
   const kin = sel && !state.isolate
-    ? new Set([sel, ...byId.get(sel).parents, ...byId.get(sel).children]) : null;
+    ? new Set([sel, ...byId.get(sel).parents, ...byId.get(sel).children,
+               ...(byId.get(sel).relations || []).map(r => r.id)]) : null;
 
   for (const n of shown) {
     for (const p of n.parents) {
       if (!shownIds.has(p)) continue;
       const lit = sel && (n.id === sel || p === sel) ? ' lit' : '';
-      parts.push(`<path class="edge${lit}" d="${edgePath(byId.get(p), n)}"></path>`);
+      const type = typedPair.get(pairKey(n.id, p));
+      const typed = type ? ` rel rel-${type}` : '';
+      parts.push(`<path class="edge${typed}${lit}" d="${edgePath(byId.get(p), n)}"></path>`);
+    }
+  }
+
+  // Relations between nodes with no lineage edge between them get their own bow.
+  for (const n of shown) {
+    for (const r of (n.relations || [])) {
+      if (r.dir !== 'out' || !shownIds.has(r.id)) continue;
+      const other = byId.get(r.id);
+      if (n.parents.includes(r.id) || other.parents.includes(n.id)) continue;
+      const lit = sel && (n.id === sel || r.id === sel) ? ' lit' : '';
+      parts.push(`<path class="edge rel rel-${r.type}${lit}" d="${relPath(n, other)}"></path>`);
     }
   }
 
@@ -424,6 +481,15 @@ function open(id) {
     `<div class="body">${n.body}</div>` +
     section('Parents', links(n.parents)) +
     section('Children', links(n.children)) +
+    // Phrased from this node's side in both directions, so a contradiction is
+    // equally findable from whichever node you happened to open.
+    section('Relations', (n.relations || []).map(r =>
+      `<div style="margin-bottom:7px">` +
+      `<span class="rel-tag" style="color:var(--rel-${r.type})">${esc(r.phrase)}</span>` +
+      (byId.has(r.id) ? `<span class="lnk" data-goto="${esc(r.id)}">${esc(byId.get(r.id).title)}</span>` : esc(r.id)) +
+      (r.note ? `<div class="muted" style="margin-top:2px">${esc(r.note)}</div>` : '') +
+      `</div>`
+    ).join('')) +
     section('References', n.refs.map(r =>
       `<div style="margin-bottom:6px"><a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.title || r.doi)}</a>` +
       (r.cocited.length ? `<div class="muted">also cited by ${r.cocited.length} other node(s)</div>` : '') + `</div>`
@@ -526,6 +592,14 @@ function centerOn(id) {
 chk($('#fProject'), [...new Set(DATA.nodes.map(n => n.project))].sort(), 'project', false);
 chk($('#fType'), DATA.types, 'type', false);
 chk($('#fStatus'), DATA.statuses, 'status', true);
+
+// Edge key. Dash patterns mirror the CSS so the map is decodable without colour.
+const REL_DASH = {supports: 'solid', contradicts: 'dashed', supersedes: 'dashed', resolves: 'dotted'};
+$('#relKey').innerHTML =
+  `<div class="relkey"><i style="border-top:2px solid var(--line)"></i>derives from</div>` +
+  (DATA.relations || []).map(t =>
+    `<div class="relkey"><i style="border-top:2px ${REL_DASH[t] || 'solid'} var(--rel-${t})"></i>${esc(t)}</div>`
+  ).join('');
 
 document.addEventListener('change', e => {
   const key = e.target.dataset?.key;
