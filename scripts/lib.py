@@ -132,9 +132,14 @@ FIELD_ORDER = [
     "origin", "contacts",
     "venue", "date", "url",
     "due", "source",
-    "doi", "authors", "year",
     "parents", "relates", "refs", "history",
 ]
+
+#: Papers are a different record with a different natural order — the DOI is the
+#: identity, so it leads, the way `id` leads for a node. `bibkey` ties the page
+#: to the entry Overleaf cites; `md` points at the converted full text on a
+#: compute host, which is far too big to live in this repo.
+PAPER_FIELD_ORDER = ["doi", "title", "authors", "year", "venue", "bibkey", "md"]
 
 
 def validate_schema_table() -> None:
@@ -330,8 +335,10 @@ def dump_frontmatter(meta: dict) -> str:
     line each (a status change should be a one-line diff) and a field order
     that reads top-down instead of alphabetically.
     """
-    keys = [k for k in FIELD_ORDER if k in meta]
-    keys += sorted(k for k in meta if k not in FIELD_ORDER)
+    # A paper page has no `id`; its DOI is its identity and should lead.
+    order = PAPER_FIELD_ORDER if ("doi" in meta and "id" not in meta) else FIELD_ORDER
+    keys = [k for k in order if k in meta]
+    keys += sorted(k for k in meta if k not in order)
 
     lines: list[str] = []
     for key in keys:

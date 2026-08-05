@@ -166,7 +166,25 @@ title: Solvent effects on nucleophilic substitution rate constants
 authors: [R. Okonkwo, M. Feld]
 year: 2023
 venue: J. Chem. Eng. Data
+bibkey: okonkwo2023solvent          # the key references.bib and Overleaf cite
+md: kestrel:/projects/.../refs/10.1021__acs.jced.3c00123.md
 ```
+
+**The DOI is the join key.** It is the only identifier common to Zotero, the
+`references.bib` Overleaf compiles, the MinerU-converted full text on the
+compute host, and a node's `refs:`. `bibkey` and `md` are what make that join
+usable from here: one records what the citation is called, the other where the
+readable text lives. The full text never enters this repo — converted papers run
+to tens of thousands of words.
+
+Don't hand-write these. `scripts/add_paper.py <doi>` (or `/paper`) fetches
+CrossRef, derives a `bibkey` matching Zotero's Better BibTeX default pattern,
+optionally converts the PDF and ships it to `CAIRN_PAPER_DEST`, and appends the
+BibTeX entry to a `references.bib` you name. It refuses to write a page it
+couldn't verify.
+
+Paper pages are validated only for having a `doi:` — they are a lookup table,
+not part of the DAG, so the strict node checks don't apply.
 
 The slug is a **filename only**. Papers are resolved through the `doi:` field,
 never by un-slugging a filename — a DOI may itself contain `__`, so the

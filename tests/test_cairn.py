@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -398,6 +399,68 @@ class Relations(unittest.TestCase):
         entry = new_node.parse_relation("contradicts:2026-04-10-prekd-first:opposite sign")
         self.assertEqual(entry, {"to": "2026-04-10-prekd-first", "type": "contradicts",
                                  "note": "opposite sign"})
+
+
+class PaperIngest(unittest.TestCase):
+    """add_paper.py's offline parts. Network calls are not exercised here."""
+
+    def setUp(self):
+        clear()
+        import add_paper
+        self.add_paper = add_paper
+
+    def test_doi_normalisation_accepts_the_forms_people_paste(self):
+        for raw in ("10.1038/s41586-021-03819-2",
+                    "https://doi.org/10.1038/s41586-021-03819-2",
+                    "doi:10.1038/s41586-021-03819-2",
+                    "  10.1038/s41586-021-03819-2 "):
+            self.assertEqual(self.add_paper.normalise_doi(raw), "10.1038/s41586-021-03819-2")
+
+    def test_bibkey_matches_better_bibtex_default_pattern(self):
+        # auth + year + first non-stopword title word, so keys generated here
+        # collide with what Zotero would have produced rather than diverging.
+        message = {
+            "author": [{"given": "John", "family": "Jumper"}],
+            "issued": {"date-parts": [[2021, 7, 15]]},
+            "title": ["Highly accurate protein structure prediction with AlphaFold"],
+        }
+        self.assertEqual(self.add_paper.derive_bibkey(message), "jumper2021highly")
+
+    def test_bibkey_survives_missing_metadata(self):
+        self.assertEqual(self.add_paper.derive_bibkey({}), "anonnd")
+
+    def test_bibtex_is_rekeyed_to_match_the_registry_page(self):
+        entry = "@article{Jumper_2021, title={A}, year={2021} }"
+        out = re.sub(r"^@(\w+)\s*\{\s*[^,]*,", r"@\1{jumper2021highly,", entry, count=1)
+        self.assertIn("@article{jumper2021highly,", out)
+
+    def test_append_bib_is_idempotent(self):
+        bib = FIXTURE / "references.bib"
+        entry = "@article{jumper2021highly, title={A} }"
+        self.assertEqual(self.add_paper.append_bib(bib, entry, "jumper2021highly"), "appended")
+        self.assertEqual(self.add_paper.append_bib(bib, entry, "jumper2021highly"), "already present")
+        self.assertEqual(bib.read_text().count("jumper2021highly"), 1)
+
+    def test_paper_page_leads_with_the_doi(self):
+        # A paper has no `id`; the DOI is its identity and must sort first.
+        meta = {"title": "T", "venue": "V", "doi": "10.1234/abc",
+                "authors": ["A B"], "year": 2024, "bibkey": "b2024t"}
+        first = lib.dump_frontmatter(meta).splitlines()[0]
+        self.assertTrue(first.startswith("doi:"), first)
+
+    def test_registry_page_round_trips_and_backlinks(self):
+        doi = "10.1234/abc"
+        path = lib.paper_dir() / f"{lib.slug_doi(doi)}.md"
+        lib.Node(path=path, meta={"doi": doi, "title": "T", "bibkey": "b2024t"},
+                 body="why it matters").write()
+        write(f"{CHILD_ID}.md", node_text(CHILD_ID, extra=f"refs: [{doi}]\n"))
+
+        papers, errors = lib.load_papers()
+        self.assertEqual(errors, [])
+        self.assertEqual(papers[doi].meta["bibkey"], "b2024t")
+        self.assertEqual(lib.paper_backlinks(lib.load_nodes()[0])[doi], [CHILD_ID])
+        # A ref with a registry page must not warn about thin backlinks.
+        self.assertFalse(any("has no page in papers/" in i.message for i in lib.validate()))
 
 
 class FindPython(unittest.TestCase):
