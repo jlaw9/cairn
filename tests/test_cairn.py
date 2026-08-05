@@ -301,6 +301,50 @@ class RenderTest(unittest.TestCase):
         self.assertIn("No nodes yet", (FIXTURE / "build" / "graph.md").read_text(encoding="utf-8"))
 
 
+class FlowScalarRoundTrip(unittest.TestCase):
+    """Frontmatter is the database. A value that does not survive a write/read
+    cycle is silent data loss, and history notes are exactly where it bit:
+    "past 1,000 systems" became `note: past 1` plus a junk key `000 systems`.
+    """
+
+    HOSTILE = [
+        "past 1,000 systems",
+        "lattice-matched Gln spacing, v1 vs clustered anagram",
+        "a note with {braces} and [brackets]",
+        "trailing # not a comment",
+        "ratio 3:1 and a colon: here",
+    ]
+
+    def test_history_notes_survive_a_round_trip(self):
+        clear()
+        for index, note in enumerate(self.HOSTILE):
+            node_id = f"2026-04-{index + 10:02d}-prekd-hostile"
+            node = lib.Node(
+                path=lib.node_dir() / f"{node_id}.md",
+                meta={
+                    "id": node_id, "type": "experiment", "title": "hostile note",
+                    "project": "prekd", "status": "running",
+                    "created": dt.date(2026, 4, index + 10), "updated": dt.date(2026, 4, index + 10),
+                    "parents": [],
+                    "history": [{"date": dt.date(2026, 4, index + 10), "status": "running", "note": note}],
+                },
+                body="## Claim\n\nhostile\n",
+            )
+            node.write()
+            reread = lib.parse_file(node.path)
+            self.assertEqual(reread.history[0]["note"], note, f"note mangled: {note!r}")
+            self.assertEqual(set(reread.history[0]), {"date", "status", "note"})
+
+    def test_a_mangled_history_entry_is_an_error(self):
+        clear()
+        write("2026-04-20-prekd-mangled.md", node_text("2026-04-20-prekd-mangled", created="2026-04-20").replace(
+            "note: created}", "note: created, 000 systems}"))
+        self.assertTrue(
+            any("unexpected key" in i.message for i in lib.validate() if i.level == "error"),
+            error_text(),
+        )
+
+
 class FindPython(unittest.TestCase):
     """scripts/find_python.sh must never hand back an unusable interpreter.
 

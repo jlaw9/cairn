@@ -37,6 +37,10 @@ REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or Path(__file__).resolve().parent
 COMMON_REQUIRED = ["id", "type", "title", "project", "status", "created", "updated"]
 COMMON_OPTIONAL = ["parents", "refs", "history"]
 
+#: Keys a history entry may carry. Anything else means the writer mangled it —
+#: see the flow-scalar quoting note in _scalar().
+HISTORY_KEYS = {"date", "status", "note"}
+
 
 @dataclass(frozen=True)
 class TypeSpec:
@@ -254,8 +258,16 @@ def parse_file(path: Path) -> Node:
     return Node(path=path, meta=meta, body=match.group(2))
 
 
-def _scalar(value) -> str:
-    """Emit a YAML scalar, quoting only when it would otherwise be ambiguous."""
+def _scalar(value, flow: bool = False) -> str:
+    """Emit a YAML scalar, quoting only when it would otherwise be ambiguous.
+
+    `flow=True` means the scalar lands inside `{...}`, where the set of
+    dangerous characters is strictly larger: a bare comma ends the value and
+    starts a new key. A history note reading "past 1,000 systems" silently
+    became `note: past 1` plus a junk key `000 systems` — parseable YAML, wrong
+    data, and invisible to a validator that only looks at known keys. Round-trip
+    safety is not optional here; these files *are* the database.
+    """
     if isinstance(value, (dt.date, dt.datetime)):
         return as_date(value).isoformat()
     if isinstance(value, bool):
@@ -271,6 +283,8 @@ def _scalar(value) -> str:
         or text[0] in "&*!|>%@`{}[]#-?,"
         or ": " in text
         or text.endswith(":")
+        or " #" in text          # starts a trailing comment mid-value
+        or (flow and any(c in text for c in ",{}[]"))
         or text.lower() in {"true", "false", "null", "yes", "no", "on", "off", "~"}
     )
     if needs_quotes:
@@ -279,7 +293,7 @@ def _scalar(value) -> str:
 
 
 def _flow_map(mapping: dict) -> str:
-    inner = ", ".join(f"{k}: {_scalar(v)}" for k, v in mapping.items())
+    inner = ", ".join(f"{k}: {_scalar(v, flow=True)}" for k, v in mapping.items())
     return "{" + inner + "}"
 
 
@@ -467,6 +481,16 @@ def _check_history(node: Node, out: list[Issue]) -> None:
             out.append(Issue("error", where, f"{label} has no status"))
         elif spec and status not in spec.statuses:
             out.append(Issue("error", where, f"{label} status '{status}' invalid for type '{node.type}'"))
+
+        # An unexpected key here is almost always a mangled note rather than a
+        # deliberate field: an unquoted comma in flow style splits the value and
+        # turns its tail into a key. Silent, and it eats the interpretation.
+        for key in sorted(set(entry) - HISTORY_KEYS):
+            out.append(Issue(
+                "error", where,
+                f"{label} has unexpected key '{key}' — a note with a comma that "
+                f"wasn't quoted splits into a bogus key; rewrite via set_status()",
+            ))
 
     last = history[-1]
     if isinstance(last, dict):
