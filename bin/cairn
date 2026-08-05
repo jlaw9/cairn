@@ -1,0 +1,83 @@
+#!/bin/sh
+# cairn — run a Cairn command under an interpreter that can actually run it.
+#
+# Why this exists, because it looks like indirection for its own sake:
+#
+# The scripts declare `#!/usr/bin/env python3`, and on an HPC login node `python3`
+# is routinely a Python too old to *compile* them — Kestrel's is 3.6.8, and the
+# scripts use postponed annotations. A re-exec inside the script cannot fix that,
+# because compilation precedes execution: the SyntaxError happens before the first
+# statement runs, so a shim on line 20 is unreachable no matter how early it sits.
+# Importing the shim from another module doesn't help either, since that module has
+# to be compiled too.
+#
+# So the interpreter has to be chosen by something with no version of its own to
+# trip over. That's /bin/sh.
+#
+#   cairn new_node experiment "COSMO-RS baseline" --project prekd
+#   cairn validate
+#   cairn build
+#   cairn doctor
+#
+# `make` calls the same find_python.sh, so there is one answer to "which Python?"
+# rather than two that can disagree — which was the original bug.
+
+set -e
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+root=$(dirname -- "$here")
+scripts="$root/scripts"
+
+usage() {
+    cat >&2 <<'EOF'
+usage: cairn <command> [args...]
+
+  new_node       create a node, or append a status change to one
+  validate       check every node against the schema
+  build          regenerate build/graph.html and build/graph.md
+  add_paper      DOI in, CrossRef-verified papers/ entry out
+  mine_sessions  survey Claude Code transcripts (read-only)
+  doctor         check the install
+
+`cairn <command> --help` for a command's own options.
+EOF
+}
+
+[ $# -ge 1 ] || { usage; exit 2; }
+
+cmd=$1
+shift
+
+case $cmd in
+    -h | --help | help)
+        usage
+        exit 0
+        ;;
+    doctor)
+        exec "$scripts/doctor.sh" "$@"
+        ;;
+    build)
+        cmd=build_graph
+        ;;
+esac
+
+target="$scripts/$cmd.py"
+if [ ! -f "$target" ] || [ "$cmd" = lib ]; then
+    echo "cairn: no such command: $cmd" >&2
+    usage
+    exit 2
+fi
+
+# find_python.sh already explains itself when CAIRN_PYTHON is set but unusable;
+# don't print a second, vaguer version of the same message over the top of it.
+if ! py=$("$scripts/find_python.sh"); then
+    if [ -z "$CAIRN_PYTHON" ]; then
+        echo "cairn: no usable Python found (need >= 3.7 with PyYAML)." >&2
+        echo "  Cairn needs PyYAML and nothing else. Install it on any python3.7+," >&2
+        echo "  or point at an interpreter that already has it:" >&2
+        echo "    export CAIRN_PYTHON=/path/to/python" >&2
+    fi
+    exit 1
+fi
+
+exec "$py" "$target" "$@"

@@ -28,8 +28,12 @@ conflict, capture wins.**
 git clone <your-cairn-remote> ~/Cairn-graph && cd ~/Cairn-graph
 make setup                                  # hook + slash commands + checks
 export CAIRN_PATH=$HOME/Cairn-graph         # add to your shell profile
+export PATH=$CAIRN_PATH/bin:$PATH           # optional: plain `cairn` anywhere
 make doctor                                 # confirm all four steps took
 ```
+
+The `PATH` line is convenience only. `bin/cairn` works by path from anywhere, and
+the slash commands call it as `$CAIRN_PATH/bin/cairn`, so nothing depends on it.
 
 **Clone it outside every project repo.** One graph spans all projects (design
 decision 1), and a clone nested inside a project shows up as an untracked
@@ -55,9 +59,16 @@ wrong.
 Cairn needs **Python >= 3.7 with PyYAML** and nothing else. `scripts/find_python.sh`
 finds a suitable interpreter rather than assuming `python3` is one — on Kestrel
 the default `python3` is 3.6.8 *with* PyYAML while `python3.9` has none, and
-picking either blindly fails. Every entry point consults it, including the
-`scripts/*.py` commands below, which re-exec themselves under the right
-interpreter rather than dying under the shebang's `python3`.
+picking either blindly fails.
+
+**This is why every command below is `bin/cairn <something>` rather than
+`scripts/<something>.py`.** The dispatcher is a `/bin/sh` script, so it has no
+Python version of its own to trip over: it asks `find_python.sh` and execs the
+answer, which is the same interpreter `make` and the pre-commit hook use. Running
+a script directly instead hands that choice to whatever `#!/usr/bin/env python3`
+happens to resolve to, and a shim *inside* the script cannot correct it — Python
+compiles the whole file before running a line of it, so on a 3.6 interpreter the
+SyntaxError arrives before any shim could execute.
 
 If nothing on the machine has PyYAML, install it whichever way suits that
 machine — `pip install pyyaml` is not always the right answer, and on a
@@ -90,8 +101,8 @@ that makes a graph untrustworthy. Backfilling is what makes it useful on day
 one.
 
 ```sh
-scripts/mine_sessions.py --since 2026-01-01        # what work exists?
-scripts/mine_sessions.py --project <slug> --summaries
+bin/cairn mine_sessions --since 2026-01-01        # what work exists?
+bin/cairn mine_sessions --project <slug> --summaries
 ```
 
 If the work went through Claude Code, the transcripts are the best source and
@@ -105,7 +116,7 @@ exhaustively.
 ### B. You are starting something new → **open the node before you run it**
 
 ```sh
-scripts/new_node.py direction "Does X predict Y?" --project <key> --new-project
+bin/cairn new_node direction "Does X predict Y?" --project <key> --new-project
 ```
 
 `--new-project` is needed only the first time a project key is used. After that
@@ -117,12 +128,12 @@ Then, before the first job goes to the queue, an `experiment` whose `## Claim`
 says what you expect **and what result would prove it wrong**:
 
 ```sh
-scripts/new_node.py experiment "X predicts Y from Z alone" \
+bin/cairn new_node experiment "X predicts Y from Z alone" \
   --project <key> --parent <direction-id> --status planned \
   --note "pre-registered, not yet queued"
 
 # then when it actually starts
-scripts/new_node.py --update <id> --status running \
+bin/cairn new_node --update <id> --status running \
   --repo $(git remote get-url origin) --commit $(git rev-parse HEAD) \
   --host $(hostname -s)
 ```
@@ -158,7 +169,7 @@ The point is to write the finding as the claim it settles, not as a summary of
 what you read:
 
 ```sh
-scripts/new_node.py experiment 'Can a reported "final Tg" be fitted as Tgp?' \
+bin/cairn new_node experiment 'Can a reported "final Tg" be fitted as Tgp?' \
   --project photopoly --parent <direction-id> --status dead \
   --ref 10.1021/ma101296j \
   --note "vitrification-limited; the bias is formulation-dependent"
@@ -177,7 +188,7 @@ Three habits make this work:
   one `direction` with eight open questions — not one node called "lit review",
   which is unsearchable by the question you'll actually ask.
 - **`--ref` the DOI and register the paper**, so the evidence is resolvable
-  rather than remembered: `scripts/add_paper.py <doi>` (or `/paper`). A DOI
+  rather than remembered: `bin/cairn add_paper <doi>` (or `/paper`). A DOI
   recalled rather than resolved is worse than no DOI.
 - **A constraint that shapes later work belongs in the graph, not only in the
   synthesis document.** The document is read once; the node is what the graph

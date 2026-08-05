@@ -9,7 +9,9 @@ empty, work it out from the repo.
 
 **This runs from inside a project repo, not the graph repo.** The graph is at
 `$CAIRN_PATH`; every command below that touches it is written as
-`$CAIRN_PATH/scripts/...`. If `$CAIRN_PATH` isn't set, ask for the path rather
+`$CAIRN_PATH/bin/cairn ...`. Use that dispatcher rather than a `scripts/*.py`
+path — it resolves the interpreter, and a bare `python3` often cannot run these
+files at all. If `$CAIRN_PATH` isn't set, ask for the path rather
 than guessing — and mention `make install-commands` in the Cairn clone, which
 prints the export line to add to a shell profile.
 
@@ -34,14 +36,14 @@ Check `$CAIRN_PATH/nodes/` for an open node in this project whose subject matche
 exists and this session moved it forward:
 
 ```sh
-$CAIRN_PATH/scripts/new_node.py --update <id> --status <status> \
+$CAIRN_PATH/bin/cairn new_node --update <id> --status <status> \
   --note "<one line>" --commit <sha>
 ```
 
 Otherwise create one:
 
 ```sh
-$CAIRN_PATH/scripts/new_node.py experiment "<title>" --project <key> \
+$CAIRN_PATH/bin/cairn new_node experiment "<title>" --project <key> \
   --parent <id> --repo <url> --commit <sha> --host <host>
 ```
 

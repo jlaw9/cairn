@@ -255,6 +255,30 @@ class SlugTest(unittest.TestCase):
     def test_short_title_is_left_alone(self):
         self.assertEqual(new_node.shorten(new_node.slugify("prekd-GNN attempt")), "prekd-gnn-attempt")
 
+    def test_id_never_ends_on_a_function_word(self):
+        """A trim that lands on "than" reads as though the id were cut off.
+
+        Ids are permanent, so this is not cosmetic: the real one that shipped was
+        `cairn-log-restart-is-cheaper-than`, and it could only be fixed because it
+        had not been committed yet.
+        """
+        slug = new_node.shorten(
+            new_node.slugify("cairn-Log-and-restart is cheaper than continuing at high context")
+        )
+        self.assertEqual(slug, "cairn-log-restart-is-cheaper")
+
+    def test_no_dangling_word_survives_any_trim_point(self):
+        # Sweep every prefix of a long title so the check doesn't depend on where
+        # SLUG_MAX happens to fall today.
+        words = "does the model that was trained on it also do what we should not".split()
+        for n in range(1, len(words) + 1):
+            slug = new_node.shorten(new_node.slugify("proj-" + " ".join(words[:n])))
+            tail = slug.split("-")[-1]
+            self.assertNotIn(tail, new_node.DANGLING, f"{slug!r} ends on a function word")
+
+    def test_a_title_of_pure_function_words_still_yields_the_project_key(self):
+        self.assertEqual(new_node.shorten(new_node.slugify("proj-is it that")), "proj")
+
     def test_generated_id_validates(self):
         clear()
         import argparse
@@ -743,6 +767,92 @@ class ScriptsUseTheFoundInterpreter(unittest.TestCase):
         # With the guard set it either imports fine (yaml present) or exits
         # once with the message — what it must never do is re-exec forever.
         self.assertIn(result.returncode, (0, 1))
+
+
+class Dispatcher(unittest.TestCase):
+    """bin/cairn is the only entry point that survives a hostile `python3`.
+
+    The scripts cannot defend themselves: `from __future__ import annotations` is
+    rejected at *compile* time by Python 3.6, so a re-exec shim inside the file —
+    or inside a module it imports — is unreachable. Only a non-Python launcher
+    can pick the interpreter, which is why this dispatcher exists and why it is
+    worth a test that runs it with a sabotaged PATH.
+    """
+
+    CAIRN = Path(__file__).resolve().parent.parent / "bin" / "cairn"
+
+    def run_cairn(self, *args, **env):
+        import subprocess
+        environ = dict(os.environ, **env)
+        return subprocess.run(
+            [str(self.CAIRN), *args],
+            capture_output=True, text=True, env=environ,
+        )
+
+    def test_it_is_executable_and_sh(self):
+        self.assertTrue(os.access(self.CAIRN, os.X_OK), "bin/cairn must be executable")
+        self.assertEqual(self.CAIRN.read_text().splitlines()[0], "#!/bin/sh")
+
+    def test_help_lists_the_commands(self):
+        result = self.run_cairn("help")
+        self.assertEqual(result.returncode, 0)
+        for cmd in ("new_node", "validate", "build", "add_paper", "mine_sessions", "doctor"):
+            self.assertIn(cmd, result.stderr + result.stdout)
+
+    def test_unknown_command_is_an_error_not_a_traceback(self):
+        result = self.run_cairn("nope")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no such command", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_lib_is_not_a_command(self):
+        # scripts/lib.py exists but is a module; exposing it would be a footgun.
+        self.assertEqual(self.run_cairn("lib").returncode, 2)
+
+    def test_it_runs_under_a_python3_too_old_to_compile_the_scripts(self):
+        """The actual regression. A stub `python3` that rejects the source must
+        not matter, because sh never asks it anything."""
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp) / "python3"
+            stub.write_text("#!/bin/sh\necho 'SyntaxError: bogus' >&2\nexit 1\n")
+            stub.chmod(0o755)
+            result = self.run_cairn("validate", PATH=f"{tmp}:{os.environ['PATH']}")
+        self.assertNotIn("SyntaxError", result.stderr)
+        self.assertIn("node(s)", result.stdout + result.stderr)
+
+    def test_bad_cairn_python_does_not_double_report(self):
+        result = self.run_cairn("validate", CAIRN_PYTHON="/nonexistent/python")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("CAIRN_PYTHON", result.stderr)
+        # find_python.sh already explained it; a second vaguer message would
+        # send the reader looking for a different problem.
+        self.assertNotIn("no usable Python found", result.stderr)
+
+
+class DocumentedCommands(unittest.TestCase):
+    """Docs must not tell anyone to run scripts/*.py directly — it fails on the
+    machine most likely to be reading them."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_no_doc_invokes_a_script_directly(self):
+        offenders = []
+        for rel in ("README.md", "CLAUDE.md"):
+            offenders += [
+                f"{rel}:{i}" for i, line in enumerate(
+                    (self.ROOT / rel).read_text().splitlines(), 1)
+                if re.search(r"(?<!lib\.)\bscripts/[a-z_]+\.py", line)
+                and "find_python" not in line
+            ]
+        for path in list((self.ROOT / "docs").rglob("*.md")) + \
+                    list((self.ROOT / ".claude" / "commands").glob("*.md")):
+            offenders += [
+                f"{path.relative_to(self.ROOT)}:{i}" for i, line in enumerate(
+                    path.read_text().splitlines(), 1)
+                if re.search(r"\bscripts/[a-z_]+\.py", line)
+                and "find_python" not in line
+            ]
+        self.assertEqual(offenders, [], f"use `bin/cairn <cmd>` instead: {offenders}")
 
 
 if __name__ == "__main__":

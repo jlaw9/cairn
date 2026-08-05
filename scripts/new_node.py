@@ -41,6 +41,21 @@ SLUG_MAX = 34
 
 STOPWORDS = {"a", "an", "the", "of", "on", "in", "for", "to", "and", "with", "from"}
 
+#: Function words that must never *end* an id. Breaking on a word boundary is not
+#: enough on its own: "Log-and-restart is cheaper than continuing at high context"
+#: trims to `cairn-log-restart-is-cheaper-than`, which reads as though it were cut
+#: off mid-sentence. Ids are permanent and appear in commit messages, `[[links]]`
+#: and filenames, so there is no fixing one later — the trim has to land on a word
+#: that carries meaning.
+DANGLING = {
+    "is", "are", "was", "were", "be", "been", "being", "than", "then", "as", "at",
+    "by", "but", "or", "if", "it", "its", "that", "this", "these", "those", "into",
+    "onto", "over", "under", "via", "vs", "do", "does", "did", "can", "could",
+    "will", "would", "should", "may", "might", "must", "has", "have", "had", "not",
+    "no", "so", "such", "very", "too", "also", "when", "while", "whether", "how",
+    "why", "what", "which", "who",
+}
+
 
 def slugify(text: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
@@ -50,7 +65,8 @@ def slugify(text: str) -> str:
 def shorten(slug: str, keep: int = 1) -> str:
     """Trim a slug to SLUG_MAX at a word boundary, dropping filler words.
 
-    The first `keep` words (the project key) always survive.
+    The first `keep` words (the project key) always survive, and the result never
+    ends on a function word — see DANGLING for why that second rule is needed.
     """
     words = slug.split("-")
     head, tail = words[:keep], [w for w in words[keep:] if w not in STOPWORDS]
@@ -59,6 +75,8 @@ def shorten(slug: str, keep: int = 1) -> str:
         if len("-".join(out + [word])) > SLUG_MAX and out != head:
             break
         out.append(word)
+    while len(out) > keep and out[-1] in DANGLING:
+        out.pop()
     return "-".join(out)[:SLUG_MAX].strip("-")
 
 
@@ -131,7 +149,21 @@ def build(args: argparse.Namespace) -> lib.Node:
         sys.exit(f"'{status}' is not a valid status for {args.type}: {', '.join(spec.statuses)}")
     check_project(args.project, getattr(args, "new_project", False))
 
-    stem = args.slug or shorten(slugify(f"{args.project}-{args.title}"))
+    if args.slug:
+        stem = args.slug
+    else:
+        full = slugify(f"{args.project}-{args.title}")
+        stem = shorten(full)
+        # Say so rather than silently choosing a permanent name for someone. The
+        # author is the only one who knows whether the short form still reads
+        # right, and this is the last moment they can change it cheaply.
+        if stem != full:
+            print(
+                f"note: id shortened to '{stem}'\n"
+                f"      full title slug was '{full}'\n"
+                f"      ids are permanent — re-run with --slug to choose your own",
+                file=sys.stderr,
+            )
     node_id = f"{created.isoformat()}-{stem}"
     path = lib.node_dir() / f"{node_id}.md"
     if path.exists():

@@ -27,7 +27,7 @@ without it, and that refusal is the feature.
 ## 2. Run it
 
 ```sh
-$CAIRN_PATH/scripts/add_paper.py <doi> \
+$CAIRN_PATH/bin/cairn add_paper <doi> \
   --pdf ~/Downloads/<file>.pdf \
   --bib <path to the Overleaf clone>/references.bib \
   --note "<one line: why this paper matters to us>"
