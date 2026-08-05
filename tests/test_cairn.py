@@ -170,6 +170,31 @@ class ValidatorTest(unittest.TestCase):
     def test_schema_table_is_self_consistent(self):
         lib.validate_schema_table()
 
+    def test_docs_schema_table_matches_lib_types(self):
+        """docs/schema.md says lib.TYPES is authoritative and to change both.
+
+        Nothing enforced that, so the two could drift silently — which is the
+        exact failure mode the validator exists to prevent, one level up. The
+        docs are what a human reads before hand-writing a status.
+        """
+        table = (Path(__file__).resolve().parent.parent / "docs" / "schema.md").read_text()
+        documented = {}
+        for row in re.finditer(r"^\|\s*`(\w+)`\s*\|([^|]*)\|([^|]*)\|", table, re.M):
+            name, statuses, terminal = row.groups()
+            if name not in lib.TYPES:
+                continue
+            documented[name] = (
+                re.findall(r"`(\w+)`", statuses),
+                {t.strip() for t in terminal.split(",") if t.strip()},
+            )
+
+        self.assertEqual(set(documented), set(lib.TYPES),
+                         "docs/schema.md's type table does not cover lib.TYPES")
+        for name, (statuses, terminal) in documented.items():
+            spec = lib.TYPES[name]
+            self.assertEqual(statuses, spec.statuses, f"{name}: statuses differ from docs")
+            self.assertEqual(terminal, spec.terminal, f"{name}: terminal set differs from docs")
+
 
 class NodeTest(unittest.TestCase):
     def setUp(self):
@@ -243,6 +268,88 @@ class SlugTest(unittest.TestCase):
         node.write()
         self.assertEqual(node.id, "2026-04-20-prekd-cosmo-rs-baseline-40-solvent")
         self.assertEqual(errors(), [], error_text())
+
+
+class ProjectKeyGuard(unittest.TestCase):
+    """`project:` is the one field whose typo validates cleanly.
+
+    A mistyped id or status is rejected, but `photpoly` for `photopoly` passes
+    every check and silently splits one project into two lanes — after which a
+    missing node no longer means "not tried".
+    """
+
+    def setUp(self):
+        clear()
+        valid_pair()          # both nodes are project `prekd`
+
+    def build_with(self, project, new_project=False):
+        import argparse
+        return new_node.build(argparse.Namespace(
+            type="experiment", title="A probe", project=project, status=None,
+            note="", date="2026-08-03", slug=None, parent=[], ref=[], repo=None,
+            commit=None, host=None, artifact=[], origin=None, venue=None,
+            url=None, due=None, source=None, new_project=new_project))
+
+    def test_a_known_project_is_accepted(self):
+        self.assertEqual(self.build_with("prekd").project, "prekd")
+
+    def test_an_unknown_project_is_refused(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.build_with("prekdd")
+        self.assertIn("not a project in this graph", str(caught.exception))
+
+    def test_the_refusal_suggests_the_key_that_was_meant(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.build_with("prekdd")
+        self.assertIn("prekd", str(caught.exception).split("did you mean")[1])
+
+    def test_a_distant_key_gets_no_misleading_suggestion(self):
+        # polyid/polymd differ by one character and are different projects, so a
+        # suggestion has to be precise or it trains you to ignore it.
+        with self.assertRaises(SystemExit) as caught:
+            self.build_with("zzz")
+        self.assertNotIn("did you mean", str(caught.exception))
+
+    def test_new_project_flag_allows_it(self):
+        self.assertEqual(self.build_with("brandnew", new_project=True).project, "brandnew")
+
+    def test_the_first_node_in_an_empty_graph_needs_no_flag(self):
+        clear()
+        self.assertEqual(self.build_with("anything").project, "anything")
+
+
+class PlannedExperiments(unittest.TestCase):
+    """README section B says to open the experiment before the job is queued."""
+
+    def setUp(self):
+        clear()
+
+    def test_planned_is_valid_and_not_terminal(self):
+        node_id = "2026-08-03-prekd-preregistered"
+        write(f"{node_id}.md", node_text(node_id, status="planned"))
+        self.assertEqual(errors(), [], error_text())
+        self.assertFalse(lib.parse_file(lib.node_dir() / f"{node_id}.md").is_terminal())
+
+    def test_planned_transitions_to_running_keeping_both_in_history(self):
+        node_id = "2026-08-03-prekd-preregistered"
+        write(f"{node_id}.md", node_text(node_id, status="planned"))
+        node = lib.parse_file(lib.node_dir() / f"{node_id}.md")
+        node.set_status("running", "queued on kestrel", dt.date(2026, 8, 4))
+        node.write()
+        again = lib.parse_file(node.path)
+        self.assertEqual(again.status, "running")
+        self.assertEqual([h["status"] for h in again.history], ["planned", "running"])
+        self.assertEqual(errors(), [], error_text())
+
+    def test_the_default_status_is_still_running(self):
+        # Adding `planned` to the front of the list must not change what /log
+        # creates when it writes up work that already happened.
+        self.assertEqual(lib.TYPES["experiment"].default_status, "running")
+        self.assertEqual(lib.TYPES["experiment"].statuses[0], "planned")
+
+    def test_every_type_has_a_default_in_its_own_status_list(self):
+        for name, spec in lib.TYPES.items():
+            self.assertIn(spec.default_status, spec.statuses, name)
 
 
 class RenderTest(unittest.TestCase):

@@ -189,3 +189,12 @@ nodes later, with review.
 
 This is the pressure valve for every source Cairn doesn't integrate with, and
 using it is always better than not capturing. **Capture wins.**
+
+That's for the raw dump. Once you know which *claims* a literature session
+settled, they become `experiment` nodes with the corpus as the instrument and
+`status: dead` on the ones it refuted — see README section C and
+[examples/literature.md](examples/literature.md). A project that opens with a
+literature review should end up with the constraints it discovered in the graph,
+not only in a synthesis document: the document gets read once, and the node is
+what the graph puts back in front of you when you touch that part of the problem
+again.

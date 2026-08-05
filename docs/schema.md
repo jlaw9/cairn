@@ -96,7 +96,7 @@ Adding an edge is not a state transition, so this appends no history entry.
 
 | type | status values | terminal | extra fields |
 |---|---|---|---|
-| `experiment` | `running` `worked` `dead` `parked` | worked, dead | `repo` `commit` `host` `artifacts[]` |
+| `experiment` | `planned` `running` `worked` `dead` `parked` | worked, dead | `repo` `commit` `host` `artifacts[]` |
 | `direction` | `open` `parked` `closed` | closed | — |
 | `seed` | `seed` `promoted` `killed` | promoted, killed | `origin` `contacts[]` |
 | `milestone` | `planned` `submitted` `accepted` `done` | accepted, done | `venue` `date` `url` |
@@ -105,6 +105,15 @@ Adding an edge is not a state transition, so this appends no history entry.
 "Terminal" means the thread is finished and the digest should stop nagging
 about it. Note `parked` is **not** terminal for an experiment and `closed` is
 terminal for a direction — parking is a pause, closing is a decision.
+
+`planned` is **not** terminal either, and it exists so a pre-registration can be
+truthful. Opening the experiment before the first job goes to the queue is the
+point — a claim written before the result is a pre-registration, written after it
+is a story — but the only status for that used to be `running`, which lies twice:
+the replay slider shows the experiment running on a date it wasn't, and `running`
+is what you grep to find what needs checking today. An experiment created with no
+`--status` is still `running`, so `/log` writing up work that already happened is
+unaffected.
 
 ### experiment
 

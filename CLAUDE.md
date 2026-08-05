@@ -83,9 +83,51 @@ scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \
   --status dead --note "solvation model wrong for ionics, MAE 1.4"
 ```
 
+**Pass `--note` at creation too, not just on `--update`.** It becomes the first
+history entry; without it the entry reads `created`, which throws away the one
+sentence you had in hand at the moment you had it.
+
+**`--project` is checked against the keys already in the graph.** An unrecognised
+key is refused with the near-matches listed, because it is the only field whose
+typo validates cleanly and it silently splits a project in two. Starting a
+genuinely new project takes `--new-project` — ask Jeff before using it rather
+than assuming, since the usual cause is a typo or a key that already exists under
+a different name.
+
+**Use `--status planned` for an experiment that hasn't started.** `running` means
+running. Creating with no `--status` still gives `running`, which is what you want
+when logging work that already happened.
+
 Body convention for experiments — `## Claim` / `## What I did` / `## Result` /
 `## Next`. **Don't enforce it.** Prompting for structure at capture time is
 how capture dies.
+
+### A literature finding is an experiment
+
+Many projects open with a literature review, and there is no separate node type
+for one — an `experiment` already fits, and reaching for a new type or a new
+field here is a mistake. A literature finding has a claim, a method and a result;
+`repo`, `commit`, `host` and `artifacts` are optional, so nothing about the type
+assumes code. The corpus is the instrument, and `status: dead` on a claim the
+literature refuted means the same thing downstream as a job that failed.
+
+What to get right:
+
+- **Write the claim the finding settles, not a summary of what you read.** "Can a
+  reported final Tg be fitted as Tgp?" with `status: dead` is a node someone
+  finds by asking that question. "Tg literature review" is not.
+- **One claim per node.** A review touching eight things is eight nodes, or one
+  `direction` with eight open questions.
+- **`--ref` the DOIs and register the papers** with `add_paper.py` / `/paper`, so
+  the evidence resolves. Never write a DOI from memory.
+- **`## What I did` is the corpus and the filter** — how many papers, from where,
+  what was excluded. That is this node's methods section, and it's what tells a
+  reader later how much weight the result carries.
+
+A constraint discovered this way usually generates its own follow-up: an
+experiment to test whether it holds on our own material, a task for the schema
+change it forces. Make those children of the finding rather than siblings — the
+lineage is the argument.
 
 The `## Result` section is the one thing worth asking Jeff about, because it's
 the interpretation and you usually can't infer it from a diff. Everything else
