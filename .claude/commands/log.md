@@ -7,6 +7,12 @@ Record what happened in this work session as a node in Cairn.
 $ARGUMENTS may name the node to update, or describe what was done. If it's
 empty, work it out from the repo.
 
+**This runs from inside a project repo, not the graph repo.** The graph is at
+`$CAIRN_PATH`; every command below that touches it is written as
+`$CAIRN_PATH/scripts/...`. If `$CAIRN_PATH` isn't set, ask for the path rather
+than guessing — and mention `make install-commands` in the Cairn clone, which
+prints the export line to add to a shell profile.
+
 ## 1. Read the work, don't ask about it
 
 From the **current project repo** (not the graph repo), gather:
@@ -24,17 +30,18 @@ Infer the project key from the repo name unless it's obvious it differs.
 Prefer updating an existing node. A session that continues yesterday's
 experiment is a new `history` entry, not a new node.
 
-Check `nodes/` for an open node in this project whose subject matches. If one
+Check `$CAIRN_PATH/nodes/` for an open node in this project whose subject matches. If one
 exists and this session moved it forward:
 
 ```sh
-scripts/new_node.py --update <id> --status <status> --note "<one line>" --commit <sha>
+$CAIRN_PATH/scripts/new_node.py --update <id> --status <status> \
+  --note "<one line>" --commit <sha>
 ```
 
 Otherwise create one:
 
 ```sh
-scripts/new_node.py experiment "<title>" --project <key> \
+$CAIRN_PATH/scripts/new_node.py experiment "<title>" --project <key> \
   --parent <id> --repo <url> --commit <sha> --host <host>
 ```
 
@@ -63,14 +70,17 @@ Print the node. Wait for confirmation. Never commit a node Jeff hasn't seen.
 Then, in the graph repo:
 
 ```sh
-make build && git add -A && git commit -m "log: <node id>" && git push
+cd $CAIRN_PATH && make build && git add -A \
+  && git commit -m "log: <node id>" && git push
 ```
 
 The pre-commit hook validates. If it fails, fix the node — don't `--no-verify`.
 
 ## Notes
 
-- One small summary figure may go in `assets/` so the HTML has a thumbnail
+- A typed relation belongs here too if this result bears on another node:
+  `--relate "contradicts:<other id>:<why>"`. It needs no status change.
+- One small summary figure may go in `$CAIRN_PATH/assets/` so the HTML has a thumbnail
   without HPC access. **One.** Not a results directory.
 - Big outputs are referenced as `host:/path` in `artifacts`, never copied in.
 - If this session produced a commitment with a deadline rather than a result,

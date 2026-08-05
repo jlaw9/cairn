@@ -22,29 +22,99 @@ The agent doing the work can now write the record. Every design decision here
 serves that one fact, so **when expressiveness and capture reliability
 conflict, capture wins.**
 
-## Quick start
+## Install — once per machine
 
 ```sh
+git clone <your-cairn-remote> ~/Cairn-graph && cd ~/Cairn-graph
 pip install pyyaml
-make setup        # install the pre-commit validation hook (once per clone)
-make python       # show which interpreter Cairn picked, if you're curious
-
-scripts/new_node.py experiment "COSMO-RS baseline on the 40-solvent set" \
-  --project prekd --repo git@github.com:jlaw9/prekd.git --commit a3f9c21 --host kestrel
-
-make build        # regenerate build/graph.html and build/graph.md
-open build/graph.html
+make setup                                  # hook + slash commands + checks
+export CAIRN_PATH=$HOME/Cairn-graph         # add to your shell profile
 ```
 
-From inside a project repo, `/log` at the end of a session does all of that for
-you: it reads the git log, drafts the node, asks only for the interpretation it
-can't infer, and commits.
+`make setup` installs the pre-commit validation hook and symlinks `/log` and
+`/paper` into `~/.claude/commands` so they work **from any repo**, not only
+from this one. That matters: `/log`'s whole job is to run inside a project repo
+and reach into the graph, and slash commands otherwise resolve only from the
+session's own directory. Do this on every machine you work on — laptop and
+cluster both.
 
-Cairn needs **Python >= 3.7 with PyYAML**, and nothing else. `make` finds a
+Cairn needs **Python >= 3.7 with PyYAML** and nothing else. `make` finds a
 suitable interpreter itself (`scripts/find_python.sh`) rather than assuming
-`python3` is one — on Kestrel the default `python3` is 3.6.8 *with* PyYAML while
-`python3.9` has none, and picking either blindly fails. Override with
-`export CAIRN_PYTHON=/path/to/python` if the search guesses wrong.
+`python3` is one — on one HPC system the default `python3` is 3.6.8 *with*
+PyYAML while `python3.9` has none, and picking either blindly fails. Override
+with `export CAIRN_PYTHON=/path/to/python`.
+
+## Then pick your path
+
+### A. You have work that already happened → **backfill first**
+
+Read **[docs/backfill.md](docs/backfill.md)**. Do not skip this because it
+sounds like homework.
+
+An empty graph means nothing for months, and during those months a missing node
+doesn't mean "not tried", it means "we hadn't started yet" — the exact ambiguity
+that makes a graph untrustworthy. Backfilling is what makes it useful on day
+one.
+
+```sh
+scripts/mine_sessions.py --since 2026-01-01        # what work exists?
+scripts/mine_sessions.py --project <slug> --summaries
+```
+
+If the work went through Claude Code, the transcripts are the best source and
+better than the repo for the part that matters: they contain the dead ends.
+If it didn't, `docs/backfill.md` covers the interview-based version, including
+why it will be biased toward what worked and what to ask to counter that.
+
+Backfill to the depth that answers *"did we already try this?"* — not
+exhaustively.
+
+### B. You are starting something new → **open the node before you run it**
+
+```sh
+scripts/new_node.py direction "Does X predict Y?" --project <key>
+```
+
+Then, before the first job goes to the queue, an `experiment` whose `## Claim`
+says what you expect **and what result would prove it wrong**:
+
+```sh
+scripts/new_node.py experiment "X predicts Y from Z alone" \
+  --project <key> --parent <direction-id> --status running \
+  --repo $(git remote get-url origin) --commit $(git rev-parse HEAD) \
+  --host $(hostname -s)
+```
+
+A claim written before the result is a pre-registration; written after, it's a
+story. That difference is what makes a dead end publishable.
+
+At the end of a session, `/log` from inside the project repo does the rest: it
+reads the git log, drafts the node, asks only for the interpretation it can't
+infer, and commits.
+
+```sh
+make build && open build/graph.html
+```
+
+A companion repo, **research-kit**, scaffolds a new project with a `CLAUDE.md`
+carrying these conventions, a `data/{raw,curated}` split and a stock DVC config.
+
+### C. Your work isn't computational
+
+The *model* here is domain-neutral — claims, results, dead ends, directions,
+deadlines. `repo`, `commit`, `host` and `artifacts` are all optional on an
+experiment, so a bench experiment node validates today with none of them, and
+a node with no SHA is not a second-class node.
+
+The *interface* is not neutral, but it was never meant to be the interface. The
+design assumes an agent writes the record while you work, and you read
+`graph.html` and answer one question: what the result means. See
+[docs/backfill.md](docs/backfill.md) §C, including the one field that will
+break first.
+
+Work that happened somewhere Cairn can't see — a web session, a conversation, a
+whiteboard — goes in `inbox/` as unstructured text and gets triaged later.
+Capture always beats filing.
 
 ## What's here
 
@@ -55,8 +125,9 @@ meetings/    raw meeting notes
 inbox/       unstructured capture awaiting triage
 assets/      small figures only
 build/       generated: graph.html (self-contained) and graph.md (Mermaid)
-scripts/     lib.py, validate.py, build_graph.py, new_node.py
-docs/        schema.md and worked examples
+scripts/     lib.py, validate.py, build_graph.py, new_node.py,
+             add_paper.py, mine_sessions.py
+docs/        schema.md, backfill.md, worked examples
 ```
 
 `make validate` · `make build` · `make test`
@@ -110,18 +181,21 @@ for the conventions the agent follows.
 4. **Tiny schema.** Every optional field is a field that stops getting filled in.
 5. **Status is an event log.** `history:` gives the time axis for free, which
    is what makes replay and the weekly digest work.
-6. **Capture ≠ structure.** `inbox/` accepts unstructured junk from anywhere;
+6. **Nothing is committed unreviewed.** Draft the node, show it, then commit.
+   An auto-populated graph nobody has read is the failure this project exists
+   to avoid. Unprompted capture goes to `inbox/` instead.
+7. **Capture ≠ structure.** `inbox/` accepts unstructured junk from anywhere;
    a separate triage pass turns junk into nodes. Never require filing at
    capture time — that's how capture dies.
-7. **Artifacts stay where they are.** Nodes reference big outputs by
+8. **Artifacts stay where they are.** Nodes reference big outputs by
    `host:/path`. The repo stays small forever, so it syncs instantly and diffs
    stay readable.
 
 ## Two machines
 
-Clone on both the laptop and kestrel, synced through this remote. Neither
-machine ever needs to reach the other: nodes reference code by `repo` +
-`commit` and outputs by `host:/path`.
+Clone on every machine you work on, synced through this remote, and run
+`make setup` on each. Neither machine ever needs to reach the other: nodes
+reference code by `repo` + `commit` and outputs by `host:/path`.
 
 `git pull --rebase` at the start of a session, commit and push at the end.
 Conflicts are near-impossible — nodes are separate append-only files. The only

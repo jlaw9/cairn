@@ -27,7 +27,7 @@ without it, and that refusal is the feature.
 ## 2. Run it
 
 ```sh
-scripts/add_paper.py <doi> \
+$CAIRN_PATH/scripts/add_paper.py <doi> \
   --pdf ~/Downloads/<file>.pdf \
   --bib <path to the Overleaf clone>/references.bib \
   --note "<one line: why this paper matters to us>"
@@ -64,7 +64,8 @@ overturns a finding, use a typed relation between the two nodes.
 Print the page and the BibTeX key. Wait for confirmation.
 
 ```sh
-make build && git add -A && git commit -m "paper: <bibkey>" && git push
+cd $CAIRN_PATH && make build && git add -A \
+  && git commit -m "paper: <bibkey>" && git push
 ```
 
 ## Notes
