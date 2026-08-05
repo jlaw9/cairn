@@ -143,6 +143,9 @@ def main() -> int:
                    help="label to apply; must already exist in the target repo")
     p.add_argument("-v", "--verbose", action="store_true",
                    help="print the issue body too — in a dry run that is the point")
+    p.add_argument("--only", action="append", default=[], metavar="NODE_ID",
+                   help="just this task; repeatable. Use it for the first --apply, "
+                        "so the first thing you write to a shared tracker is one issue")
     args = p.parse_args()
 
     nodes, errors = lib.load_nodes()
@@ -151,7 +154,12 @@ def main() -> int:
 
     derived = repo_for_project(nodes)
     tasks = [n for n in nodes.values() if n.type == "task"
-             and (not args.project or n.project == args.project)]
+             and (not args.project or n.project == args.project)
+             and (not args.only or n.id in args.only)]
+    if args.only:
+        missing = set(args.only) - {n.id for n in tasks}
+        if missing:
+            sys.exit("--only: no task node with id " + ", ".join(sorted(missing)))
     if not tasks:
         print("no task nodes match")
         return 0

@@ -240,7 +240,7 @@ warns if the target doesn't exist.
 ```sh
 cairn digest                          # the last 7 days
 cairn digest --project photopoly --days 1     # right before that meeting
-cairn digest --format md --mail       # to your own git email
+cairn digest --format brief --mail    # one line per item — right size for mail
 ```
 
 Four sections: what moved (status changes, with the history note), what was
@@ -260,6 +260,11 @@ nothing.
 This is also the cheapest collaboration Cairn has: in a shared channel it means
 three people know what each other did without anyone opening a graph. Try it
 before building anything that syncs.
+
+Use `--format brief` for anything mailed. The full form is the right length for a
+terminal and too long for a mail client, where it competes with the map and loses
+— a mailed digest's job is to say what deserves a click, not to reproduce the
+graph in text.
 
 ### Tasks as issues
 

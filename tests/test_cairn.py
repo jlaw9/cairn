@@ -950,6 +950,23 @@ class Digest(unittest.TestCase):
         t = self.make("2026-06-01-p-t", "task", "todo", dt.date(2026, 6, 1))
         self.assertEqual([n.id for _, n in self.gather(t)["deadlines"]], ["2026-06-01-p-t"])
 
+    def test_brief_is_substantially_shorter_and_drops_the_notes(self):
+        """A mailed digest competes with the map, so it has to be skimmable."""
+        node = self.make("2026-08-01-p-x", "experiment", "dead", dt.date(2026, 8, 1))
+        node.meta["history"] = [
+            {"date": dt.date(2026, 6, 1), "status": "running", "note": "started"},
+            {"date": dt.date(2026, 8, 1), "status": "dead",
+             "note": "a long explanatory note that belongs in the graph, not in an inbox"},
+        ]
+        found = self.gather(node)
+        start = self.today - dt.timedelta(days=7)
+        full = self.digest.render(found, start, self.today, "", 14, False)
+        brief = self.digest.render_brief(found, start, self.today, "")
+        self.assertIn("belongs in the graph", full)
+        self.assertNotIn("belongs in the graph", brief)
+        self.assertIn(node.title, brief)
+        self.assertLess(len(brief), len(full))
+
     def test_empty_window_says_so_rather_than_printing_nothing(self):
         text = self.digest.render(
             {"opened": [], "changed": [], "deadlines": [], "quiet": []},

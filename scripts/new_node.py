@@ -218,6 +218,15 @@ def update(args: argparse.Namespace) -> lib.Node:
     for key in ("commit", "host", "url"):
         if getattr(args, key, None):
             node.meta[key] = getattr(args, key)
+    # `due` is settable here and the other creation-time fields are not, because a
+    # deadline is the one thing about a task that legitimately moves after it
+    # exists — and the validator nags about a task with no date, so there has to be
+    # a way to add one without hand-editing the frontmatter.
+    if getattr(args, "due", None):
+        when_due = lib.as_date(args.due)
+        if when_due is None:
+            sys.exit(f"--due: not an ISO date: {args.due}")
+        node.meta["due"] = when_due
     if args.artifact:
         node.meta.setdefault("artifacts", []).extend(args.artifact)
     return node

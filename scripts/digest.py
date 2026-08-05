@@ -17,6 +17,7 @@ On demand is the normal case, not the exception:
     cairn digest --days 1                 # yesterday
     cairn digest --project mplastic       # right before that project's meeting
     cairn digest --since 2026-07-01 --format md
+    cairn digest --format brief --mail    # one line per item; the right size for mail
     cairn digest --mail                   # to your own git email
 """
 
@@ -112,6 +113,34 @@ def gather(nodes: dict[str, lib.Node], start: dt.date, end: dt.date,
     deadlines.sort(key=lambda pair: (pair[0] is None, pair[0] or dt.date.min, pair[1].id))
     quiet.sort(key=lambda pair: -pair[0])
     return {"opened": opened, "changed": changed, "deadlines": deadlines, "quiet": quiet}
+
+
+def render_brief(found: dict, start: dt.date, end: dt.date, project: str) -> str:
+    """One line per item, no notes, no ids.
+
+    The full digest turned out to be too much text to read in a mail client, and
+    the graph is better than either at "show me everything". So the useful job for
+    a mailed digest is narrower than it first looked: tell me what deserves a click
+    and let the map do the rest. Anything longer competes with the map and loses.
+    """
+    scope = f" — {project}" if project else ""
+    lines = [f"Cairn digest{scope}: {start.isoformat()} to {end.isoformat()}"]
+
+    def group(label: str, items: list[str]) -> None:
+        if items:
+            lines.append("")
+            lines.append(f"{label} ({len(items)})")
+            lines.extend(f"  {item}" for item in items)
+
+    group("moved", [f"{str(e.get('status') or ''):9s} {n.title}" for n, e in found["changed"]])
+    group("opened", [f"{n.type:11s} {n.title}" for n in found["opened"]])
+    group("deadlines", [
+        f"{(w.isoformat() if w else 'no date '):11s} {n.title}" for w, n in found["deadlines"]])
+    group("going quiet", [f"{d:>3d}d        {n.title}" for d, n in found["quiet"]])
+
+    if not any(found.values()):
+        lines.append("\nnothing in this window — a quiet week, or nothing got logged")
+    return "\n".join(lines) + "\n"
 
 
 def render(found: dict, start: dt.date, end: dt.date, project: str,
@@ -220,7 +249,8 @@ def main() -> int:
                    help=f"days without an update before a node is 'going quiet'; default {STALE_DAYS}")
     p.add_argument("--horizon", type=int, default=HORIZON_DAYS,
                    help=f"days ahead to report deadlines; default {HORIZON_DAYS}")
-    p.add_argument("--format", choices=("text", "md"), default="text")
+    p.add_argument("--format", choices=("text", "md", "brief"), default="text",
+                   help="brief is one line per item — the right length for mail")
     p.add_argument("--mail", nargs="?", const="", metavar="ADDR",
                    help="also send it; with no address, your git user.email")
     args = p.parse_args()
@@ -245,7 +275,10 @@ def main() -> int:
         nodes = {k: n for k, n in nodes.items() if n.project == args.project}
 
     found = gather(nodes, start, end, args.stale, args.horizon)
-    text = render(found, start, end, args.project, args.horizon, args.format == "md")
+    if args.format == "brief":
+        text = render_brief(found, start, end, args.project)
+    else:
+        text = render(found, start, end, args.project, args.horizon, args.format == "md")
     print(text, end="")
 
     if args.mail is not None:
