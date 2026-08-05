@@ -665,6 +665,22 @@ def _check_refs(nodes: dict[str, Node], papers: dict[str, Node], out: list[Issue
                 ))
 
 
+#: `[[node-id]]` in a body. The renderer turns these into live links, so a
+#: typo'd or since-renamed id is a dead reference — cheap to catch here, and
+#: invisible otherwise until someone clicks it.
+BODY_LINK = re.compile(r"\[\[\s*(\d{4}-\d{2}-\d{2}-[a-z0-9-]+?)\s*\]\]")
+
+
+def _check_body_links(nodes: dict[str, Node], out: list[Issue]) -> None:
+    for node in nodes.values():
+        for target in dict.fromkeys(BODY_LINK.findall(node.body)):
+            if target not in nodes:
+                out.append(Issue(
+                    "warn", node.path.name,
+                    f"body links to [[{target}]], which is not a node",
+                ))
+
+
 def validate(root: Path | None = None) -> list[Issue]:
     """Validate the whole graph. Errors block a commit; warnings don't."""
     issues: list[Issue] = []
@@ -681,6 +697,7 @@ def validate(root: Path | None = None) -> list[Issue]:
     _check_edges(nodes, issues)
     _check_relations(nodes, issues)
     _check_refs(nodes, papers, issues)
+    _check_body_links(nodes, issues)
     return issues
 
 

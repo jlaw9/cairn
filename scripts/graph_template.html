@@ -135,6 +135,10 @@
   .sect > .hd { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); margin-bottom: 7px; }
   .lnk { display: block; padding: 3px 0; color: var(--accent); cursor: pointer; font-size: 13px; }
   .lnk:hover { text-decoration: underline; }
+  /* A [[node-id]] link sits mid-sentence, so it can't be a block the way the
+     parent and relation lists are. */
+  .body .lnk { display: inline; padding: 0; font-size: inherit; }
+  .lnk.broken { color: var(--muted); cursor: help; text-decoration: underline dotted; }
   .hist { font-size: 12.5px; }
   .hist li { margin-bottom: 4px; list-style: none; }
   .hist .d { color: var(--ink-faint); font-variant-numeric: tabular-nums; margin-right: 6px; }
