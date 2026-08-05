@@ -24,6 +24,7 @@ write the page" on a machine that has neither.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -40,6 +41,41 @@ import lib
 CROSSREF = "https://api.crossref.org/works/"
 DOI_ORG = "https://doi.org/"
 UA = "Cairn/0.1 (research graph; mailto:jeffrey.law@nlr.gov)"
+
+#: CrossRef and doi.org return titles carrying JATS inline markup — `<i>`,
+#: `<sub>`, `<sup>`, `<scp>` — sometimes entity-escaped. Polymer titles hit this
+#: constantly: every T<sub>g</sub>, T<sub>m</sub>, M<sub>c</sub>, every
+#: <i>cis</i>-. Left alone it leaks three ways, and the third one matters:
+#:
+#:   1. the registry page shows raw tags,
+#:   2. the bibkey word split sees "i", "sub", "scp" as title words,
+#:   3. the entry appended to references.bib carries the tags into the
+#:      manuscript, where `High-<i>T</i><sub>g</sub>` compiles as a broken
+#:      citation.
+#:
+#: Stripping is the right call rather than converting to LaTeX: the registry
+#: page is markdown, and a title is a lookup string here, not typeset output.
+INLINE_MARKUP = re.compile(r"</?(?:i|b|em|strong|sub|sup|scp|inf|span)\b[^>]*>", re.I)
+
+
+def strip_markup(text: str) -> str:
+    """`High-<i>T</i><sub>g</sub> Polymers` -> `High-Tg Polymers`."""
+    out = INLINE_MARKUP.sub("", html.unescape(text or ""))
+    return re.sub(r"\s+", " ", out).strip()
+
+
+def clean_bibtex_title(entry: str) -> str:
+    """Strip markup from the `title={...}` field, leaving the rest byte-identical.
+
+    Deliberately narrow: the rest of a doi.org entry may legitimately contain
+    LaTeX-escaped ampersands, and unescaping those would break the compile.
+    If the shape isn't what we expect, the entry is returned untouched.
+    """
+    return re.sub(
+        r"(\btitle\s*=\s*\{)(.*?)(\}\s*,)",
+        lambda m: m.group(1) + strip_markup(m.group(2)) + m.group(3),
+        entry, count=1, flags=re.S | re.I,
+    )
 
 #: Skipped when deriving a BibTeX key, matching Better BibTeX's default
 #: `auth+year+shorttitle` so keys generated here collide with what Zotero
@@ -93,7 +129,7 @@ def derive_bibkey(message: dict) -> str:
     authors = message.get("author") or []
     family = (authors[0].get("family") if authors else "") or "anon"
     year = ((message.get("issued", {}).get("date-parts") or [[None]])[0] or [None])[0] or "nd"
-    title = (message.get("title") or [""])[0]
+    title = strip_markup((message.get("title") or [""])[0])
     words = [w for w in re.findall(r"[A-Za-z]+", title.lower()) if w not in TITLE_STOPWORDS]
     stub = words[0] if words else ""
     return re.sub(r"[^a-z0-9]", "", f"{family}".lower()) + str(year) + stub
@@ -105,7 +141,8 @@ def bibtex_for(doi: str, bibkey: str) -> str | None:
         entry = fetch(DOI_ORG + doi, "application/x-bibtex").strip()
     except (urllib.error.HTTPError, urllib.error.URLError):
         return None
-    return re.sub(r"^@(\w+)\s*\{\s*[^,]*,", rf"@\1{{{bibkey},", entry, count=1)
+    entry = re.sub(r"^@(\w+)\s*\{\s*[^,]*,", rf"@\1{{{bibkey},", entry, count=1)
+    return clean_bibtex_title(entry)
 
 
 def append_bib(bib_path: Path, entry: str, bibkey: str) -> str:
@@ -189,10 +226,10 @@ def main() -> int:
     bibkey = args.bibkey or derive_bibkey(message)
     meta = {
         "doi": doi,
-        "title": (message.get("title") or [""])[0].strip(),
+        "title": strip_markup((message.get("title") or [""])[0]),
         "authors": author_names(message),
         "year": ((message.get("issued", {}).get("date-parts") or [[None]])[0] or [None])[0],
-        "venue": (message.get("short-container-title") or message.get("container-title") or [""])[0],
+        "venue": strip_markup((message.get("short-container-title") or message.get("container-title") or [""])[0]),
         "bibkey": bibkey,
     }
     print(f"  {meta['title'][:70]}")

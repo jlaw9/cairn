@@ -260,6 +260,36 @@ class RenderTest(unittest.TestCase):
     def test_markdown_escapes_html(self):
         self.assertIn("&lt;script&gt;", build_graph.md_to_html("<script>alert(1)</script>"))
 
+    def test_wikilink_becomes_a_goto_link_titled_by_its_target(self):
+        titles = {CHILD_ID: "The child node"}
+        out = build_graph.md_to_html(f"See [[{CHILD_ID}]] for detail.", titles)
+        self.assertIn(f'data-goto="{CHILD_ID}"', out)
+        self.assertIn("The child node", out)
+        self.assertNotIn("[[", out)
+
+    def test_wikilink_to_a_missing_node_renders_visibly_broken(self):
+        out = build_graph.md_to_html("See [[2026-01-01-nope-gone]] for detail.", {})
+        self.assertIn("lnk broken", out)
+        self.assertNotIn("data-goto", out)
+        self.assertIn("2026-01-01-nope-gone", out)
+
+    def test_double_brackets_that_are_not_a_node_id_are_left_alone(self):
+        # Prose in double brackets is not a link, so the id shape is required.
+        out = build_graph.md_to_html("A [[note to self]] here.", {})
+        self.assertIn("[[note to self]]", out)
+
+    def test_wikilink_target_titles_are_escaped(self):
+        out = build_graph.md_to_html(f"[[{CHILD_ID}]]", {CHILD_ID: "<script>x</script>"})
+        self.assertNotIn("<script>", out)
+
+    def test_validate_warns_on_a_wikilink_to_a_missing_node(self):
+        node_id = "2026-08-02-prekd-dangling-link"
+        write(f"{node_id}.md", node_text(node_id) + "\nSee [[2026-01-01-prekd-gone]].\n")
+        messages = [str(i) for i in lib.validate() if "body links" in str(i)]
+        self.assertTrue(any("2026-01-01-prekd-gone" in m for m in messages), messages)
+        self.assertTrue(all(i.level == "warn" for i in lib.validate()
+                            if "body links" in str(i)))
+
     def test_commit_url_from_ssh_and_https(self):
         self.assertEqual(
             build_graph.commit_url("git@github.com:jlaw9/prekd.git", "a3f9c21"),
@@ -428,6 +458,40 @@ class PaperIngest(unittest.TestCase):
 
     def test_bibkey_survives_missing_metadata(self):
         self.assertEqual(self.add_paper.derive_bibkey({}), "anonnd")
+
+    def test_jats_markup_is_stripped_from_titles(self):
+        # Polymer titles are full of T<sub>g</sub> and <i>cis</i>-, in raw and
+        # entity-escaped form. Both have to go.
+        self.assertEqual(
+            self.add_paper.strip_markup("High-<i>T</i><sub>g</sub> Polymers"),
+            "High-Tg Polymers")
+        self.assertEqual(
+            self.add_paper.strip_markup("Poly &lt;i&gt;cis&lt;/i&gt;-1,4-diene"),
+            "Poly cis-1,4-diene")
+
+    def test_bibkey_ignores_markup_tags_as_title_words(self):
+        # Without stripping, the first "word" of this title is `i`, and the key
+        # becomes a silent mismatch with the Zotero library.
+        message = {
+            "author": [{"given": "H", "family": "Lu"}],
+            "issued": {"date-parts": [[2001]]},
+            "title": ["<i>Exploiting</i> the Heterogeneity of Photopolymers"],
+        }
+        self.assertEqual(self.add_paper.derive_bibkey(message), "lu2001exploiting")
+
+    def test_bibtex_title_is_cleaned_without_touching_the_rest(self):
+        # The tags would otherwise reach references.bib and compile into the
+        # manuscript as a broken citation. Everything outside title={} must be
+        # left alone — an unescaped & there would break the compile instead.
+        entry = r"@article{k, title={A <sub>x</sub> B}, journal={J of A \& B}, pages={1--2} }"
+        out = self.add_paper.clean_bibtex_title(entry)
+        self.assertIn("title={A x B}", out)
+        self.assertIn(r"J of A \& B", out)
+        self.assertIn("pages={1--2}", out)
+
+    def test_bibtex_without_a_title_field_is_returned_unchanged(self):
+        entry = "@misc{k, note={x} }"
+        self.assertEqual(self.add_paper.clean_bibtex_title(entry), entry)
 
     def test_bibtex_is_rekeyed_to_match_the_registry_page(self):
         entry = "@article{Jumper_2021, title={A}, year={2021} }"
