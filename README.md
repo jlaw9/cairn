@@ -225,15 +225,41 @@ inbox/       unstructured capture awaiting triage
 assets/      small figures only
 build/       generated: graph.html (self-contained) and graph.md (Mermaid)
 scripts/     lib.py, validate.py, build_graph.py, new_node.py,
-             add_paper.py, mine_sessions.py
+             add_paper.py, mine_sessions.py, digest.py
 docs/        schema.md, backfill.md, worked examples
 ```
 
-`make doctor` · `make validate` · `make build` · `make test`
+`make doctor` · `make validate` · `make build` · `make digest` · `make test`
 
 In a node body, `[[2026-07-01-polyid-network-ablation]]` refers to another node
 and renders as a link to it, labelled with that node's title. `make validate`
 warns if the target doesn't exist.
+
+## What changed, and what needs you
+
+```sh
+cairn digest                          # the last 7 days
+cairn digest --project photopoly --days 1     # right before that meeting
+cairn digest --format md --mail       # to your own git email
+```
+
+Four sections: what moved (status changes, with the history note), what was
+opened, deadlines inside a fortnight, and anything claiming to be *running* that
+nobody has touched in two weeks.
+
+It invents no bookkeeping — `status` is an event log, so this is a query over
+`history` rather than a second thing to maintain. That's the payoff for design
+decision 5.
+
+The filters that keep entries **out** are the substance. `parked` means "paused,
+will resume" and an `open` direction is a container meant to sit for months, so
+neither is ever reported as going quiet. A digest that nags about things you
+already decided about is a digest people stop reading, and then it is worse than
+nothing.
+
+This is also the cheapest collaboration Cairn has: in a shared channel it means
+three people know what each other did without anyone opening a graph. Try it
+before building anything that syncs.
 
 ## The map
 

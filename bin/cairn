@@ -37,6 +37,7 @@ usage: cairn <command> [args...]
   build          regenerate build/graph.html and build/graph.md
   add_paper      DOI in, CrossRef-verified papers/ entry out
   mine_sessions  survey Claude Code transcripts (read-only)
+  digest         what changed, and what needs you
   doctor         check the install
 
 `cairn <command> --help` for a command's own options.

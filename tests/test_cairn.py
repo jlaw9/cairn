@@ -235,7 +235,7 @@ class NodeTest(unittest.TestCase):
     def test_children_and_terminal(self):
         nodes, _ = lib.load_nodes()
         self.assertEqual(lib.children_of(nodes)[ROOT_ID], [CHILD_ID])
-        self.assertFalse(nodes[CHILD_ID].is_terminal())
+        self.assertFalse(nodes[CHILD_ID].is_terminal)
 
     def test_doi_slug_is_filename_only(self):
         self.assertEqual(lib.slug_doi("10.1038/s41586-024-01234-5"), "10.1038__s41586-024-01234-5")
@@ -352,7 +352,7 @@ class PlannedExperiments(unittest.TestCase):
         node_id = "2026-08-03-prekd-preregistered"
         write(f"{node_id}.md", node_text(node_id, status="planned"))
         self.assertEqual(errors(), [], error_text())
-        self.assertFalse(lib.parse_file(lib.node_dir() / f"{node_id}.md").is_terminal())
+        self.assertFalse(lib.parse_file(lib.node_dir() / f"{node_id}.md").is_terminal)
 
     def test_planned_transitions_to_running_keeping_both_in_history(self):
         node_id = "2026-08-03-prekd-preregistered"
@@ -767,6 +767,121 @@ class ScriptsUseTheFoundInterpreter(unittest.TestCase):
         # With the guard set it either imports fine (yaml present) or exits
         # once with the message — what it must never do is re-exec forever.
         self.assertIn(result.returncode, (0, 1))
+
+
+class Authorship(unittest.TestCase):
+    """Authorship is derived from git, never stored — design decision 9.
+
+    The case worth pinning is the one invisible on a single-author graph: a node
+    drafted but not yet committed has no git author at all, and it must still
+    appear on the map, because that is precisely when someone is reviewing it.
+    """
+
+    def test_an_uncommitted_node_gets_a_real_bucket_not_an_empty_string(self):
+        authors = build_graph.node_authors()
+        self.assertEqual(authors.get("2026-01-01-does-not-exist", build_graph.UNCOMMITTED),
+                         build_graph.UNCOMMITTED)
+        self.assertTrue(build_graph.UNCOMMITTED, "must be truthy or the filter drops the node")
+
+    def test_uncommitted_sorts_last_among_authors(self):
+        buckets = sorted({"Zoe Zenith", build_graph.UNCOMMITTED, "Al Aardvark"},
+                         key=lambda a: (a == build_graph.UNCOMMITTED, a))
+        self.assertEqual(buckets[-1], build_graph.UNCOMMITTED)
+
+    def test_no_author_field_crept_into_the_schema(self):
+        """If this ever fails, someone stored what git already knows."""
+        self.assertNotIn("author", lib.COMMON_REQUIRED + lib.COMMON_OPTIONAL)
+        for name, spec in lib.TYPES.items():
+            self.assertNotIn("author", spec.required + spec.optional, name)
+
+
+class Digest(unittest.TestCase):
+    """The digest must not nag, or people learn to skip it.
+
+    Its whole value is that everything it lists is worth reading, so the filters
+    that keep things *out* are the part worth testing.
+    """
+
+    def setUp(self):
+        clear()
+        import digest
+        self.digest = digest
+        self.today = dt.date(2026, 8, 5)
+
+    def make(self, node_id, ntype, status, updated, **meta):
+        node = lib.Node(
+            path=lib.node_dir() / f"{node_id}.md",
+            meta=dict({
+                "id": node_id, "type": ntype, "title": node_id, "project": "p",
+                "status": status, "created": dt.date(2026, 6, 1), "updated": updated,
+                "parents": [],
+                "history": [{"date": dt.date(2026, 6, 1), "status": status, "note": "created"}],
+            }, **meta),
+            body="",
+        )
+        return node
+
+    def gather(self, *nodes, days=7):
+        return self.digest.gather(
+            {n.id: n for n in nodes},
+            self.today - dt.timedelta(days=days), self.today,
+            self.digest.STALE_DAYS, self.digest.HORIZON_DAYS,
+        )
+
+    def test_parked_is_never_going_quiet(self):
+        """`parked` means "paused, will resume" — nagging about it is a category
+        error, and `terminal` alone does not filter it out."""
+        parked = self.make("2026-06-01-p-parked", "experiment", "parked", dt.date(2026, 6, 1))
+        self.assertEqual(self.gather(parked)["quiet"], [])
+
+    def test_open_direction_is_never_going_quiet(self):
+        """A direction is a container that is supposed to sit for months."""
+        d = self.make("2026-06-01-p-dir", "direction", "open", dt.date(2026, 6, 1))
+        self.assertEqual(self.gather(d)["quiet"], [])
+
+    def test_a_running_experiment_does_go_quiet(self):
+        run = self.make("2026-06-01-p-run", "experiment", "running", dt.date(2026, 6, 1))
+        quiet = self.gather(run)["quiet"]
+        self.assertEqual([n.id for _, n in quiet], ["2026-06-01-p-run"])
+        self.assertGreaterEqual(quiet[0][0], self.digest.STALE_DAYS)
+
+    def test_terminal_nodes_are_dropped_entirely(self):
+        dead = self.make("2026-06-01-p-dead", "experiment", "dead", dt.date(2026, 6, 1))
+        found = self.gather(dead)
+        self.assertEqual(found["quiet"], [])
+        self.assertEqual(found["deadlines"], [])
+
+    def test_creation_is_reported_once_not_twice(self):
+        """A node created in-window is "opened", not also a status change."""
+        node = self.make("2026-08-04-p-new", "experiment", "running", dt.date(2026, 8, 4),
+                         created=dt.date(2026, 8, 4))
+        node.meta["history"] = [{"date": dt.date(2026, 8, 4), "status": "running", "note": "created"}]
+        found = self.gather(node)
+        self.assertEqual([n.id for n in found["opened"]], ["2026-08-04-p-new"])
+        self.assertEqual(found["changed"], [])
+
+    def test_overdue_sorts_before_upcoming_and_undated_sorts_last(self):
+        undated = self.make("2026-06-01-p-t1", "task", "todo", dt.date(2026, 6, 1))
+        soon = self.make("2026-06-01-p-t2", "task", "todo", dt.date(2026, 6, 1),
+                         due=dt.date(2026, 8, 10))
+        over = self.make("2026-06-01-p-t3", "task", "todo", dt.date(2026, 6, 1),
+                         due=dt.date(2026, 8, 1))
+        order = [n.id for _, n in self.gather(over, undated, soon)["deadlines"]]
+        self.assertEqual(order, ["2026-06-01-p-t3", "2026-06-01-p-t2", "2026-06-01-p-t1"])
+
+    def test_an_undated_open_task_still_surfaces(self):
+        """The validator warns that an undated task never surfaces in a digest.
+        That warning is only true if this is where it would have shown up."""
+        t = self.make("2026-06-01-p-t", "task", "todo", dt.date(2026, 6, 1))
+        self.assertEqual([n.id for _, n in self.gather(t)["deadlines"]], ["2026-06-01-p-t"])
+
+    def test_empty_window_says_so_rather_than_printing_nothing(self):
+        text = self.digest.render(
+            {"opened": [], "changed": [], "deadlines": [], "quiet": []},
+            self.today - dt.timedelta(days=7), self.today, "", 14, False)
+        self.assertIn("Nothing in this window", text)
+        # The ambiguity matters more than the emptiness.
+        self.assertIn("nothing got logged", text)
 
 
 class Dispatcher(unittest.TestCase):

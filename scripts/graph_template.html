@@ -201,6 +201,7 @@
     <h2>Project</h2><div id="fProject"></div>
     <h2>Type</h2><div id="fType"></div>
     <h2>Status</h2><div id="fStatus"></div>
+    <h2>Author</h2><div id="fAuthor"></div>
     <button id="reset">Reset filters</button>
     <h2>Legend</h2>
     <div class="muted" style="line-height:1.9">
@@ -234,6 +235,7 @@ const state = {
   project: new Set(DATA.nodes.map(n => n.project)),
   type: new Set(DATA.types),
   status: new Set(DATA.statuses),
+  author: new Set(DATA.authors),
   query: '',
   t: DATA.dates.length ? DATA.dates.length - 1 : 0,
   selected: null,
@@ -266,8 +268,9 @@ function visible(n) {
   if (!state.project.has(n.project)) return false;
   if (!state.type.has(n.type)) return false;
   if (!state.status.has(s)) return false;
+  if (!state.author.has(n.author)) return false;
   if (state.query) {
-    const hay = (n.title + ' ' + n.id + ' ' + n.project + ' ' + n.type).toLowerCase();
+    const hay = (n.title + ' ' + n.id + ' ' + n.project + ' ' + n.type + ' ' + n.author).toLowerCase();
     if (!hay.includes(state.query)) return false;
   }
   return true;
@@ -421,7 +424,7 @@ function refreshCounts() {
   for (const n of DATA.nodes) {
     const s = statusAt(n, when);
     if (s === null) continue;
-    for (const [k, v] of [['project', n.project], ['type', n.type], ['status', s]]) {
+    for (const [k, v] of [['project', n.project], ['type', n.type], ['status', s], ['author', n.author]]) {
       tally[`${k}:${v}`] = (tally[`${k}:${v}`] || 0) + 1;
     }
   }
@@ -441,6 +444,9 @@ function open(id) {
   push('id', `<code>${esc(n.id)}</code>`);
   push('created', n.created);
   push('updated', n.updated);
+  // Derived from `git log --diff-filter=A`, not from a field. Two people
+  // sharing a graph need to know whose claim they are reading.
+  push('author', esc(n.author));
   for (const [k, v] of Object.entries(n.extra)) {
     if (k === 'contacts' && Array.isArray(v)) {
       push('contacts', v.map(c =>
@@ -596,6 +602,7 @@ function centerOn(id) {
 chk($('#fProject'), [...new Set(DATA.nodes.map(n => n.project))].sort(), 'project', false);
 chk($('#fType'), DATA.types, 'type', false);
 chk($('#fStatus'), DATA.statuses, 'status', true);
+chk($('#fAuthor'), DATA.authors, 'author', false);
 
 // Edge key. Dash patterns mirror the CSS so the map is decodable without colour.
 const REL_DASH = {supports: 'solid', contradicts: 'dashed', supersedes: 'dashed', resolves: 'dotted'};
@@ -691,7 +698,10 @@ function showHover(g, clientX, clientY) {
     `<strong>${esc(n.title)}</strong>` +
     `<div class="meta">` +
       `<span class="dot" style="background:var(--${CLS[status] || 'idle'})"></span>` +
-      `${esc(status)} · ${esc(n.type)} · ${esc(n.project)} · ${esc(n.created)}</div>` +
+      `${esc(status)} · ${esc(n.type)} · ${esc(n.project)} · ${esc(n.created)}` +
+      // Only worth the space once the graph actually has more than one
+      // person in it; on a solo graph it is the same name every time.
+      `${DATA.authors.length > 1 ? ' · ' + esc(n.author) : ''}</div>` +
     (note ? `<div class="note">${esc(note.note)}</div>` : '') +
     `<div class="hint">click to open${n.parents.length || n.children.length ? ' · ' + (n.parents.length + n.children.length) + ' linked' : ''}</div>`;
   hover.hidden = false;

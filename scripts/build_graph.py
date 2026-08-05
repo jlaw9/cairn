@@ -16,11 +16,48 @@ import datetime as dt
 import html
 import json
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 import lib
+
+#: Shown for a node that exists on disk but not yet in a commit. It must be a
+#: real bucket rather than an empty string: a drafted node has no git author, and
+#: dropping it from the author filter would make it invisible on the map at
+#: exactly the moment someone is reviewing it.
+UNCOMMITTED = "uncommitted"
+
+
+def node_authors() -> dict[str, str]:
+    """Who created each node, according to git.
+
+    Derived, never stored. Design decision 9: git already knows who added a file,
+    so an `author:` field would be a second copy of the truth that can disagree
+    with the first — and a field that stops getting filled in.
+
+    One `git log` for the whole directory rather than one per node, because 68
+    subprocesses on a network filesystem is a visible pause. `--reverse` puts the
+    oldest add first so `setdefault` keeps the original author of a node rather
+    than whoever last touched its file.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(lib.REPO_ROOT), "log", "--reverse", "--diff-filter=A",
+             "--format=%x00%an", "--name-only", "--", "nodes"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}          # no git, or no history — everything reads as uncommitted
+    if done.returncode != 0:
+        return {}
+    authors: dict[str, str] = {}
+    for chunk in done.stdout.split("\x00"):
+        lines = [line for line in chunk.splitlines() if line.strip()]
+        for path in lines[1:]:
+            authors.setdefault(Path(path).stem, lines[0])
+    return authors
 
 # Layout constants (px)
 X_PAD = 150
@@ -277,6 +314,8 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
     inbound = lib.relation_backlinks(nodes)
     titles = {node_id: node.title for node_id, node in nodes.items()}
 
+    authors = node_authors()
+
     payload_nodes = []
     for node in nodes.values():
         x, y = positions.get(node.id, (X_PAD, Y_PAD))
@@ -333,7 +372,8 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
                 if key not in set(lib.COMMON_REQUIRED) | set(lib.COMMON_OPTIONAL)
             },
             "commitUrl": commit_url(str(node.meta.get("repo", "")), str(node.meta.get("commit", ""))),
-            "terminal": node.is_terminal(),
+            "terminal": node.is_terminal,
+            "author": authors.get(node.id, UNCOMMITTED),
         })
 
     all_dates = sorted({d for n in payload_nodes for d in [n["created"]] + [h["date"] for h in n["history"]] if d})
@@ -346,6 +386,10 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
         "height": height,
         "dates": all_dates,
         "types": sorted(lib.TYPES),
+        # Sorted with `uncommitted` last, so a review-in-progress bucket never
+        # sits above the people in the author filter.
+        "authors": sorted({n["author"] for n in payload_nodes},
+                          key=lambda a: (a == UNCOMMITTED, a)),
         "statuses": lib.ALL_STATUSES,
         "relations": sorted(lib.RELATIONS),
         "generated": dt.date.today().isoformat(),

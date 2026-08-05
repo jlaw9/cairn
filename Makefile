@@ -14,6 +14,7 @@ help:
 	@echo "make install-commands  make /log and /paper reachable from any repo"
 	@echo "make validate          check every node against the schema"
 	@echo "make build             regenerate build/graph.html and build/graph.md"
+	@echo "make digest            what changed in the last 7 days, and what needs you"
 	@echo "make test              run the test suite against the fixture graph"
 	@echo "make python            show which interpreter Cairn will use"
 
@@ -62,6 +63,9 @@ validate: _python
 
 build: _python
 	@$(PY) scripts/build_graph.py
+
+digest: _python
+	@$(PY) scripts/digest.py $(ARGS)
 
 test: _python
 	@$(PY) tests/test_cairn.py

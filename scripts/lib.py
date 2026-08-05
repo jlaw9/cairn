@@ -287,6 +287,11 @@ class Node:
     def spec(self) -> TypeSpec | None:
         return TYPES.get(self.type)
 
+    # A property, like every other accessor here. As a plain method it read
+    # identically at the call site and was always truthy — `if node.is_terminal:`
+    # silently meant "if this bound method exists", which skipped every node in
+    # the first version of the digest.
+    @property
     def is_terminal(self) -> bool:
         return bool(self.spec and self.status in self.spec.terminal)
 
