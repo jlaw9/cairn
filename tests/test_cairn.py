@@ -301,6 +301,44 @@ class RenderTest(unittest.TestCase):
         self.assertIn("No nodes yet", (FIXTURE / "build" / "graph.md").read_text(encoding="utf-8"))
 
 
+class FindPython(unittest.TestCase):
+    """scripts/find_python.sh must never hand back an unusable interpreter.
+
+    Handing one back is worse than finding nothing: the pre-commit hook runs
+    whatever this prints, and a Python too old to parse lib.py fails with a
+    SyntaxError that the hook reports as schema drift.
+    """
+
+    SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "find_python.sh"
+
+    def run_finder(self, **env):
+        import subprocess
+        return subprocess.run(
+            ["sh", str(self.SCRIPT)], capture_output=True, text=True,
+            env=dict(os.environ, **env),
+        )
+
+    def test_whatever_it_finds_can_actually_run_cairn(self):
+        import subprocess
+        found = self.run_finder()
+        if found.returncode != 0:
+            self.skipTest("no usable interpreter on this machine")
+        probe = subprocess.run(
+            [found.stdout.strip(), "-c",
+             "import sys, yaml; assert sys.version_info >= (3, 7)"],
+            capture_output=True,
+        )
+        self.assertEqual(probe.returncode, 0, f"{found.stdout.strip()} cannot run Cairn")
+
+    def test_an_unusable_override_fails_loudly_rather_than_falling_back(self):
+        # Silently substituting a different interpreter than the one asked for
+        # would make a wrong CAIRN_PYTHON impossible to debug.
+        result = self.run_finder(CAIRN_PYTHON="/nonexistent/python")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertIn("CAIRN_PYTHON", result.stderr)
+
+
 if __name__ == "__main__":
     try:
         result = unittest.main(exit=False, verbosity=2).result

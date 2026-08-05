@@ -8,17 +8,22 @@ set -e
 
 root=$(git rev-parse --show-toplevel)
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "cairn: python3 not found, skipping validation" >&2
+# Cairn needs Python >= 3.7 *and* PyYAML, and those can live on different
+# interpreters — Kestrel's default python3 is 3.6.8 with PyYAML, while its
+# python3.9 has none. Probing for "a python3 that can import yaml" is therefore
+# not enough: it succeeds on 3.6.8, and validate.py then dies on a SyntaxError
+# that this hook reports as schema drift. Let find_python.sh decide.
+py=$("$root/scripts/find_python.sh" 2>/dev/null || true)
+
+if [ -z "$py" ]; then
+  echo "cairn: no Python >= 3.7 with PyYAML found — skipping validation." >&2
+  echo "  'pip install --user pyyaml' on any python3.7+ is enough, or" >&2
+  echo "  export CAIRN_PYTHON=/path/to/python. Until then the graph commits" >&2
+  echo "  unvalidated, which is how it rots." >&2
   exit 0
 fi
 
-if ! python3 -c "import yaml" >/dev/null 2>&1; then
-  echo "cairn: PyYAML not installed, skipping validation (pip install pyyaml)" >&2
-  exit 0
-fi
-
-if ! python3 "$root/scripts/validate.py" --quiet; then
+if ! "$py" "$root/scripts/validate.py" --quiet; then
   echo "" >&2
   echo "cairn: validation failed — commit blocked." >&2
   echo "Silent schema drift is how this rots. Fix the errors above, or use" >&2

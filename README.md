@@ -27,6 +27,7 @@ conflict, capture wins.**
 ```sh
 pip install pyyaml
 make setup        # install the pre-commit validation hook (once per clone)
+make python       # show which interpreter Cairn picked, if you're curious
 
 scripts/new_node.py experiment "COSMO-RS baseline on the 40-solvent set" \
   --project prekd --repo git@github.com:jlaw9/prekd.git --commit a3f9c21 --host kestrel
@@ -38,6 +39,12 @@ open build/graph.html
 From inside a project repo, `/log` at the end of a session does all of that for
 you: it reads the git log, drafts the node, asks only for the interpretation it
 can't infer, and commits.
+
+Cairn needs **Python >= 3.7 with PyYAML**, and nothing else. `make` finds a
+suitable interpreter itself (`scripts/find_python.sh`) rather than assuming
+`python3` is one — on Kestrel the default `python3` is 3.6.8 *with* PyYAML while
+`python3.9` has none, and picking either blindly fails. Override with
+`export CAIRN_PYTHON=/path/to/python` if the search guesses wrong.
 
 ## What's here
 
