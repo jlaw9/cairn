@@ -605,11 +605,29 @@ $('#relKey').innerHTML =
     `<div class="relkey"><i style="border-top:2px ${REL_DASH[t] || 'solid'} var(--rel-${t})"></i>${esc(t)}</div>`
   ).join('');
 
+// Narrowing the view used to leave the canvas blank. The matches are usually
+// off-screen at the current pan — a project opened this week sits at the far
+// right of a five-month axis — so "5 of 60 nodes" appeared next to an empty
+// graph, which reads as a broken filter rather than as "scroll right".
+//
+// Debounced because fitting on every keystroke moves the graph under the cursor
+// mid-word, and because narrowing by three checkboxes should settle once, not
+// three times. Skipped when nothing matches: there is nothing to fit to, and
+// jumping to the whole canvas would throw away the view you were reading.
+let fitPending;
+function fitToMatchesSoon(delay = 250) {
+  clearTimeout(fitPending);
+  fitPending = setTimeout(() => {
+    if (DATA.nodes.some(visible)) fit();
+  }, delay);
+}
+
 document.addEventListener('change', e => {
   const key = e.target.dataset?.key;
   if (!key) return;
   e.target.checked ? state[key].add(e.target.value) : state[key].delete(e.target.value);
   draw();
+  fitToMatchesSoon();
 });
 
 $('#reset').onclick = () => {
@@ -620,7 +638,11 @@ $('#reset').onclick = () => {
   updateTimeLabel(); draw(); fit();
 };
 
-$('#search').addEventListener('input', e => { state.query = e.target.value.trim().toLowerCase(); draw(); });
+$('#search').addEventListener('input', e => {
+  state.query = e.target.value.trim().toLowerCase();
+  draw();
+  fitToMatchesSoon();
+});
 
 const timeInput = $('#time');
 timeInput.max = Math.max(0, DATA.dates.length - 1);
