@@ -83,6 +83,21 @@ scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \
   --status dead --note "solvation model wrong for ionics, MAE 1.4"
 ```
 
+**Pass `--note` at creation too, not just on `--update`.** It becomes the first
+history entry; without it the entry reads `created`, which throws away the one
+sentence you had in hand at the moment you had it.
+
+**`--project` is checked against the keys already in the graph.** An unrecognised
+key is refused with the near-matches listed, because it is the only field whose
+typo validates cleanly and it silently splits a project in two. Starting a
+genuinely new project takes `--new-project` — ask Jeff before using it rather
+than assuming, since the usual cause is a typo or a key that already exists under
+a different name.
+
+**Use `--status planned` for an experiment that hasn't started.** `running` means
+running. Creating with no `--status` still gives `running`, which is what you want
+when logging work that already happened.
+
 Body convention for experiments — `## Claim` / `## What I did` / `## Result` /
 `## Next`. **Don't enforce it.** Prompting for structure at capture time is
 how capture dies.

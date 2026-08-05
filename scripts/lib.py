@@ -126,14 +126,32 @@ class TypeSpec:
     terminal: set[str]
     required: list[str]
     optional: list[str]
+    #: What `new_node.py` uses when no --status is given. Explicit rather than
+    #: statuses[0], so `statuses` can be listed in lifecycle order without the
+    #: first entry silently becoming the default — adding `planned` to the front
+    #: of experiment would otherwise have changed what /log creates.
+    default: str = ""
+
+    @property
+    def default_status(self) -> str:
+        return self.default or self.statuses[0]
 
 
 TYPES: dict[str, TypeSpec] = {
+    # `planned` exists so a pre-registration can be honest. README section B
+    # says to open the experiment *before* the first job goes to the queue —
+    # that's the whole point, since a claim written before the result is a
+    # pre-registration and written after it is a story. But the only status
+    # available for that was `running`, which is false on a job that hasn't
+    # started, and it lies twice: the replay slider shows the experiment running
+    # on a date it wasn't, and `running` is how you find what to check on today.
+    # Non-terminal, so an experiment left planned keeps surfacing.
     "experiment": TypeSpec(
-        statuses=["running", "worked", "dead", "parked"],
+        statuses=["planned", "running", "worked", "dead", "parked"],
         terminal={"worked", "dead"},
         required=[],
         optional=["repo", "commit", "host", "artifacts"],
+        default="running",
     ),
     "direction": TypeSpec(
         statuses=["open", "parked", "closed"],

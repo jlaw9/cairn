@@ -105,21 +105,36 @@ exhaustively.
 ### B. You are starting something new → **open the node before you run it**
 
 ```sh
-scripts/new_node.py direction "Does X predict Y?" --project <key>
+scripts/new_node.py direction "Does X predict Y?" --project <key> --new-project
 ```
+
+`--new-project` is needed only the first time a project key is used. After that
+an unrecognised key is refused, because `project:` is the one field whose typo
+validates cleanly — `photpoly` for `photopoly` passes every check and silently
+splits one project into two lanes.
 
 Then, before the first job goes to the queue, an `experiment` whose `## Claim`
 says what you expect **and what result would prove it wrong**:
 
 ```sh
 scripts/new_node.py experiment "X predicts Y from Z alone" \
-  --project <key> --parent <direction-id> --status running \
+  --project <key> --parent <direction-id> --status planned \
+  --note "pre-registered, not yet queued"
+
+# then when it actually starts
+scripts/new_node.py --update <id> --status running \
   --repo $(git remote get-url origin) --commit $(git rev-parse HEAD) \
   --host $(hostname -s)
 ```
 
 A claim written before the result is a pre-registration; written after, it's a
 story. That difference is what makes a dead end publishable.
+
+Use `planned` for the pre-registration and `running` once it is queued. They are
+different facts and the replay slider shows both: `planned` on a date nothing was
+running would otherwise be a small lie in the history that `running` is grepped
+for. An experiment created with no `--status` is still `running`, so writing up
+work after the fact is unchanged.
 
 At the end of a session, `/log` from inside the project repo does the rest: it
 reads the git log, drafts the node, asks only for the interpretation it can't

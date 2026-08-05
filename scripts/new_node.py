@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import re
 import sys
 from pathlib import Path
@@ -81,12 +82,54 @@ def parse_relation(spec: str) -> dict:
     return entry
 
 
+def check_project(project: str, allow_new: bool) -> None:
+    """Refuse an unrecognised project key unless --new-project says so.
+
+    `project:` is free text, and it is the one field whose typo is invisible.
+    A mistyped id fails validation, a mistyped status fails validation, but
+    `photpoly` for `photopoly` validates cleanly and silently splits a project
+    into two lanes — after which a missing node no longer means "not tried",
+    which is the one guarantee the whole graph rests on.
+
+    A registry file would be the obvious fix and the wrong one: it is a second
+    place to update at exactly the moment you are trying to record something,
+    and capture wins. Creation time is the only cheap moment to catch this, and
+    one flag is the whole cost of starting a genuinely new project.
+    """
+    known = sorted({node.project for node in lib.load_nodes()[0].values() if node.project})
+    if not known or project in known or allow_new:
+        return
+
+    # A hint is only useful if it is short. With keys like polyid, polymd,
+    # polysol and polycrystal, edit distance is too blunt — polyid and polymd
+    # differ by one character and are different projects — so require either a
+    # real shared prefix or a single substitution at equal length.
+    def shared(key: str) -> int:
+        return len(os.path.commonprefix([key, project]))
+
+    def plausible(key: str) -> bool:
+        if shared(key) >= 3:
+            return True
+        return (len(key) == len(project)
+                and sum(a != b for a, b in zip(key, project)) == 1)
+
+    near = sorted((k for k in known if plausible(k)),
+                  key=lambda k: (-shared(k), abs(len(k) - len(project))))[:3]
+    lines = [f"'{project}' is not a project in this graph."]
+    if near:
+        lines.append(f"  did you mean: {', '.join(near)}")
+    lines.append(f"  known keys:   {', '.join(known)}")
+    lines.append(f"  if it really is new: --new-project")
+    sys.exit("\n".join(lines))
+
+
 def build(args: argparse.Namespace) -> lib.Node:
     created = lib.as_date(args.date) or dt.date.today()
     spec = lib.TYPES[args.type]
-    status = args.status or spec.statuses[0]
+    status = args.status or spec.default_status
     if status not in spec.statuses:
         sys.exit(f"'{status}' is not a valid status for {args.type}: {', '.join(spec.statuses)}")
+    check_project(args.project, getattr(args, "new_project", False))
 
     stem = args.slug or shorten(slugify(f"{args.project}-{args.title}"))
     node_id = f"{created.isoformat()}-{stem}"
@@ -156,6 +199,8 @@ def main() -> int:
     parser.add_argument("title", nargs="?", help="one-line title")
     parser.add_argument("--update", metavar="ID", help="append a status change to an existing node")
     parser.add_argument("--project", help="project key, e.g. prekd")
+    parser.add_argument("--new-project", action="store_true",
+                        help="confirm --project names a project that does not exist yet")
     parser.add_argument("--status")
     parser.add_argument("--note", default="", help="history note for this change")
     parser.add_argument("--date", help="ISO date; defaults to today")
