@@ -147,7 +147,47 @@ make build && open build/graph.html
 A companion repo, **research-kit**, scaffolds a new project with a `CLAUDE.md`
 carrying these conventions, a `data/{raw,curated}` split and a stock DVC config.
 
-### C. Your work isn't computational
+### C. You are starting from a literature review
+
+Most new projects start here, before there is a repo or a run. **A literature
+finding is an `experiment`** — it has a claim, a method and a result, and the
+corpus is the instrument. `repo`, `commit`, `host` and `artifacts` are all
+optional, so nothing about the node type assumes code.
+
+The point is to write the finding as the claim it settles, not as a summary of
+what you read:
+
+```sh
+scripts/new_node.py experiment 'Can a reported "final Tg" be fitted as Tgp?' \
+  --project photopoly --parent <direction-id> --status dead \
+  --ref 10.1021/ma101296j \
+  --note "vitrification-limited; the bias is formulation-dependent"
+```
+
+`status: dead` because the claim was refuted — by the literature rather than by a
+job that failed, which makes no difference to what it means downstream. That node
+is worth more than a summary would be: six months on, *"can we just fit published
+final Tg values?"* has an answer with a reason attached, and the next person to
+have the idea finds it instead of rediscovering it. See
+[docs/examples/literature.md](docs/examples/literature.md).
+
+Three habits make this work:
+
+- **One claim per node.** A review that touches eight things is eight nodes or
+  one `direction` with eight open questions — not one node called "lit review",
+  which is unsearchable by the question you'll actually ask.
+- **`--ref` the DOI and register the paper**, so the evidence is resolvable
+  rather than remembered: `scripts/add_paper.py <doi>` (or `/paper`). A DOI
+  recalled rather than resolved is worse than no DOI.
+- **A constraint that shapes later work belongs in the graph, not only in the
+  synthesis document.** The document is read once; the node is what the graph
+  shows you when you touch that part of the problem again.
+
+Use the `litsearch-workflow` or `property-matrix-litsearch` skills to do the
+retrieval — don't reimplement it. What lands here is the conclusion and the
+verified DOIs, not the corpus.
+
+### D. Your work isn't computational
 
 The *model* here is domain-neutral — claims, results, dead ends, directions,
 deadlines. `repo`, `commit`, `host` and `artifacts` are all optional on an
