@@ -63,6 +63,12 @@ most in practice:
    from one of the two nodes. Four types, no more — see `docs/schema.md`.
    Relations can be added later without a status change:
    `new_node.py --update <id> --relate "contradicts:<other-id>:why"`.
+7. **Refer to another node in prose as `[[<node-id>]]`.** It renders as a link
+   titled with the target's node title, and `validate` warns if the target
+   doesn't exist. Use it for the soft connections that aren't lineage and aren't
+   one of the four relation types — "this builds on the wD-MPNN core", "see the
+   schema task first". A cross-project dependency goes here, in the body, rather
+   than in `parents`.
 
 ## Writing nodes
 
@@ -103,6 +109,20 @@ the same remote. Neither machine needs to reach the other: nodes reference
 project code by `repo` + `commit` and heavy outputs by `host:/path`, so a node
 written on kestrel is fully readable from the laptop without resolving
 anything.
+
+## When a command fails
+
+Run `make doctor` before debugging anything else. It reports which of the four
+install steps is missing — interpreter, pre-commit hook, slash commands,
+`CAIRN_PATH` — and it runs without a working Python, because the interpreter is
+the most common thing to be wrong. Each of those four fails in a different way
+and none of the failures names itself.
+
+In particular, "Cairn needs PyYAML" from a `scripts/*.py` command means no
+interpreter on the machine has PyYAML. It no longer means the shebang picked the
+wrong one — the scripts re-exec themselves under whatever `find_python.sh`
+finds. Don't work around it by calling a specific python by hand; either install
+PyYAML or set `CAIRN_PYTHON`, so `make` and the hook agree with you.
 
 ## Before committing
 

@@ -26,10 +26,16 @@ conflict, capture wins.**
 
 ```sh
 git clone <your-cairn-remote> ~/Cairn-graph && cd ~/Cairn-graph
-pip install pyyaml
 make setup                                  # hook + slash commands + checks
 export CAIRN_PATH=$HOME/Cairn-graph         # add to your shell profile
+make doctor                                 # confirm all four steps took
 ```
+
+**Clone it outside every project repo.** One graph spans all projects (design
+decision 1), and a clone nested inside a project shows up as an untracked
+directory in that project's `git status`, makes `/log`'s `repo` field ambiguous,
+and quietly implies the graph belongs to one project. `make doctor` warns if
+this clone is nested.
 
 `make setup` installs the pre-commit validation hook and symlinks `/log` and
 `/paper` into `~/.claude/commands` so they work **from any repo**, not only
@@ -38,11 +44,38 @@ and reach into the graph, and slash commands otherwise resolve only from the
 session's own directory. Do this on every machine you work on — laptop and
 cluster both.
 
-Cairn needs **Python >= 3.7 with PyYAML** and nothing else. `make` finds a
-suitable interpreter itself (`scripts/find_python.sh`) rather than assuming
-`python3` is one — on one HPC system the default `python3` is 3.6.8 *with*
-PyYAML while `python3.9` has none, and picking either blindly fails. Override
-with `export CAIRN_PYTHON=/path/to/python`.
+**`make doctor` is the thing to run when something is off.** It reports, without
+needing a working Python, which of the four install steps happened: interpreter,
+hook, slash commands, `CAIRN_PATH`. Each of those fails differently and none of
+the failures names which one is missing, which is how a first install goes
+wrong.
+
+### The one dependency
+
+Cairn needs **Python >= 3.7 with PyYAML** and nothing else. `scripts/find_python.sh`
+finds a suitable interpreter rather than assuming `python3` is one — on Kestrel
+the default `python3` is 3.6.8 *with* PyYAML while `python3.9` has none, and
+picking either blindly fails. Every entry point consults it, including the
+`scripts/*.py` commands below, which re-exec themselves under the right
+interpreter rather than dying under the shebang's `python3`.
+
+If nothing on the machine has PyYAML, install it whichever way suits that
+machine — `pip install pyyaml` is not always the right answer, and on a
+Homebrew python it is refused outright under PEP 668:
+
+```sh
+conda install pyyaml                        # conda-managed python
+python3 -m pip install --user pyyaml        # a python you control
+python3 -m venv ~/.cairn/venv && ~/.cairn/venv/bin/pip install pyyaml
+```
+
+Or point Cairn at an interpreter that already has it, which is also the escape
+hatch for anything exotic:
+
+```sh
+export CAIRN_PYTHON=/path/to/python
+make python                                 # prints what Cairn will use
+```
 
 ## Then pick your path
 
@@ -130,7 +163,11 @@ scripts/     lib.py, validate.py, build_graph.py, new_node.py,
 docs/        schema.md, backfill.md, worked examples
 ```
 
-`make validate` · `make build` · `make test`
+`make doctor` · `make validate` · `make build` · `make test`
+
+In a node body, `[[2026-07-01-polyid-network-ablation]]` refers to another node
+and renders as a link to it, labelled with that node's title. `make validate`
+warns if the target doesn't exist.
 
 ## The map
 
