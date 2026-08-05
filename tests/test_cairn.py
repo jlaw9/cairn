@@ -564,6 +564,79 @@ class FindPython(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "")
         self.assertIn("CAIRN_PYTHON", result.stderr)
 
+    def test_bare_python_and_conda_base_are_candidates(self):
+        # `python3` is Homebrew's on a conda-managed mac while the interpreter
+        # holding PyYAML is at `python` or <conda base>/bin/python. Probing only
+        # python3* reported "no usable Python" on a machine that had one.
+        text = self.SCRIPT.read_text()
+        self.assertRegex(text, r"(?m)^\s*python3 python\b")
+        for base in ("miniforge3/bin/python", "miniconda3/bin/python"):
+            self.assertIn(base, text)
+
+
+class ScriptsUseTheFoundInterpreter(unittest.TestCase):
+    """A documented `scripts/*.py` invocation must work wherever `make` does.
+
+    The scripts' shebang is `python3`, which is not necessarily the interpreter
+    find_python.sh picks for the Makefile and the hook. Where they differ, every
+    command in the README and /log used to fail while `make` succeeded.
+    """
+
+    SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+
+    def yaml_less_interpreter(self):
+        """A real >= 3.7 interpreter on this machine that cannot import yaml."""
+        import subprocess
+        for candidate in ("python3.14", "python3.13", "python3.12", "python3.11",
+                          "/usr/bin/python3"):
+            path = shutil.which(candidate) or (
+                candidate if Path(candidate).exists() else None)
+            if not path:
+                continue
+            probe = subprocess.run(
+                [path, "-c", "import sys; assert sys.version_info >= (3, 7); import yaml"],
+                capture_output=True)
+            if probe.returncode != 0:
+                usable = subprocess.run(
+                    [path, "-c", "import sys; assert sys.version_info >= (3, 7)"],
+                    capture_output=True)
+                if usable.returncode == 0:
+                    return path
+        return None
+
+    def test_a_yaml_less_interpreter_relaunches_instead_of_dying(self):
+        import subprocess
+        found = subprocess.run(
+            ["sh", str(self.SCRIPTS / "find_python.sh")],
+            capture_output=True, text=True, env=dict(os.environ))
+        if found.returncode != 0:
+            self.skipTest("no usable interpreter on this machine")
+        wrong = self.yaml_less_interpreter()
+        if not wrong:
+            self.skipTest("every interpreter here has PyYAML; nothing to stand in")
+
+        # Running under the wrong interpreter — exactly what the shebang does on
+        # a machine where python3 is not the one with PyYAML — must still work.
+        result = subprocess.run(
+            [wrong, str(self.SCRIPTS / "validate.py"), "--quiet"],
+            capture_output=True, text=True,
+            env={k: v for k, v in os.environ.items() if k != "CAIRN_RELAUNCHED"},
+        )
+        self.assertNotIn("Cairn needs PyYAML", result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_the_relaunch_cannot_loop(self):
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, %r); import lib" % str(self.SCRIPTS)],
+            capture_output=True, text=True,
+            env=dict(os.environ, CAIRN_RELAUNCHED="1"),
+        )
+        # With the guard set it either imports fine (yaml present) or exits
+        # once with the message — what it must never do is re-exec forever.
+        self.assertIn(result.returncode, (0, 1))
+
 
 if __name__ == "__main__":
     try:

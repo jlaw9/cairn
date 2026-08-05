@@ -35,12 +35,21 @@ if [ -n "$CAIRN_PYTHON" ]; then
     exit 1
 fi
 
+# `python` (no 3) and the conda *base* env were both missing here, and on a
+# conda-managed macOS they are usually the interpreter that has PyYAML: `python3`
+# resolves to Homebrew's, while conda's lives at `python` or <base>/bin/python.
+# Probing only `python3*` reported "no usable Python" on a machine that had one.
 for candidate in \
-    python3 python3.13 python3.12 python3.11 python3.10 python3.9 python3.8 python3.7 \
+    python3 python python3.14 python3.13 python3.12 python3.11 python3.10 python3.9 python3.8 python3.7 \
     "$CONDA_PREFIX/bin/python" \
+    "$HOME"/miniforge3/bin/python \
+    "$HOME"/miniconda3/bin/python \
+    "$HOME"/anaconda3/bin/python \
+    "$HOME"/.cairn/venv/bin/python \
     "$HOME"/.conda-envs/*/bin/python \
     "$HOME"/miniconda3/envs/*/bin/python \
-    "$HOME"/miniforge3/envs/*/bin/python
+    "$HOME"/miniforge3/envs/*/bin/python \
+    "$HOME"/anaconda3/envs/*/bin/python
 do
     if found=$(check "$candidate"); then
         echo "$found"
