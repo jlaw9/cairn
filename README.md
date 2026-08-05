@@ -293,8 +293,15 @@ for the conventions the agent follows.
 8. **Artifacts stay where they are.** Nodes reference big outputs by
    `host:/path`. The repo stays small forever, so it syncs instantly and diffs
    stay readable.
+9. **One graph, many writers, synced through git.** No server, no auth, no
+   real-time editing, no discussion threads — but multi-writer was never the
+   thing being refused. One file per node, append-only and never renamed, is
+   what makes two people non-colliding, and `git log --diff-filter=A` already
+   answers "whose node is this?" without a field for it. Add collaborators to
+   the repo; don't shard the graph per project, or you lose the cross-project
+   edges that are the hardest part to reconstruct.
 
-## Two machines
+## Two machines, or two people
 
 Clone on every machine you work on, synced through this remote, and run
 `make setup` on each. Neither machine ever needs to reach the other: nodes
@@ -303,6 +310,13 @@ reference code by `repo` + `commit` and outputs by `host:/path`.
 `git pull --rebase` at the start of a session, commit and push at the end.
 Conflicts are near-impossible — nodes are separate append-only files. The only
 shared-file contention is `build/`, which should be regenerated, never merged.
+
+**The same mechanism carries a second person.** Two machines and two people are
+the same problem to this repo, so a collaborator is a collaborator on the git
+remote and nothing more. The one genuine collision is two people creating the
+same id on the same day — same project, same date, similar enough title to slug
+identically. Git catches that as a real conflict rather than losing one of them,
+which is the correct behaviour, if a startling way to find out.
 
 ## Status
 

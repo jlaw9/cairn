@@ -187,5 +187,11 @@ error without fixing it afterwards.
 
 Not an experiment tracker — W&B/MLflow own metrics and curves, the graph links
 out to them. Not a replacement for project repos. Not a general task manager,
-only research commitments. No server, no auth, no collaboration. A static HTML
-file in a git repo.
+only research commitments. No server, no auth, no real-time editing, no
+discussion threads. A static HTML file in a git repo.
+
+**One graph, many writers, synced through git.** This is in scope and always was:
+one file per node, append-only, never renamed, means two people cannot collide,
+and `git log --diff-filter=A` already says who wrote which node without a field
+for it. Don't add an `author:` — derive it. See
+[[2026-08-05-cairn-collaboration]] for what stays refused and why.
