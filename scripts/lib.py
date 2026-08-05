@@ -16,12 +16,68 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+def _relaunch_under_a_usable_python() -> None:  # pragma: no cover - env path
+    """Re-exec this script under the interpreter `find_python.sh` picks.
+
+    The Makefile and the pre-commit hook both ask find_python.sh which
+    interpreter can actually run Cairn. Nothing else did: every documented
+    invocation is `scripts/new_node.py ...`, which runs under the shebang's
+    `python3`. So on any machine where those two differ, `make` works and every
+    command in the README, CLAUDE.md and /log fails — including on Kestrel,
+    which is the exact split find_python.sh was written for (python3 is 3.6.8
+    *with* PyYAML, python3.9 has none).
+
+    Setting CAIRN_PYTHON was already the fix, but you had to know that from a
+    traceback that only says "Cairn needs PyYAML".
+    """
+    if os.environ.get("CAIRN_RELAUNCHED"):
+        return                                    # already tried; don't loop
+    if not sys.argv or not sys.argv[0] or not Path(sys.argv[0]).is_file():
+        return                                    # not a script run; nothing to re-exec
+    finder = Path(__file__).resolve().parent / "find_python.sh"
+    if not finder.exists():
+        return
+
+    import subprocess
+    try:
+        found = subprocess.run(
+            [str(finder)], capture_output=True, text=True, timeout=30,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return
+    if not found or not Path(found).exists():
+        return
+    try:
+        if Path(found).resolve() == Path(sys.executable).resolve():
+            return                                # same interpreter; it would fail again
+    except OSError:
+        return
+
+    os.environ["CAIRN_RELAUNCHED"] = "1"
+    os.execv(found, [found, str(Path(sys.argv[0]).resolve()), *sys.argv[1:]])
+
+
 try:
     import yaml
 except ImportError:  # pragma: no cover - environment problem, not a code path
+    _relaunch_under_a_usable_python()             # returns only if that failed
     sys.exit(
-        "Cairn needs PyYAML.\n"
-        "  pip install pyyaml     (or: conda install pyyaml)\n"
+        "Cairn needs PyYAML, and no interpreter that has it was found.\n"
+        "\n"
+        "  Cairn needs Python >= 3.7 with PyYAML. This ran under\n"
+        f"    {sys.executable}\n"
+        "  which has no yaml module, and scripts/find_python.sh found no\n"
+        "  alternative. Either install it:\n"
+        "\n"
+        "    conda install pyyaml            # conda-managed python\n"
+        "    python3 -m pip install --user pyyaml\n"
+        "    python3 -m venv ~/.cairn/venv && ~/.cairn/venv/bin/pip install pyyaml\n"
+        "\n"
+        "  or point Cairn at an interpreter that already has it:\n"
+        "\n"
+        "    export CAIRN_PYTHON=/path/to/python\n"
+        "\n"
+        "  Then `make python` should print that interpreter.\n"
     )
 
 #: CAIRN_ROOT lets the test suite point the whole library at a fixture graph.
@@ -665,6 +721,22 @@ def _check_refs(nodes: dict[str, Node], papers: dict[str, Node], out: list[Issue
                 ))
 
 
+#: `[[node-id]]` in a body. The renderer turns these into live links, so a
+#: typo'd or since-renamed id is a dead reference — cheap to catch here, and
+#: invisible otherwise until someone clicks it.
+BODY_LINK = re.compile(r"\[\[\s*(\d{4}-\d{2}-\d{2}-[a-z0-9-]+?)\s*\]\]")
+
+
+def _check_body_links(nodes: dict[str, Node], out: list[Issue]) -> None:
+    for node in nodes.values():
+        for target in dict.fromkeys(BODY_LINK.findall(node.body)):
+            if target not in nodes:
+                out.append(Issue(
+                    "warn", node.path.name,
+                    f"body links to [[{target}]], which is not a node",
+                ))
+
+
 def validate(root: Path | None = None) -> list[Issue]:
     """Validate the whole graph. Errors block a commit; warnings don't."""
     issues: list[Issue] = []
@@ -681,6 +753,7 @@ def validate(root: Path | None = None) -> list[Issue]:
     _check_edges(nodes, issues)
     _check_relations(nodes, issues)
     _check_refs(nodes, papers, issues)
+    _check_body_links(nodes, issues)
     return issues
 
 

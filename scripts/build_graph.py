@@ -48,20 +48,51 @@ TYPE_SHAPE = {
 # Minimal markdown -> HTML
 # --------------------------------------------------------------------------
 
-def md_inline(text: str) -> str:
+#: `[[2026-07-01-polyid-network-ablation]]` in a body means "the node with that
+#: id". The convention arrived with the backfill and is now in 36 of the nodes,
+#: but the renderer didn't know it, so every one of those cross-references was
+#: dead literal text in the panel — brackets and all. The id shape is pinned
+#: here so prose in double brackets isn't mistaken for a link.
+WIKILINK = re.compile(r"\[\[\s*(\d{4}-\d{2}-\d{2}-[a-z0-9-]+?)\s*\]\]")
+
+
+def wikilinks(escaped: str, titles: dict[str, str] | None) -> str:
+    """Turn `[[node-id]]` into the same clickable span the panel uses elsewhere.
+
+    `data-goto` is handled by a delegated listener on `document`, so a link in
+    a body works with no template change.
+    """
+    def one(match: re.Match) -> str:
+        node_id = match.group(1)
+        title = (titles or {}).get(node_id)
+        if title is None:
+            # Show it as broken rather than dropping it. A reference to a node
+            # that doesn't exist is a fact about the graph worth seeing, and
+            # `validate` warns about it too.
+            return f'<span class="lnk broken" title="no node with this id">{node_id}</span>'
+        return f'<span class="lnk" data-goto="{node_id}">{html.escape(title)}</span>'
+
+    return WIKILINK.sub(one, escaped)
+
+
+def md_inline(text: str, titles: dict[str, str] | None = None) -> str:
     out = html.escape(text)
     out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
     out = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r'<a href="\2" target="_blank" rel="noopener">\1</a>', out)
+    out = wikilinks(out, titles)
     out = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", out)
     out = re.sub(r"(?<![\w*])\*([^*\n]+)\*(?![\w*])", r"<em>\1</em>", out)
     return out
 
 
-def md_to_html(text: str) -> str:
+def md_to_html(text: str, titles: dict[str, str] | None = None) -> str:
     """A deliberately small markdown subset: headings, lists, code, quotes.
 
     Node bodies are notes, not documents. Pulling in a markdown dependency for
     this would be the first crack in "runs anywhere without a venv".
+
+    `titles` maps node id -> title, and is what lets `[[id]]` render as a live
+    link with the target's title rather than as a raw id.
     """
     lines = text.strip().splitlines()
     out: list[str] = []
@@ -71,7 +102,7 @@ def md_to_html(text: str) -> str:
 
     def flush_paragraph() -> None:
         if paragraph:
-            out.append(f"<p>{md_inline(' '.join(paragraph))}</p>")
+            out.append(f"<p>{md_inline(' '.join(paragraph), titles)}</p>")
             paragraph.clear()
 
     def close_lists() -> None:
@@ -101,7 +132,7 @@ def md_to_html(text: str) -> str:
             flush_paragraph()
             close_lists()
             level = min(len(heading.group(1)) + 2, 6)
-            out.append(f"<h{level}>{md_inline(heading.group(2))}</h{level}>")
+            out.append(f"<h{level}>{md_inline(heading.group(2), titles)}</h{level}>")
             continue
 
         if re.match(r"^(---|\*\*\*|___)\s*$", line):
@@ -120,14 +151,14 @@ def md_to_html(text: str) -> str:
             if not list_stack:
                 list_stack.append(want)
                 out.append(f"<{want}>")
-            out.append(f"<li>{md_inline((bullet or number).group(1))}</li>")
+            out.append(f"<li>{md_inline((bullet or number).group(1), titles)}</li>")
             continue
 
         quote = re.match(r"^>\s?(.*)$", line)
         if quote:
             flush_paragraph()
             close_lists()
-            out.append(f"<blockquote>{md_inline(quote.group(1))}</blockquote>")
+            out.append(f"<blockquote>{md_inline(quote.group(1), titles)}</blockquote>")
             continue
 
         close_lists()
@@ -244,6 +275,7 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
     kids = lib.children_of(nodes)
     backlinks = lib.paper_backlinks(nodes)
     inbound = lib.relation_backlinks(nodes)
+    titles = {node_id: node.title for node_id, node in nodes.items()}
 
     payload_nodes = []
     for node in nodes.values():
@@ -294,7 +326,7 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
             "x": round(x, 1),
             "y": round(y, 1),
             "shape": TYPE_SHAPE.get(node.type, "circle"),
-            "body": md_to_html(node.body),
+            "body": md_to_html(node.body, titles),
             "extra": {
                 key: (lib.as_date(value).isoformat() if isinstance(value, (dt.date, dt.datetime)) else value)
                 for key, value in node.meta.items()

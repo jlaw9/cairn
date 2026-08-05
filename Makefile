@@ -6,15 +6,21 @@
 
 PY ?= $(shell scripts/find_python.sh)
 
-.PHONY: help setup install-commands validate build test clean python _python
+.PHONY: help setup doctor install-commands validate build test clean python _python
 
 help:
 	@echo "make setup             hook + commands + a CAIRN_PATH reminder (once per machine)"
+	@echo "make doctor            check this clone is set up, and say what is missing"
 	@echo "make install-commands  make /log and /paper reachable from any repo"
 	@echo "make validate          check every node against the schema"
 	@echo "make build             regenerate build/graph.html and build/graph.md"
 	@echo "make test              run the test suite against the fixture graph"
 	@echo "make python            show which interpreter Cairn will use"
+
+# Deliberately not dependent on _python: the most common thing to be wrong is
+# the Python, and a check that can't run on a broken install is no use.
+doctor:
+	@scripts/doctor.sh
 
 # Slash commands resolve from the *session's* project directory plus
 # ~/.claude/commands. Cairn's live in this repo, so without this they are
