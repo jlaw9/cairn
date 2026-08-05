@@ -225,7 +225,7 @@ inbox/       unstructured capture awaiting triage
 assets/      small figures only
 build/       generated: graph.html (self-contained) and graph.md (Mermaid)
 scripts/     lib.py, validate.py, build_graph.py, new_node.py,
-             add_paper.py, mine_sessions.py, digest.py
+             add_paper.py, mine_sessions.py, digest.py, sync_issues.py
 docs/        schema.md, backfill.md, worked examples
 ```
 
@@ -260,6 +260,28 @@ nothing.
 This is also the cheapest collaboration Cairn has: in a shared channel it means
 three people know what each other did without anyone opening a graph. Try it
 before building anything that syncs.
+
+### Tasks as issues
+
+```sh
+cairn sync_issues              # dry run — prints, writes nothing
+cairn sync_issues -v           # ...including the exact body it would post
+cairn sync_issues --apply
+```
+
+**Only `task` nodes, and only outward.** A task has a `due`, an owner and no
+scientific claim, so an issue holds it faithfully. An `experiment` is open or
+closed to GitHub, while the point of this graph is that `dead` is not `closed`,
+`parked` is neither, and the status event log is what makes replay work — so
+mirroring an experiment would discard the part worth keeping.
+
+What issues buy that a markdown file cannot: assignment, notification, and a
+phone. The graph stays authoritative and each issue says so in its own body.
+
+The target repo is **derived** from the project's other nodes, not stored per
+task — an experiment in the same project already carries `repo`. Projects with no
+repo anywhere are reported and skipped rather than guessed at. Enterprise hosts
+work; `gh auth login --hostname <host>` first.
 
 ## The map
 

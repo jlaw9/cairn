@@ -769,6 +769,81 @@ class ScriptsUseTheFoundInterpreter(unittest.TestCase):
         self.assertIn(result.returncode, (0, 1))
 
 
+class SyncIssues(unittest.TestCase):
+    """Only tasks, one direction, and never a duplicate.
+
+    This writes to a service other people can see, so the parts worth pinning are
+    the ones that would be embarrassing rather than merely wrong.
+    """
+
+    def setUp(self):
+        clear()
+        import sync_issues
+        self.sync = sync_issues
+
+    def test_enterprise_host_survives_parsing(self):
+        """26 of 27 repo-bearing nodes here are on a github.nrel.gov instance, and
+        `gh` cannot reach it without the host, so losing it breaks the normal case
+        while leaving the github.com case working."""
+        cases = {
+            "git@github.nrel.gov:jlaw/FY26_mplastic_binders.git": ("github.nrel.gov", "jlaw/FY26_mplastic_binders"),
+            "git@github.com:jlaw9/Cairn-graph.git": ("github.com", "jlaw9/Cairn-graph"),
+            "https://github.nrel.gov/jlaw/thing": ("github.nrel.gov", "jlaw/thing"),
+            "https://github.com/o/n.git": ("github.com", "o/n"),
+            "ssh://git@github.nrel.gov/jlaw/thing.git": ("github.nrel.gov", "jlaw/thing"),
+            "git@github.com:jlaw9/Cairn-graph": ("github.com", "jlaw9/Cairn-graph"),
+        }
+        for url, want in cases.items():
+            self.assertEqual(self.sync.parse_repo(url), want, url)
+
+    def test_unparseable_repo_returns_none_rather_than_guessing(self):
+        for bad in ("", "not a url", "/local/path", "github.com"):
+            self.assertIsNone(self.sync.parse_repo(bad), bad)
+
+    def test_marker_round_trips_so_a_second_run_finds_its_own_issue(self):
+        node_id = "2026-08-05-cairn-release-review"
+        body = self.sync.MARKER.format(node_id=node_id)
+        found = self.sync.MARKER_RE.search(f"blah\n{body}\n")
+        self.assertIsNotNone(found)
+        self.assertEqual(found.group(1), node_id)
+
+    def test_marker_lives_in_the_body_not_the_title(self):
+        """Titles get edited by people; idempotency must survive that."""
+        self.assertIn("<!--", self.sync.MARKER)
+
+    def test_repo_is_derived_from_the_project_not_stored_per_task(self):
+        nodes = {}
+        for i, (proj, repo) in enumerate([("p", "git@github.com:o/p.git"),
+                                          ("p", "git@github.com:o/p.git"),
+                                          ("q", "")]):
+            nid = f"2026-06-0{i + 1}-{proj}-n"
+            meta = {"id": nid, "type": "experiment", "title": nid, "project": proj,
+                    "status": "running", "created": dt.date(2026, 6, 1),
+                    "updated": dt.date(2026, 6, 1), "parents": [],
+                    "history": [{"date": dt.date(2026, 6, 1), "status": "running", "note": "x"}]}
+            if repo:
+                meta["repo"] = repo
+            nodes[nid] = lib.Node(path=lib.node_dir() / f"{nid}.md", meta=meta, body="")
+        derived = self.sync.repo_for_project(nodes)
+        self.assertEqual(derived["p"], "git@github.com:o/p.git")
+        self.assertNotIn("q", derived)      # skipped, never guessed
+
+    def test_body_states_the_graph_is_authoritative(self):
+        """A projection that doesn't say so invites edits in the wrong place."""
+        node = lib.Node(
+            path=lib.node_dir() / "2026-06-01-p-t.md",
+            meta={"id": "2026-06-01-p-t", "type": "task", "title": "t", "project": "p",
+                  "status": "todo", "created": dt.date(2026, 6, 1),
+                  "updated": dt.date(2026, 6, 1), "due": dt.date(2026, 7, 1), "parents": [],
+                  "history": [{"date": dt.date(2026, 6, 1), "status": "todo", "note": "x"}]},
+            body="## What\n\ndo it\n")
+        body = self.sync.issue_body(node, "o/graph")
+        self.assertIn("source of truth", body)
+        self.assertIn("2026-07-01", body)          # the due date carries over
+        self.assertIn("one-way", body)
+        self.assertIn(self.sync.MARKER.format(node_id=node.id), body)
+
+
 class Authorship(unittest.TestCase):
     """Authorship is derived from git, never stored — design decision 9.
 
