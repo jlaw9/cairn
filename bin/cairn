@@ -38,6 +38,8 @@ usage: cairn <command> [args...]
   add_paper      DOI in, CrossRef-verified papers/ entry out
   mine_sessions  survey Claude Code transcripts (read-only)
   digest         what changed, and what needs you
+  standup        what to pick up today; --project for a resume packet
+  capture        append a note to inbox/ — no schema, never refuses
   sync_issues    mirror open task nodes to GitHub Issues (dry run by default)
   doctor         check the install
 

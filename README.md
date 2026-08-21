@@ -24,6 +24,11 @@ conflict, capture wins.**
 
 ## Install — once per machine
 
+**New here, or setting up a machine that isn't the one this was written on? Read
+[docs/install.md](docs/install.md).** It is the same four steps, spelled out,
+with the failure modes named — including what to do when a cluster's `python3`
+can't run the scripts at all.
+
 ```sh
 git clone <your-cairn-remote> ~/Cairn-graph && cd ~/Cairn-graph
 make setup                                  # hook + slash commands + checks
@@ -31,6 +36,18 @@ export CAIRN_PATH=$HOME/Cairn-graph         # add to your shell profile
 export PATH=$CAIRN_PATH/bin:$PATH           # optional: plain `cairn` anywhere
 make doctor                                 # confirm all four steps took
 ```
+
+Then add one line to each **project** repo's `CLAUDE.md`, which is the step that
+decides whether the graph gets maintained or not:
+
+```markdown
+Research activity is recorded in Cairn. To capture a note, resume a project, or
+log a session, read the matching skill under `$CAIRN_PATH/skills/`.
+```
+
+An agent working in a project repo otherwise has no idea the graph exists. That
+one line makes three skills reachable at zero cost until used — see
+[skills/README.md](skills/README.md).
 
 The `PATH` line is convenience only. `bin/cairn` works by path from anywhere, and
 the slash commands call it as `$CAIRN_PATH/bin/cairn`, so nothing depends on it.
@@ -224,16 +241,69 @@ meetings/    raw meeting notes
 inbox/       unstructured capture awaiting triage
 assets/      small figures only
 build/       generated: graph.html (self-contained) and graph.md (Mermaid)
-scripts/     lib.py, validate.py, build_graph.py, new_node.py,
-             add_paper.py, mine_sessions.py, digest.py, sync_issues.py
-docs/        schema.md, backfill.md, worked examples
+scripts/     lib.py, validate.py, build_graph.py, new_node.py, add_paper.py,
+             mine_sessions.py, digest.py, standup.py, capture.py, sync_issues.py
+skills/      path-addressed skills, so agents in *other* repos can use the graph
+docs/        install.md, schema.md, backfill.md, worked examples
 ```
 
-`make doctor` · `make validate` · `make build` · `make digest` · `make test`
+`make doctor` · `make validate` · `make build` · `make digest` · `make standup` ·
+`make test`
 
 In a node body, `[[2026-07-01-polyid-network-ablation]]` refers to another node
 and renders as a link to it, labelled with that node's title. `make validate`
 warns if the target doesn't exist.
+
+## What to pick up today
+
+```sh
+cairn standup                         # every project, most-needs-you first
+cairn standup --project polyid        # the resume packet for one project
+```
+
+`digest` answers *what changed*, which is the right question when you have been
+present all week and the wrong one after two weeks away — then you don't need a
+list of events, you need the frontier: what is still open, what it was waiting
+on, and what the last note said to do next.
+
+Two differences carry it. It is **ordered by what needs you rather than by when
+it happened**, so a project whose live threads have gone quiet ranks above one
+that moved yesterday — the quiet one is the one whose context you have lost.
+And it **reads `## Next` back out of the node bodies**, which is the cheapest
+resume there is: the sentence you wrote when the whole problem was still in your
+head. That section was always the convention and nothing ever read it.
+
+`--project` goes deeper and adds the part that stops repeated work: **what this
+project already settled**, most recent first, each with the note saying why. A
+`dead` node there is a claim someone refuted, and rereading it is how the same
+dead end doesn't get tried twice.
+
+Like `digest`, it invents no fields and no bookkeeping — it is a query over
+`status`, `history` and the bodies. Nothing to maintain means nothing to go
+stale, and a stale planning view is worse than none because you act on it.
+
+## Capture, from anywhere
+
+```sh
+cairn capture "the block-size distribution might be bimodal"
+cairn capture --project mdegrade --title "q vs stack size" "<longer note>"
+cairn capture --from-file ~/notes/meeting.org --title "meeting with Dave"
+tail -40 slurm-12345.out | cairn capture --title "why the run died"
+```
+
+Writes to `inbox/`, which has no schema and no validation. It **never refuses,
+never prompts, and never asks which project** — `--project` is a hint for triage,
+not a validated key, and this is the one place in Cairn where a typo costs
+nothing. It doesn't even commit, because committing runs the validation hook and
+a capture that can fail on unrelated schema drift is not a capture.
+
+That is design decision 7 finally having a command. It also means capture no
+longer depends on which machine you are on or what editor is installed there:
+`--from-file` takes org-mode, markdown or anything else verbatim, so an
+org-capture template on a laptop and a shell on a cluster are the same mechanism.
+Nothing in `inbox/` is ever parsed, so there is nothing to convert.
+
+`/triage` turns the queue into nodes, or discards it. Both are correct outcomes.
 
 ## What changed, and what needs you
 

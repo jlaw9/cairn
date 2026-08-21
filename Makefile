@@ -6,7 +6,8 @@
 
 PY ?= $(shell scripts/find_python.sh)
 
-.PHONY: help setup doctor install-commands validate build test clean python _python
+.PHONY: help setup doctor install-commands validate build test clean python _python \
+        digest standup
 
 help:
 	@echo "make setup             hook + commands + a CAIRN_PATH reminder (once per machine)"
@@ -15,6 +16,7 @@ help:
 	@echo "make validate          check every node against the schema"
 	@echo "make build             regenerate build/graph.html and build/graph.md"
 	@echo "make digest            what changed in the last 7 days, and what needs you"
+	@echo "make standup           what to pick up today, most-needs-you first"
 	@echo "make test              run the test suite against the fixture graph"
 	@echo "make python            show which interpreter Cairn will use"
 
@@ -66,6 +68,9 @@ build: _python
 
 digest: _python
 	@$(PY) scripts/digest.py $(ARGS)
+
+standup: _python
+	@$(PY) scripts/standup.py $(ARGS)
 
 test: _python
 	@$(PY) tests/test_cairn.py

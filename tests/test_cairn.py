@@ -1036,6 +1036,247 @@ class Dispatcher(unittest.TestCase):
         self.assertNotIn("no usable Python found", result.stderr)
 
 
+class Standup(unittest.TestCase):
+    """The ordering *is* the feature.
+
+    A survey that lists projects chronologically is a digest with extra steps.
+    What makes this view worth having is that it ranks by what has lost your
+    context, so the ranking is what these tests pin down.
+    """
+
+    def setUp(self):
+        clear()
+        import standup
+        self.standup = standup
+        self.today = dt.date(2026, 8, 21)
+
+    def make(self, node_id, ntype, status, updated, project="p", body="", **meta):
+        return lib.Node(
+            path=lib.node_dir() / f"{node_id}.md",
+            meta=dict({
+                "id": node_id, "type": ntype, "title": node_id, "project": project,
+                "status": status, "created": dt.date(2026, 6, 1), "updated": updated,
+                "parents": [],
+                "history": [{"date": updated, "status": status, "note": "a note"}],
+            }, **meta),
+            body=body,
+        )
+
+    def survey(self, *nodes, quiet_after=21):
+        return self.standup.survey(
+            {n.id: n for n in nodes}, self.today, quiet_after, 14)
+
+    def rank_of(self, rows, project):
+        return next(row["rank"] for row in rows if row["project"] == project)
+
+    def test_quiet_project_outranks_a_project_that_moved_today(self):
+        """The whole point. Recency is what a digest sorts by and it is exactly
+        backwards here: the project you touched this morning is the one whose
+        context you still have."""
+        fresh = self.make("2026-08-21-a-live", "experiment", "running",
+                          self.today, project="fresh")
+        stale = self.make("2026-06-01-b-live", "experiment", "running",
+                          dt.date(2026, 6, 1), project="stale")
+        rows = self.survey(fresh, stale)
+        self.assertEqual([row["project"] for row in rows], ["stale", "fresh"])
+
+    def test_overdue_deadline_outranks_everything(self):
+        overdue = self.make("2026-08-01-c-task", "task", "todo", dt.date(2026, 8, 1),
+                            project="due", due=dt.date(2026, 8, 10))
+        stale = self.make("2026-06-01-d-live", "experiment", "running",
+                          dt.date(2026, 6, 1), project="stale")
+        rows = self.survey(overdue, stale)
+        self.assertEqual(rows[0]["project"], "due")
+        self.assertEqual(self.rank_of(rows, "due"), 0)
+
+    def test_parked_and_closed_are_not_live_threads(self):
+        """Same filter `digest` needs, for the same reason: `parked` is a
+        decision already made, so recommending it as work is a category error."""
+        parked = self.make("2026-06-01-e-parked", "experiment", "parked",
+                           dt.date(2026, 6, 1))
+        closed = self.make("2026-06-01-f-dir", "direction", "closed",
+                           dt.date(2026, 6, 1))
+        rows = self.survey(parked, closed)
+        self.assertEqual(rows[0]["live"], [])
+        self.assertEqual(self.rank_of(rows, "p"), 3)
+
+    def test_open_direction_is_context_not_work(self):
+        """An open direction is a container meant to sit for months. It belongs
+        in the briefing and must never be listed as a live thread."""
+        direction = self.make("2026-06-01-g-dir", "direction", "open",
+                              dt.date(2026, 6, 1))
+        rows = self.survey(direction)
+        self.assertEqual(rows[0]["live"], [])
+        self.assertEqual([n.id for n in rows[0]["threads"]], ["2026-06-01-g-dir"])
+
+    def test_next_section_is_read_back_out_of_the_body(self):
+        """`## Next` was always the convention and nothing ever read it. That
+        sentence is the cheapest resume there is."""
+        node = self.make(
+            "2026-06-01-h-live", "experiment", "running", dt.date(2026, 6, 1),
+            body="## Claim\n\nSomething.\n\n## Next\n\n- Re-run at 15 seeds\n- Then plot\n")
+        self.assertEqual(self.standup.next_action(node),
+                         "Re-run at 15 seeds Then plot")
+
+    def test_next_stops_at_the_following_heading(self):
+        node = self.make(
+            "2026-06-01-i-live", "experiment", "running", dt.date(2026, 6, 1),
+            body="## Next\n\nDo the thing.\n\n## Result\n\nDo NOT include this.\n")
+        self.assertNotIn("NOT", self.standup.next_action(node))
+
+    def test_a_body_with_no_next_section_is_not_an_error(self):
+        node = self.make("2026-06-01-j-live", "experiment", "running",
+                         dt.date(2026, 6, 1), body="## Claim\n\nJust a claim.\n")
+        self.assertEqual(self.standup.next_action(node), "")
+
+    def test_a_long_next_section_cannot_push_other_threads_off_the_screen(self):
+        """One node with a twenty-line plan would otherwise bury every other live
+        thread, and then the ranking above buys nothing."""
+        lines = self.standup.wrapped("next: ", "word " * 400, "    ", 88)
+        self.assertLessEqual(len(lines), 4)
+        self.assertTrue(lines[-1].rstrip().endswith("…"))
+        self.assertTrue(all(len(line) <= 88 for line in lines), lines)
+
+    def test_a_short_next_section_is_not_mangled(self):
+        lines = self.standup.wrapped("next: ", "Re-run at 15 seeds.", "    ", 88)
+        self.assertEqual(lines, ["    next: Re-run at 15 seeds."])
+
+    def test_resume_packet_lists_what_was_already_settled(self):
+        """The section that prevents re-running a refuted experiment, which is
+        the most expensive mistake this view exists to stop."""
+        live = self.make("2026-08-01-k-live", "experiment", "running",
+                         dt.date(2026, 8, 1))
+        dead = self.make("2026-07-01-l-dead", "experiment", "dead",
+                         dt.date(2026, 7, 1),
+                         history=[{"date": dt.date(2026, 7, 1), "status": "dead",
+                                   "note": "solvation model wrong for ionics"}])
+        nodes = {n.id: n for n in (live, dead)}
+        row = self.survey(live, dead)[0]
+        text = self.standup.render_packet(row, nodes, self.today, False, 88)
+        self.assertIn("Already settled", text)
+        self.assertIn("solvation model wrong for ionics", text)
+
+
+class Capture(unittest.TestCase):
+    """Capture has exactly one failure mode worth engineering against: not
+    writing the file. Everything here is a way that could happen quietly."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def run_capture(self, *args, stdin=None):
+        import subprocess
+        return subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "capture", *args],
+            capture_output=True, text=True, timeout=60, input=stdin,
+            env={**os.environ, "CAIRN_ROOT": str(FIXTURE)},
+        )
+
+    def setUp(self):
+        (FIXTURE / "inbox").mkdir(exist_ok=True)
+        for path in (FIXTURE / "inbox").glob("*.md"):
+            path.unlink()
+
+    def files(self):
+        return sorted((FIXTURE / "inbox").glob("*.md"))
+
+    def test_it_writes_the_note(self):
+        result = self.run_capture("a thought worth keeping")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.files()), 1)
+        self.assertIn("a thought worth keeping", self.files()[0].read_text())
+
+    def test_an_unrecognised_project_is_accepted(self):
+        """Everywhere else in Cairn a bad project key is refused, because a typo
+        silently splits a project in two. The inbox is the one place that trade
+        goes the other way: asking at capture time is how capture dies."""
+        result = self.run_capture("--project", "not-a-real-project-key", "note")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.files()), 1)
+
+    def test_two_notes_in_the_same_minute_do_not_overwrite(self):
+        """A burst of thoughts is the case this command is *for*, so losing the
+        first one to a filename collision would be the one unforgivable bug."""
+        self.run_capture("first thought")
+        self.run_capture("second thought")
+        bodies = "".join(p.read_text() for p in self.files())
+        self.assertEqual(len(self.files()), 2)
+        self.assertIn("first thought", bodies)
+        self.assertIn("second thought", bodies)
+
+    def test_stdin_is_captured(self):
+        result = self.run_capture("--title", "a traceback", stdin="Traceback: boom\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Traceback: boom", self.files()[0].read_text())
+
+    def test_an_empty_note_is_not_an_error(self):
+        """You changed your mind. That is not a failure, and reporting it as one
+        trains people to stop running the command."""
+        result = self.run_capture(stdin="   \n")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.files(), [])
+
+    def test_it_records_where_the_note_was_written(self):
+        result = self.run_capture("note")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = self.files()[0].read_text()
+        self.assertIn("captured:", text)
+        self.assertIn("cwd:", text)
+
+    def test_it_writes_no_yaml_frontmatter(self):
+        """Anything that looks like frontmatter invites a validator, and the
+        entire value of inbox/ is that nothing here is ever validated."""
+        self.run_capture("note")
+        self.assertFalse(self.files()[0].read_text().startswith("---"))
+
+    def test_it_does_not_commit(self):
+        """Committing runs the validation hook, which can fail for reasons
+        elsewhere in the graph. A capture that can fail is not a capture."""
+        source = (self.ROOT / "scripts" / "capture.py").read_text()
+        self.assertNotIn('"commit"', source)
+        self.assertNotIn("git commit", source)
+
+    def test_it_does_not_import_lib(self):
+        """lib exits the process when PyYAML is missing. Capture must survive a
+        machine where Cairn is otherwise broken — losing a thought to a
+        dependency error is the exact failure this file exists to prevent."""
+        source = (self.ROOT / "scripts" / "capture.py").read_text()
+        self.assertFalse(re.search(r"^import lib$", source, re.MULTILINE))
+
+
+class Skills(unittest.TestCase):
+    """The skills are Cairn's only reach into other repos. A broken one fails
+    silently, in a session that isn't this one."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def skill_files(self):
+        return sorted((self.ROOT / "skills").glob("*/SKILL.md"))
+
+    @staticmethod
+    def frontmatter(path):
+        import yaml
+        match = lib.FRONTMATTER_RE.match(path.read_text())
+        return match, (yaml.safe_load(match.group(1)) if match else None) or {}
+
+    def test_every_skill_has_name_and_description_frontmatter(self):
+        """The format agents actually read. No frontmatter means the skill is
+        invisible rather than broken, which is worse."""
+        self.assertTrue(self.skill_files(), "no skills found")
+        for path in self.skill_files():
+            match, meta = self.frontmatter(path)
+            self.assertIsNotNone(match, f"{path.name}: no frontmatter")
+            for key in ("name", "description"):
+                self.assertTrue(str(meta.get(key, "")).strip(),
+                                f"{path.parent.name}: missing '{key}'")
+
+    def test_skill_name_matches_its_directory(self):
+        """The directory is the address. A name that disagrees with it makes the
+        skill unfindable by the path someone was told to read."""
+        for path in self.skill_files():
+            _, meta = self.frontmatter(path)
+            self.assertEqual(meta["name"], path.parent.name)
+
+
 class DocumentedCommands(unittest.TestCase):
     """Docs must not tell anyone to run scripts/*.py directly — it fails on the
     machine most likely to be reading them."""
@@ -1051,8 +1292,11 @@ class DocumentedCommands(unittest.TestCase):
                 if re.search(r"(?<!lib\.)\bscripts/[a-z_]+\.py", line)
                 and "find_python" not in line
             ]
+        # skills/ counts double here: those files are read by agents in *other*
+        # repos, where a wrong invocation fails in a session nobody is watching.
         for path in list((self.ROOT / "docs").rglob("*.md")) + \
-                    list((self.ROOT / ".claude" / "commands").glob("*.md")):
+                    list((self.ROOT / ".claude" / "commands").glob("*.md")) + \
+                    list((self.ROOT / "skills").rglob("*.md")):
             offenders += [
                 f"{path.relative_to(self.ROOT)}:{i}" for i, line in enumerate(
                     path.read_text().splitlines(), 1)

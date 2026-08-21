@@ -26,6 +26,7 @@ append-only files. The only shared-file contention is generated output under
 | path | contents |
 |---|---|
 | `nodes/<id>.md` | the graph. One file per node, never deleted, never moved |
+| `skills/<name>/SKILL.md` | path-addressed skills, so agents in *other* repos can use the graph |
 | `papers/<doi-slug>.md` | one page per cited paper, CrossRef-verified metadata |
 | `meetings/<date>-<who>.md` | meeting notes, raw |
 | `inbox/<date>-<hhmm>.md` | unstructured capture, awaiting triage |
@@ -143,6 +144,24 @@ If you're tempted to write a node without review — for instance from a Stop
 hook — write to `inbox/` instead and let `/triage` handle it later. `inbox/`
 is explicitly a junk drawer: unstructured text, no schema, no validation.
 That's what makes it safe to write to unprompted.
+
+Use `bin/cairn capture` for that rather than writing the file yourself: it
+records host, cwd, repo and commit, which is the context you can't reconstruct
+weeks later and can't infer from the text. It deliberately does not commit —
+committing runs the validation hook, and a capture that can fail because of
+schema drift somewhere else is not a capture.
+
+## Reading the graph before you add to it
+
+`bin/cairn standup` before proposing work, and `--project <key>` before working
+in one. The "already settled" section of the resume packet is the point: a `dead`
+node there is a claim someone refuted, with the reason attached, and citing it
+beats re-running it. Treat a missing node as "not tried" only where the project
+is well covered — in a thin project it means the graph doesn't know yet, and
+that's the honest thing to say.
+
+`standup` ranks by what needs attention; `digest` is chronological. Don't
+substitute one for the other. Neither writes anything.
 
 ## Cross-machine
 
