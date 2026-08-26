@@ -47,13 +47,22 @@ import lib
 MARKER = "<!-- cairn-node: {node_id} -->"
 MARKER_RE = re.compile(r"<!--\s*cairn-node:\s*(\S+?)\s*-->")
 
-#: Enterprise is the normal case here, not the exception: 26 of 27 repo-bearing
-#: nodes in this graph are on a github.nrel.gov instance. `gh` needs GH_HOST to
-#: talk to anything that isn't github.com, so the host has to survive parsing.
+#: Enterprise is the normal case here, not the exception: as of 2026-08, 35 of the
+#: 42 repo-bearing nodes in this graph are on a github.nrel.gov instance and only
+#: 2 are on github.com. `gh` needs GH_HOST to talk to anything that isn't
+#: github.com, so the host has to survive parsing. See docs/github.md.
 REPO_RE = re.compile(
     r"^(?:git@(?P<h1>[^:/]+):|(?:ssh|https?)://(?:[^@/]+@)?(?P<h2>[^/]+)/)"
     r"(?P<slug>[^/]+/[^/]+?)(?:\.git)?/?$"
 )
+
+
+#: `owner/name` typed on the command line. Strict on purpose: the first version
+#: accepted "any string with a slash and no scheme", which quietly turned
+#: `repo: kestrel:/kfs2/projects/.../poly_image` — a host:/path for a project that
+#: is not on GitHub at all — into the github.com repo `kestrel:/kfs2/...`, and
+#: offered it as a plan. Guessing a write target is worse than refusing one.
+SHORTHAND_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
 
 def parse_repo(url: str) -> tuple[str, str] | None:
@@ -179,9 +188,13 @@ def main() -> int:
         if not url:
             skipped.append((node, f"no repo known for project '{node.project}'"))
             continue
-        target = parse_repo(url) or (("github.com", url) if "/" in url and "://" not in url else None)
+        target = parse_repo(url)
+        if target is None and SHORTHAND_RE.match(url):
+            target = ("github.com", url)
         if target is None:
-            skipped.append((node, f"cannot parse repo: {url}"))
+            why = ("repo is a host:/path, not a GitHub remote — that project is not "
+                   "on GitHub") if lib.ARTIFACT_RE.match(url) else f"cannot parse repo: {url}"
+            skipped.append((node, why))
             continue
         plan[target].append(node)
 

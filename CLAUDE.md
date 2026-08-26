@@ -33,6 +33,7 @@ append-only files. The only shared-file contention is generated output under
 | `assets/` | small figures only — one per node, for the HTML thumbnail |
 | `build/` | generated. Never hand-edit |
 | `scripts/` | the tooling |
+| `docs/github.md` | tasks as GitHub Issues: what works, what's unverified |
 
 Nothing heavy ever enters this repo. Big outputs are referenced by
 `host:/path`, code by `repo` + `commit`. The repo stays text-only and small

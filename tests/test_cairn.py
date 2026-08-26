@@ -796,6 +796,25 @@ class SyncIssues(unittest.TestCase):
         for url, want in cases.items():
             self.assertEqual(self.sync.parse_repo(url), want, url)
 
+    def test_a_host_path_repo_is_never_turned_into_a_github_target(self):
+        """The regression that matters, because it proposed a write.
+
+        poly-lit-data records `repo: kestrel:/kfs2/.../poly_image` — a host:/path,
+        because that project is not on GitHub at all. The first shorthand fallback
+        accepted "any string with a slash and no scheme", so it offered
+        `github.com/kestrel:/kfs2/...` as a plan. Guessing a write target is worse
+        than refusing one.
+        """
+        bad = "kestrel:/kfs2/projects/invpoly/jlaw/projects/FY26_poly_lit_data/poly_image"
+        self.assertIsNone(self.sync.parse_repo(bad))
+        self.assertIsNone(self.sync.SHORTHAND_RE.match(bad))
+
+    def test_shorthand_accepts_owner_name_and_nothing_looser(self):
+        self.assertTrue(self.sync.SHORTHAND_RE.match("jlaw9/Cairn-graph"))
+        self.assertTrue(self.sync.SHORTHAND_RE.match("o/n.git"))
+        for bad in ("a/b/c", "host:/a/b", "a b/c", "/leading", "trailing/", "noslash"):
+            self.assertIsNone(self.sync.SHORTHAND_RE.match(bad), bad)
+
     def test_unparseable_repo_returns_none_rather_than_guessing(self):
         for bad in ("", "not a url", "/local/path", "github.com"):
             self.assertIsNone(self.sync.parse_repo(bad), bad)

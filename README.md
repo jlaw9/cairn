@@ -355,8 +355,14 @@ phone. The graph stays authoritative and each issue says so in its own body.
 
 The target repo is **derived** from the project's other nodes, not stored per
 task — an experiment in the same project already carries `repo`. Projects with no
-repo anywhere are reported and skipped rather than guessed at. Enterprise hosts
-work; `gh auth login --hostname <host>` first.
+GitHub remote are reported and skipped, never guessed at.
+
+`sync_issues` reaches Enterprise hosts (`gh auth login --hostname <host>` first).
+Whether *mentioning an agent* on an issue works there is a different question and
+an open one — and the agent round trip only closes at all for issues in this repo,
+since an agent in a project repo has no checkout of the graph.
+**[docs/github.md](docs/github.md)** has the table, the prompts to test with, and
+the numbers.
 
 ## The map
 

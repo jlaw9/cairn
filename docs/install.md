@@ -239,7 +239,7 @@ cairn add_paper      DOI in, CrossRef-verified papers/ entry out
 cairn validate       check every node against the schema
 cairn build          regenerate build/graph.html and build/graph.md
 cairn mine_sessions  survey Claude Code transcripts (read-only)
-cairn sync_issues    mirror open task nodes to GitHub Issues
+cairn sync_issues    mirror open task nodes to GitHub Issues (docs/github.md)
 cairn doctor         check the install
 ```
 
