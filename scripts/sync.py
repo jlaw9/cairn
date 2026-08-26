@@ -51,7 +51,13 @@ REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or Path(__file__).resolve().parent
 
 
 def git(*args: str, timeout: int = 120) -> tuple[int, str]:
-    """Run git in the graph repo. Returns (returncode, combined output)."""
+    """Run git in the graph repo. Returns (returncode, combined output).
+
+    On success the output is returned *unstripped*, because `git status
+    --porcelain` encodes meaning in a leading space. Callers that want a bare
+    value use `out()`, which strips. Only the error path is stripped here, since
+    a message is never parsed.
+    """
     try:
         done = subprocess.run(
             ["git", "-C", str(REPO_ROOT), *args],
@@ -61,13 +67,15 @@ def git(*args: str, timeout: int = 120) -> tuple[int, str]:
         return 127, "git not found on PATH"
     except subprocess.SubprocessError as exc:
         return 1, f"git {' '.join(args)} failed: {exc}"
+    if done.returncode == 0:
+        return 0, done.stdout
     return done.returncode, (done.stdout + done.stderr).strip()
 
 
 def out(*args: str) -> str:
-    """Just the stdout of a git command, empty on failure."""
+    """Just the stdout of a git command, stripped; empty on failure."""
     code, text = git(*args)
-    return text if code == 0 else ""
+    return text.strip() if code == 0 else ""
 
 
 # --------------------------------------------------------------------------
@@ -76,9 +84,21 @@ def out(*args: str) -> str:
 
 
 def porcelain() -> list[tuple[str, str]]:
-    """[(xy, path), ...] from `git status --porcelain`."""
+    """[(xy, path), ...] from `git status --porcelain`.
+
+    Deliberately does NOT go through `out()`. Porcelain's status field is two
+    columns and an unmodified-in-index entry starts with a space, so the `.strip()`
+    in `out()` ate the leading space of the *first* line only — shifting that one
+    line's fields by one and turning `nodes/x.md` into `odes/x.md`, which then
+    failed the prefix test and vanished. One node silently missing from "you have
+    unreviewed drafts" is the exact failure this command exists to prevent, and it
+    only showed up as a count that disagreed with `git status`.
+    """
+    code, text = git("status", "--porcelain")
+    if code != 0:
+        return []
     entries = []
-    for line in out("status", "--porcelain").splitlines():
+    for line in text.split("\n"):
         if len(line) > 3:
             # Renames read "R  old -> new"; the destination is the one that matters.
             path = line[3:].split(" -> ")[-1].strip().strip('"')

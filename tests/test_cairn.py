@@ -1428,6 +1428,60 @@ class Sync(unittest.TestCase):
                 env={**os.environ, "CAIRN_ROOT": tmp})
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_the_first_modified_node_is_not_swallowed(self):
+        """The regression. `git status --porcelain` puts meaning in a leading
+        space, and stripping the whole output shifted the first line's fields by
+        one — so exactly one unreviewed node vanished from the report. It only
+        showed up as a count that disagreed with `git status`, which is the worst
+        way for this command in particular to be wrong."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "nodes").mkdir()
+            (root / "build").mkdir()
+            for name in ("a", "b", "c"):
+                (root / "nodes" / f"2026-08-02-prekd-{name}.md").write_text("x\n")
+            for cmd in (["init", "-q"], ["add", "-A"],
+                        ["-c", "user.email=t@t", "-c", "user.name=t",
+                         "commit", "-q", "-m", "seed"]):
+                subprocess.run(["git", "-C", str(root), *cmd], timeout=30,
+                               capture_output=True)
+            for name in ("a", "b", "c"):
+                (root / "nodes" / f"2026-08-02-prekd-{name}.md").write_text("edited\n")
+
+            result = subprocess.run(
+                [str(self.ROOT / "bin" / "cairn"), "sync", "--check"],
+                capture_output=True, text=True, timeout=60,
+                env={**os.environ, "CAIRN_ROOT": str(root)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for name in ("a", "b", "c"):
+                self.assertIn(f"2026-08-02-prekd-{name}.md", result.stdout,
+                              f"a modified node is missing from the report:\n{result.stdout}")
+            self.assertIn("3 node(s) edited", result.stdout)
+
+    def test_untracked_and_modified_are_reported_separately(self):
+        """They mean different things: untracked is almost always an agent draft
+        nobody has read, which is the one design decision 6 protects."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "nodes").mkdir()
+            (root / "build").mkdir()
+            (root / "nodes" / "2026-08-02-prekd-old.md").write_text("x\n")
+            for cmd in (["init", "-q"], ["add", "-A"],
+                        ["-c", "user.email=t@t", "-c", "user.name=t",
+                         "commit", "-q", "-m", "seed"]):
+                subprocess.run(["git", "-C", str(root), *cmd], timeout=30,
+                               capture_output=True)
+            (root / "nodes" / "2026-08-02-prekd-old.md").write_text("edited\n")
+            (root / "nodes" / "2026-08-03-prekd-new.md").write_text("draft\n")
+            result = subprocess.run(
+                [str(self.ROOT / "bin" / "cairn"), "sync", "--check"],
+                capture_output=True, text=True, timeout=60,
+                env={**os.environ, "CAIRN_ROOT": str(root)})
+            self.assertIn("1 node(s) never committed", result.stdout)
+            self.assertIn("1 node(s) edited", result.stdout)
+
     def test_it_does_not_need_pyyaml(self):
         """capture and sync are the two commands that must work on a machine where
         Cairn is otherwise broken, so neither may import lib."""
