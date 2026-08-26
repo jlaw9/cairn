@@ -7,7 +7,7 @@
 PY ?= $(shell scripts/find_python.sh)
 
 .PHONY: help setup doctor install-commands validate build test clean python _python \
-        digest standup
+        digest standup sync push install-context
 
 help:
 	@echo "make setup             hook + commands + a CAIRN_PATH reminder (once per machine)"
@@ -17,6 +17,8 @@ help:
 	@echo "make build             regenerate build/graph.html and build/graph.md"
 	@echo "make digest            what changed in the last 7 days, and what needs you"
 	@echo "make standup           what to pick up today, most-needs-you first"
+	@echo "make sync              pull the graph, and say what still needs you"
+	@echo "make push              regenerate build/, commit it, and push"
 	@echo "make test              run the test suite against the fixture graph"
 	@echo "make python            show which interpreter Cairn will use"
 
@@ -72,8 +74,20 @@ digest: _python
 standup: _python
 	@$(PY) scripts/standup.py $(ARGS)
 
+# Deliberately not dependent on _python. sync's whole job is to work on a
+# machine where something else is broken, so it goes through bin/cairn, which
+# probes for an interpreter without demanding PyYAML for this command.
+sync:
+	@bin/cairn sync $(ARGS)
+
+push:
+	@bin/cairn sync --push $(ARGS)
+
+install-context:
+	@bin/cairn install_context $(ARGS)
+
 test: _python
 	@$(PY) tests/test_cairn.py
 
 clean:
-	@rm -f build/graph.html build/graph.md
+	@rm -f build/graph.html build/graph.md build/report.md

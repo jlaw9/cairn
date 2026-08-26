@@ -58,16 +58,43 @@ Capture rather than log when any of these is true:
 - You aren't sure which project it belongs to, or it spans several.
 - It's a meeting. Meeting notes go in raw; see below.
 
-## Meetings
+## A reaction to a node that already exists
 
-A meeting has its own directory and doesn't need triage to be useful:
+If the thought is *about* a specific node — a doubt, a correction, "the number
+here looks wrong" — it belongs on the node, not in the queue. The inbox detaches
+it from the thing it is about, and nobody re-attaches it later.
 
 ```sh
-$CAIRN_PATH/meetings/<YYYY-MM-DD>-<who>.md
+$CAIRN_PATH/bin/cairn note <node-id> "<the sentence>"
 ```
 
-Write it raw — attendees, what was said, what was decided, what was promised.
-No schema. If the meeting produced a commitment with a deadline, that is a `task`
+That appends a dated bullet under `## Notes` in the node body. It does **not**
+change `status`, `updated` or `history` — a note is not a claim about the state
+of the work. `standup` and `digest` surface it, and a note dated after the node's
+last status change is reported as unanswered until the thread moves.
+
+**Write a note in Jeff's voice only when he said it.** If the observation is
+yours, it belongs in the history note of a status change (`/log`'s job) or in
+`inbox/`. A `## Notes` bullet reads as the human's word, and quietly putting your
+inference there makes the graph less trustworthy, not more.
+
+## Meetings
+
+A meeting has its own directory, and there is a command for getting one in:
+
+```sh
+$CAIRN_PATH/bin/cairn import_note <file> --meeting --who dave
+pbpaste | $CAIRN_PATH/bin/cairn import_note --meeting --who "dave, sarah"
+```
+
+That writes **two** files on purpose: the notes land in
+`meetings/<YYYY-MM-DD>-<who>.md`, and a one-line pointer lands in `inbox/`. The
+record is permanent and found by who was in the room; the *obligation to read it*
+is the queue item `/triage` consumes. Content is verbatim — never convert org
+markup, never reformat.
+
+Write it raw — attendees, what was said, what was decided, what was promised. No
+schema. If the meeting produced a commitment with a deadline, that is a `task`
 node later, and noting "→ task: X by Friday" inline is enough for triage to find
 it.
 

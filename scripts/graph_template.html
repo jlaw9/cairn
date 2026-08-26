@@ -154,6 +154,38 @@
   }
   #isolateOff:hover { color: var(--ink); }
 
+  /* Header buttons share one look with #isolateOff; `.on` is the pressed state. */
+  .hbtn {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim);
+    border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .hbtn:hover { color: var(--ink); }
+  .hbtn.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+  /* A note is a human sentence someone added after the fact. It gets a marker on
+     the glyph rather than a colour, because colour already means status and
+     overloading it would make both unreadable. */
+  .node .flag { fill: var(--pending); stroke: var(--bg); stroke-width: 1; }
+  .node.needs .ring { fill: none; stroke: var(--pending); stroke-width: 1.6; opacity: .85; }
+  .notes { font-size: 12.5px; }
+  .notes .n { border-left: 2px solid var(--pending); padding: 2px 0 2px 10px; margin-bottom: 9px; }
+  .notes .who { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .notebox textarea {
+    width: 100%; box-sizing: border-box; min-height: 54px; resize: vertical;
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 12.5px;
+  }
+  .notebox .cmd {
+    display: block; margin-top: 7px; font-size: 11.5px; color: var(--ink-faint);
+    background: var(--panel-2); border-radius: 5px; padding: 6px 8px;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .keys { font-size: 11px; color: var(--ink-faint); line-height: 1.9; }
+  .keys kbd {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px;
+    padding: 0 4px; font-family: inherit; font-size: 10.5px;
+  }
+
   #hover {
     position: fixed; z-index: 20; max-width: 330px; pointer-events: none;
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
@@ -189,8 +221,10 @@
   <span id="count" class="muted"></span>
   <button id="isolateOff" hidden>show all</button>
   <span class="grow"></span>
+  <button id="needs" class="hbtn" title="Only what needs attention (w)">needs you</button>
   <div class="timebar">
     <label class="muted" for="time">as of</label>
+    <button id="play" class="hbtn" title="Replay history (space)">▶</button>
     <input id="time" type="range" min="0" max="0" value="0">
     <span id="timeLabel">—</span>
   </div>
@@ -209,6 +243,14 @@
     </div>
     <h2>Edges</h2>
     <div id="relKey"></div>
+    <h2>Keys</h2>
+    <div class="keys">
+      <kbd>&larr;</kbd><kbd>&rarr;</kbd> along time ·
+      <kbd>&uarr;</kbd><kbd>&darr;</kbd> across lanes<br>
+      <kbd>p</kbd> parent · <kbd>c</kbd> child · <kbd>i</kbd> isolate<br>
+      <kbd>n</kbd> write a note · <kbd>w</kbd> needs you<br>
+      <kbd>space</kbd> replay · <kbd>/</kbd> search · <kbd>esc</kbd> close
+    </div>
   </aside>
 
   <div id="stage">
@@ -240,6 +282,7 @@ const state = {
   t: DATA.dates.length ? DATA.dates.length - 1 : 0,
   selected: null,
   isolate: null,
+  needs: false,
 };
 
 /* ---------- status as of a date: this is the replay ---------- */
@@ -253,6 +296,48 @@ const CLS = {
 const cutoff = () => DATA.dates.length ? DATA.dates[state.t] : '9999-12-31';
 const isLive = () => !DATA.dates.length || state.t === DATA.dates.length - 1;
 
+/* ---------- what needs a human ----------
+   `cairn standup` already answers this at the terminal, and the map had no way
+   to show it: a 115-node graph looks identical whether three threads are stalled
+   or none are. This is the same rule, in the same terms — a status that asserts
+   activity, gone quiet; or a note somebody left that no later work answered.
+
+   Kept as one predicate rather than baked into the payload so it stays honest
+   under the time slider: "needs you" as of June has to mean what it meant in
+   June, not what it means today. */
+const QUIET_DAYS = 14;
+const ACTIVE_STATUS = new Set(['running', 'doing', 'submitted', 'planned', 'todo']);
+const DAY = 86400000;
+
+/* "Quiet" has to be measured against a wall-clock date, not against the newest
+   node in the graph — otherwise the last thread anyone touched is by definition
+   never quiet, and a graph nobody has fed for two months reports nothing wrong.
+   `generated` is the build date, which is the right answer here: the map is only
+   as current as its last `make build`, and saying so is more honest than reading
+   the viewer's clock and implying the data is live. */
+const BUILT = DATA.generated || (DATA.dates[DATA.dates.length - 1] || '');
+const ageRef = () => isLive() ? BUILT : cutoff();
+
+function daysSince(iso, when) {
+  if (!iso) return -1;
+  return Math.round((Date.parse(when) - Date.parse(iso)) / DAY);
+}
+
+/** Notes dated at or after the node's last status change — nothing answered them. */
+function openNotes(n, when) {
+  const last = [...(n.history || [])].filter(h => h.date <= when).pop();
+  const floor = last ? last.date : n.created;
+  return (n.notes || []).filter(x => x.date && x.date <= when && x.date >= floor);
+}
+
+function needsYou(n, when) {
+  if (openNotes(n, when).length) return true;
+  const s = statusAt(n, when);
+  if (!ACTIVE_STATUS.has(s)) return false;
+  const last = [...(n.history || [])].filter(h => h.date <= when).pop();
+  return daysSince(last ? last.date : n.created, ageRef()) >= QUIET_DAYS;
+}
+
 function statusAt(n, when) {
   if (isLive()) return n.status;
   let s = null;
@@ -262,6 +347,7 @@ function statusAt(n, when) {
 
 function visible(n) {
   const when = cutoff();
+  if (state.needs && !needsYou(n, when)) return false;
   if (!isLive() && n.created > when) return false;
   const s = statusAt(n, when);
   if (s === null) return false;
@@ -372,9 +458,17 @@ function draw() {
     const cls = CLS[statusAt(n, when)] || 'idle';
     const dim = kin && !kin.has(n.id) ? ' dim' : '';
     const on = n.id === sel ? ' sel' : '';
+    // A ring for "needs you", a dot for "carries an unanswered note". Both are
+    // marks on top of the glyph rather than changes to it, because shape already
+    // means type and fill already means status — a third axis has to be a
+    // decoration or the map stops being decodable.
+    const attn = needsYou(n, when);
+    const noted = openNotes(n, when).length;
     parts.push(
-      `<g class="node ${cls}${dim}${on}" transform="translate(${n.x},${n.y})" data-id="${esc(n.id)}">` +
+      `<g class="node ${cls}${dim}${on}${attn ? ' needs' : ''}" transform="translate(${n.x},${n.y})" data-id="${esc(n.id)}">` +
+      (attn ? `<circle class="ring" r="${R + 5}"></circle>` : '') +
       glyph(n.shape) +
+      (noted ? `<circle class="flag" cx="${R - 3}" cy="${-R + 3}" r="3.4"></circle>` : '') +
       `<text class="label" x="${R + 7}" y="4">${esc(n.label)}</text>` +
       `</g>`
     );
@@ -434,6 +528,37 @@ function refreshCounts() {
 }
 
 /* ---------- detail panel ---------- */
+/* ---------- leaving a note ----------
+   The map is a file:// page with no server, by design decision — so it cannot
+   write to the repo, and pretending otherwise would mean a note that lives in
+   one browser's localStorage and is invisible from the other machine. That is
+   the failure mode this whole repo exists to avoid, so the page does the one
+   thing it honestly can: compose the exact command and put it on the clipboard.
+
+   Two keystrokes at a terminal, and the note lands in the node body, in git, on
+   both machines, where `cairn standup` and the next agent session will both find
+   it. `cairn note` also works without ever opening this page. */
+function noteBox(n) {
+  return `<div class="sect notebox"><div class="hd">Leave a note</div>` +
+    `<textarea id="noteText" rows="2" placeholder="a doubt, a correction, the number that looks wrong…"></textarea>` +
+    `<div class="actions" style="margin-top:8px">` +
+      `<span data-note="${esc(n.id)}">copy command</span>` +
+      `<span data-noteclear="1">clear</span>` +
+    `</div>` +
+    `<code class="cmd" id="noteCmd">cairn note ${esc(n.id)} "…"</code>` +
+    `</div>`;
+}
+
+/** Shell-single-quote a note so a stray quote or backtick can't rewrite it. */
+function shq(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+function noteCommand(id) {
+  const text = ($('#noteText')?.value || '').trim().replace(/\s+/g, ' ');
+  return `cairn note ${id} ${text ? shq(text) : '"…"'}`;
+}
+
 function open(id) {
   const n = byId.get(id);
   if (!n) return;
@@ -507,7 +632,16 @@ function open(id) {
     section('History', `<ul class="hist" style="padding-left:0;margin:0">` + n.history.map(h =>
       `<li${h.date > when ? ' class="future"' : ''}>` +
       `<span class="d">${esc(h.date)}</span><strong>${esc(h.status)}</strong>` +
-      (h.note ? ` — ${esc(h.note)}` : '') + `</li>`).join('') + `</ul>`);
+      (h.note ? ` — ${esc(h.note)}` : '') + `</li>`).join('') + `</ul>`) +
+    // Notes are already inside `n.body` — this section is the same text pulled
+    // out and shown again, so the newest human sentence about this node is at
+    // the bottom of the panel where the composer is, rather than buried in the
+    // middle of a long body.
+    section('Notes', (n.notes || []).filter(x => !x.date || x.date <= when).map(x =>
+      `<div class="n"><span class="who">${esc(x.date)}${x.who ? ' · ' + esc(x.who) : ''}</span>` +
+      `<div>${esc(x.text)}</div></div>`
+    ).join('')) +
+    noteBox(n);
 
   panel.classList.add('open');
   panel.scrollTop = 0;
@@ -681,6 +815,25 @@ document.addEventListener('click', e => {
     e.target.textContent = 'copied';
     setTimeout(() => { e.target.textContent = 'copy link'; }, 1200);
   }
+  if (d.note) {
+    const cmd = noteCommand(d.note);
+    navigator.clipboard?.writeText(cmd);
+    $('#noteCmd').textContent = cmd;
+    e.target.textContent = 'copied — paste in a terminal';
+    setTimeout(() => { e.target.textContent = 'copy command'; }, 2000);
+  }
+  if (d.noteclear && $('#noteText')) {
+    $('#noteText').value = '';
+    $('#noteCmd').textContent = noteCommand(state.selected || '<node-id>');
+  }
+});
+
+// Keep the shown command in step with the textarea, so what you copy is never
+// stale relative to what you can see.
+document.addEventListener('input', e => {
+  if (e.target.id === 'noteText' && state.selected) {
+    $('#noteCmd').textContent = noteCommand(state.selected);
+  }
 });
 $('#isolateOff').onclick = () => { state.isolate = null; draw(); fit(); };
 
@@ -721,9 +874,130 @@ svg.addEventListener('pointermove', e => {
   else { hover.style.left = Math.max(6, e.clientX + 16) + 'px'; }
 });
 svg.addEventListener('pointerleave', () => { hover.hidden = true; hoverId = null; });
+/* ---------- the needs-you lens ---------- */
+const needsBtn = $('#needs');
+function setNeeds(on) {
+  state.needs = on;
+  needsBtn.classList.toggle('on', on);
+  draw();
+  // Fit rather than stay put: narrowing 115 nodes to four leaves those four
+  // somewhere off-screen at the current pan, which reads as a broken filter.
+  if (DATA.nodes.some(visible)) fit();
+}
+needsBtn.onclick = () => setNeeds(!state.needs);
+
+/* ---------- replay ----------
+   The slider always could do this; nobody drags a slider to watch a shape
+   change. Autoplay is the difference between a control and an animation, and
+   the animation is the thing that makes five months of work legible at once. */
+const playBtn = $('#play');
+let playTimer = null;
+
+function stopPlay() {
+  clearInterval(playTimer);
+  playTimer = null;
+  playBtn.textContent = '▶';
+  playBtn.classList.remove('on');
+}
+
+function startPlay() {
+  if (!DATA.dates.length) return;
+  // Restart from the beginning when already at the end, so the button is never
+  // a no-op — pressing play at "now" should replay, not do nothing.
+  if (isLive()) { state.t = 0; }
+  playBtn.textContent = '❚❚';
+  playBtn.classList.add('on');
+  // Fixed total duration rather than fixed step time: a 40-date graph and a
+  // 400-date graph should both take about ten seconds to watch.
+  const step = Math.max(1, Math.round(DATA.dates.length / 120));
+  playTimer = setInterval(() => {
+    state.t = Math.min(DATA.dates.length - 1, state.t + step);
+    timeInput.value = state.t;
+    updateTimeLabel();
+    draw();
+    if (state.selected && !visible(byId.get(state.selected))) close();
+    if (isLive()) stopPlay();
+  }, Math.max(40, Math.round(10000 / (DATA.dates.length / step))));
+}
+
+const togglePlay = () => playTimer ? stopPlay() : startPlay();
+playBtn.onclick = togglePlay;
+timeInput.addEventListener('pointerdown', stopPlay);
+
+/* ---------- keyboard navigation ----------
+   The map was mouse-only, which meant reading a lineage was a sequence of aimed
+   clicks at 11px labels. Arrow keys walk the graph the way it is laid out — x is
+   time, y is a project lane — and p/c walk the edges, which is the movement the
+   data is actually shaped around. */
+function walk(dx, dy) {
+  const shown = DATA.nodes.filter(visible);
+  if (!shown.length) return;
+  const cur = state.selected ? byId.get(state.selected) : null;
+  if (!cur || !shown.includes(cur)) {
+    return open(shown[0].id);                 // nothing selected: start at the oldest
+  }
+  let pool;
+  if (dx) {
+    // Along time, within this lane. Ties broken by y so two nodes created the
+    // same day in the same project are still both reachable.
+    pool = shown.filter(n => n.y === cur.y && (dx > 0 ? n.x > cur.x : n.x < cur.x));
+    pool.sort((a, b) => dx > 0 ? a.x - b.x : b.x - a.x);
+  } else {
+    // Across lanes: the nearest node in the next lane, measured on x, so
+    // stepping down a column stays roughly on the same date.
+    const lanes = [...new Set(shown.map(n => n.y))].sort((a, b) => a - b);
+    const next = lanes.filter(y => dy > 0 ? y > cur.y : y < cur.y);
+    if (!next.length) return;
+    const target = dy > 0 ? next[0] : next[next.length - 1];
+    pool = shown.filter(n => n.y === target);
+    pool.sort((a, b) => Math.abs(a.x - cur.x) - Math.abs(b.x - cur.x));
+  }
+  if (pool.length) { open(pool[0].id); centerOn(pool[0].id); }
+}
+
+function hop(key) {
+  const cur = state.selected && byId.get(state.selected);
+  if (!cur) return;
+  const ids = (key === 'p' ? cur.parents : cur.children).filter(i => byId.has(i));
+  if (ids.length) { open(ids[0]); centerOn(ids[0]); }
+}
+
+const TYPING = () => {
+  const el = document.activeElement;
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+};
+
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') close();
-  if (e.key === '/' && document.activeElement !== $('#search')) { e.preventDefault(); $('#search').focus(); }
+  if (e.key === 'Escape') {
+    if (TYPING()) return document.activeElement.blur();
+    stopPlay();
+    return close();
+  }
+  if (TYPING()) return;                        // never hijack a key mid-sentence
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  if (e.key === '/') { e.preventDefault(); return $('#search').focus(); }
+  if (e.key === ' ') { e.preventDefault(); return togglePlay(); }
+  if (e.key === 'w') { e.preventDefault(); return setNeeds(!state.needs); }
+  if (e.key === 'n') {
+    if (!state.selected) return;
+    e.preventDefault();
+    return $('#noteText')?.focus();
+  }
+  if (e.key === 'i' && state.selected) {
+    e.preventDefault();
+    const id = state.selected;
+    state.isolate = state.isolate === id ? null : id;
+    open(id);
+    return state.isolate ? centerOn(id) : fit();
+  }
+  if (e.key === 'p' || e.key === 'c') { e.preventDefault(); return hop(e.key); }
+
+  const arrows = {ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1]};
+  if (arrows[e.key]) {
+    e.preventDefault();
+    return walk(...arrows[e.key]);
+  }
 });
 
 /* URL: #node-id selects, ?since=YYYY-MM-DD or ?t= rewinds, ?project= filters */

@@ -13,14 +13,24 @@
 # response to it is to fix a schema error that isn't there.
 #
 # Override with CAIRN_PYTHON=/path/to/python for anything exotic.
+#
+# `--any` drops the PyYAML half of the test. Two commands genuinely do not need
+# it — `capture` and `sync` — and both are written not to import lib for that
+# reason: capture must not lose a thought to a dependency error, and sync must
+# still pull on a machine where something else is broken. Requiring PyYAML to
+# *launch* them threw that guarantee away one layer up from where it was made.
+
+need_yaml=1
+[ "$1" = "--any" ] && { need_yaml=0; shift; }
 
 check() {
     [ -n "$1" ] || return 1
     command -v "$1" >/dev/null 2>&1 || [ -x "$1" ] || return 1
-    "$1" - >/dev/null 2>&1 <<'PY' || return 1
-import sys
-sys.exit(0 if sys.version_info >= (3, 7) and __import__("yaml") else 1)
-PY
+    "$1" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 7) else 1)' \
+        >/dev/null 2>&1 || return 1
+    if [ "$need_yaml" -eq 1 ]; then
+        "$1" -c 'import yaml' >/dev/null 2>&1 || return 1
+    fi
     command -v "$1" 2>/dev/null || echo "$1"
 }
 

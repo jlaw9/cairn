@@ -165,6 +165,44 @@ Tasks are nodes rather than a side list so they render as the pending frontier
 of the graph. An open task with no `due` warns — it will never surface in a
 digest, which makes it invisible rather than pending.
 
+## `## Notes` — the one body section a tool writes
+
+Not a field. A note is a human sentence added to a node after the fact, and it
+lives in the body under a `## Notes` heading, one dated bullet per note:
+
+```markdown
+## Notes
+
+- **2026-08-26** (jlaw) the spread looks bimodal — does it track the seed?
+```
+
+Written by `bin/cairn note <id> "..."`, read by `lib.read_notes()`, surfaced by
+`standup`, `digest`, `build/report.md` and the map. The shape is fixed rather
+than free prose only because it has to parse back out; bold date first so it
+reads correctly in the rendered panel, on GitHub, and in Obsidian, none of which
+know anything about this format.
+
+Why it is not a field, since "resist new fields" is rule 5 and this is the case
+that most wants to break it:
+
+- **A note is not a claim about the state of the work.** `status`, `updated` and
+  `history` move in lockstep and only for status changes. A `notes:` list would
+  be a fifth list to maintain and a sixth thing to validate, and it would tempt
+  a writer into moving `updated` — which would make the replay slider show a
+  status change that never happened.
+- **The line carries its own date**, so nothing is lost by living in the body.
+  `## Next` was already read out of bodies by `standup`; this is the same
+  mechanism, one regex wider.
+- **"Unanswered" is therefore derivable**: a note dated at or after the node's
+  last history entry is one no later work responded to. Once the thread moves,
+  the note stops being reported — which is what keeps it from becoming a nag
+  list nobody reads.
+
+A hand-written continuation line (an indented second line under a bullet) is
+folded into the note above it rather than dropped. These files are markdown that
+someone will edit by hand; losing a sentence because it lacked a bold date is
+the wrong trade.
+
 ## Papers registry
 
 `papers/<doi-slug>.md`, where the slug is the DOI with `/` replaced by `__`.

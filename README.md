@@ -22,6 +22,45 @@ The agent doing the work can now write the record. Every design decision here
 serves that one fact, so **when expressiveness and capture reliability
 conflict, capture wins.**
 
+### What about Graphify?
+
+[Graphify](https://github.com/Graphify-Labs/graphify) turns a codebase into a
+queryable knowledge graph — tree-sitter AST parsing, typed edges (`calls`,
+`imports`, `inherits`), Leiden community detection, an interactive
+force-directed `graph.html`, and a generated `GRAPH_REPORT.md` naming the
+most-connected "god nodes". It is good, it is fast, and it is **orthogonal to
+this**.
+
+The distinction is the one its own commenters kept making: Graphify maps the
+**current state of a codebase**; Cairn maps the **history of research
+decisions**. Graphify does read `# WHY:` and `# HACK:` comments and ADRs as
+first-class nodes, so it captures rationale that *exists in the repo* — but a
+dead end leaves no comment, because the code was deleted. "We tried fitting
+published final Tg values as Tgp and the literature refutes it" is not in any
+AST, will never be in one, and is exactly the node that stops the idea being had
+twice. Same for *when* a decision was made, which Cairn gets free from `history`
+being an event log and Graphify has no axis for.
+
+Practically: run both. Graphify in a project repo to orient in the code, Cairn
+across projects to know what has been tried. Three of its ideas were worth
+taking, and two of them are in here:
+
+- **The generated report as an entry point.** `build/report.md` — see below. Its
+  "start here" section is Graphify's god-nodes idea; its "connections across
+  projects" section is the surprising-connections idea, except the definition can
+  be exact here rather than heuristic.
+- **`EXTRACTED` vs `INFERRED` on every edge**, so you always know what was read
+  versus guessed. The analogue that matters here is *contemporaneity* — was this
+  node written the day the work happened, or reconstructed six weeks later? — and
+  it was already derivable from git, so it cost no field.
+- **A git merge driver** that union-merges the generated graph on parallel
+  commits. Cairn's version of that problem is `build/`, and `cairn sync` now
+  resolves it by regenerating rather than merging.
+
+Not taken: force-directed layout (research history has a real time axis, and a
+force layout throws it away), and a vector store or MCP server for search (110
+nodes of text parse in well under a second).
+
 ## Install — once per machine
 
 **New here, or setting up a machine that isn't the one this was written on? Read
@@ -37,16 +76,42 @@ export PATH=$CAIRN_PATH/bin:$PATH           # optional: plain `cairn` anywhere
 make doctor                                 # confirm all four steps took
 ```
 
-Then add one line to each **project** repo's `CLAUDE.md`, which is the step that
-decides whether the graph gets maintained or not:
+Then wire the machine up once, so every session sees the graph without a
+per-project step:
+
+```sh
+cairn install_context            # dry run: says what it would change
+cairn install_context --apply
+```
+
+That does three things, none of them per-project:
+
+1. Writes a marked block into `~/.claude/CLAUDE.md` — user-level memory, loaded
+   in every session in every directory — naming the graph and the four verbs.
+2. Installs a `SessionStart` hook running `cairn session_hook`, which pulls
+   (throttled) and returns the graph's current state as the session's context,
+   plus a `SessionEnd` hook that says what is unpushed.
+3. Symlinks the slash commands, so `/log`, `/standup`, `/capture`, `/triage`
+   and `/digest` resolve from any repo.
+
+**The hook is the part a pointer can't do.** A line in a `CLAUDE.md` has to be
+*followed*, and an agent in the middle of a task does not go looking; state
+already in the context window gets used. `cairn session_hook --dry-run` prints
+exactly what a new session will be told, and `cairn install_context --remove`
+takes all of it back out. Everything it writes is inside markers, so it never
+touches a setting it didn't write — including other people's hooks on the same
+events.
+
+The older, narrower route still works and is worth knowing about, because it is
+what makes the conventions reachable rather than just the pointer: one line in a
+project repo's own `CLAUDE.md`.
 
 ```markdown
 Research activity is recorded in Cairn. To capture a note, resume a project, or
 log a session, read the matching skill under `$CAIRN_PATH/skills/`.
 ```
 
-An agent working in a project repo otherwise has no idea the graph exists. That
-one line makes three skills reachable at zero cost until used — see
+That makes three skills reachable at zero cost until used — see
 [skills/README.md](skills/README.md).
 
 The `PATH` line is convenience only. `bin/cairn` works by path from anywhere, and
@@ -240,15 +305,18 @@ papers/      one page per cited paper, keyed by DOI
 meetings/    raw meeting notes
 inbox/       unstructured capture awaiting triage
 assets/      small figures only
-build/       generated: graph.html (self-contained) and graph.md (Mermaid)
+build/       generated: graph.html (self-contained), graph.md (Mermaid),
+             report.md (where to start, and how much to trust a gap)
 scripts/     lib.py, validate.py, build_graph.py, new_node.py, add_paper.py,
-             mine_sessions.py, digest.py, standup.py, capture.py, sync_issues.py
+             mine_sessions.py, digest.py, standup.py, capture.py, sync_issues.py,
+             sync.py, note.py, import_note.py, report.py, session_hook.py,
+             install_context.py
 skills/      path-addressed skills, so agents in *other* repos can use the graph
 docs/        install.md, schema.md, backfill.md, worked examples
 ```
 
 `make doctor` · `make validate` · `make build` · `make digest` · `make standup` ·
-`make test`
+`make sync` · `make push` · `make test`
 
 In a node body, `[[2026-07-01-polyid-network-ablation]]` refers to another node
 and renders as a link to it, labelled with that node's title. `make validate`
@@ -304,6 +372,91 @@ org-capture template on a laptop and a shell on a cluster are the same mechanism
 Nothing in `inbox/` is ever parsed, so there is nothing to convert.
 
 `/triage` turns the queue into nodes, or discards it. Both are correct outcomes.
+
+For a file that already exists somewhere else — a meeting's org buffer, a pasted
+mail, notes someone sent you:
+
+```sh
+cairn import_note ~/notes/2026-08-26-dave.org --meeting --who dave
+cairn import_note ~/Downloads/scribbles.md --project polyid
+pbpaste | cairn import_note --meeting --who "dave, sarah" --title "CG handoff"
+```
+
+A meeting import writes **two** files, and that is the design rather than an
+accident. The notes themselves go to `meetings/<date>-<who>.md`, because a
+meeting note is a durable record you find by who was in the room. A one-line
+pointer goes to `inbox/`, because the thing that belongs in a queue is not the
+record but the *obligation to read it*, and that is what `/triage` consumes.
+Content lands verbatim, always — org markup in a `.md` file is not a problem to
+be solved.
+
+## Notes on a node
+
+```sh
+cairn note 2026-07-20-polyid-run-variance "the spread looks bimodal — seeds?"
+cairn note polyid-run-variance                 # unique suffix is enough; opens $EDITOR
+cairn note --list --project polyid
+```
+
+The agent writes the record; you read it later and have a reaction — a doubt, a
+correction, "the number here is wrong", "this is the one that matters". Until
+this existed the only places to put that were a status change, which lies about
+what happened, and the inbox, which detaches the thought from the node it is
+about.
+
+A note appends a dated bullet under `## Notes` in the node body:
+
+```
+- **2026-08-26** (jlaw) the spread looks bimodal — does it track the seed?
+```
+
+`standup`, `digest`, `build/report.md` and the map all read them back. Three
+things are deliberate:
+
+- **It is a body edit, not a status change.** `status`, `updated` and `history`
+  don't move, because a note isn't a claim about the state of the work. If it
+  moved `updated`, the replay slider would show a change that never happened.
+- **No new field**, against rule 5. The line carries its own date, so it stays
+  findable by reading the body — exactly how `## Next` is already read.
+- **"Unanswered" is derived.** A note dated at or after the node's last history
+  entry is one no later work has responded to; once the thread moves, it stops
+  being reported. That is what keeps it off a nag list.
+
+It **commits by default**, which is the one place this differs from `capture`:
+design decision 6 refuses to commit a node *you haven't seen*, and a sentence you
+just typed is the definition of seen. The whole value is that it's visible from
+the other machine tomorrow. The note is written to the file before the commit is
+attempted, so a commit that fails on unrelated schema drift costs it nothing.
+
+And it works the other way round too — this is the answer to "can Claude pick up
+on comments I left?". Yes: notes are in the node body, so they are in `standup`'s
+resume packet, in the session-start context, and in the report. A note is how you
+hand an instruction to next week's session without writing a prompt.
+
+## Where to start, and how much to trust a gap
+
+`make build` also writes **`build/report.md`**, which answers the questions the
+map and `standup` don't:
+
+- **Start here** — the most-connected nodes. Everything hangs off these, so
+  they're the cheapest way into a project, and changing what one claims has the
+  widest blast radius.
+- **Connections across projects** — every edge whose two ends sit in different
+  projects. A project repo cannot know about these, which is precisely why the
+  graph is one graph and not one per project.
+- **Coverage** — per project: how many nodes, how many settled, how many dead
+  ends, and *what share were committed within a week of the work they describe*.
+  This is the table that makes the "a missing node means not tried" rule usable
+  at all. A project at 0% is a reconstruction, and a reconstruction is biased
+  toward what worked, so a gap there means the graph doesn't know.
+- **Reconstructed after the fact**, **Unattached**, and **notes nobody answered**.
+
+That contemporaneity number is the one idea worth taking from
+[Graphify](https://github.com/Graphify-Labs/graphify), which tags every edge
+`EXTRACTED` or `INFERRED` so you always know what was read versus guessed. The
+same distinction matters here and is already *derivable* — git knows when the
+file landed, the frontmatter says when the work happened, and the difference is
+capture lag. It costs no field, which is the only reason it belongs.
 
 ## What changed, and what needs you
 
@@ -387,13 +540,39 @@ It's a full interactive app, just one served from disk instead of a server:
 - **copy link** → deep link to a node (`graph.html#<node-id>`)
 - **the "as of" slider replays history** from the `history` log — drag it back
   and the graph shows what was known then, with the statuses of that date, and
-  the panel follows
-- filter by project / type / status, search, pan, wheel-zoom, `/` to search,
-  `Esc` to close; colour = status, shape = type
+  the panel follows. **`▶` plays it**, which is the difference between a control
+  and an animation: nobody drags a slider to watch a shape change, and the
+  animation is what makes five months legible at once
+- **needs you** → collapse to what is actually waiting: a thread whose status
+  asserts activity but which has gone quiet, or a node carrying a note nobody has
+  answered. Same rule as `cairn standup`, evaluated against the slider's date, so
+  "needs you as of June" means what it meant in June
+- **leave a note** → type it in the panel and copy the exact `cairn note` command
+  to your clipboard. The page is `file://` with no server by design, so it cannot
+  write to the repo — and a comment living in one browser's localStorage, invisible
+  from the other machine, is the failure this whole repo exists to avoid. Two
+  keystrokes at a terminal and the note is in the node body, in git, on both
+  machines, where `standup` and the next agent session both find it
+- **keyboard navigation** — arrow keys walk the layout (x is time, y is a project
+  lane), `p`/`c` walk the edges, `i` isolates, `n` writes a note, `w` toggles
+  needs-you, `space` plays the replay, `/` searches, `Esc` closes
+- a ring marks a node that needs you; a dot marks one carrying a note. Marks on
+  top of the glyph, never changes to it — shape already means type and fill
+  already means status, so a third axis has to be a decoration or the map stops
+  being decodable
+- filter by project / type / status / author, search, pan, wheel-zoom
 - URL params: `?since=YYYY-MM-DD`, `?project=<key>`, `#<node-id>`
 
 `build/graph.md` is a Mermaid fallback that renders in GitHub, an editor, or a
 terminal.
+
+**`nodes/` is already an Obsidian vault**, and nothing had to be built for that.
+Node bodies refer to each other as `[[<node-id>]]`, which is Obsidian's own
+wikilink syntax, so pointing Obsidian at this repo gives you backlinks, a local
+graph view, full-text search, and a mobile app — over the same files, in the same
+git remote, with no export step. Use it when you want to *write*; use
+`graph.html` when you want the time axis, the replay and the lineage view, which
+Obsidian has no idea about.
 
 Because the whole graph is in git, checking out an old commit and re-rendering
 replays the research history a second way, for free.
@@ -433,12 +612,37 @@ for the conventions the agent follows.
 ## Two machines, or two people
 
 Clone on every machine you work on, synced through this remote, and run
-`make setup` on each. Neither machine ever needs to reach the other: nodes
-reference code by `repo` + `commit` and outputs by `host:/path`.
+`make setup` and `cairn install_context --apply` on each. Neither machine ever
+needs to reach the other: nodes reference code by `repo` + `commit` and outputs
+by `host:/path`.
 
-`git pull --rebase` at the start of a session, commit and push at the end.
-Conflicts are near-impossible — nodes are separate append-only files. The only
-shared-file contention is `build/`, which should be regenerated, never merged.
+```sh
+cairn sync                     # pull, then say what still needs you
+cairn sync --push              # regenerate build/, commit build/, push
+cairn sync --check             # no network; local state only
+```
+
+The friction here was never storage — that question got asked and refuted, in
+`2026-08-21-cairn-database-question`. It is a **habit gap at two moments**:
+forgetting to pull before working, and forgetting to push after. The second is
+the expensive one, because the work is written down and simply invisible from
+the other machine.
+
+So `sync` automates the half that is safe to automate and *reports* the half
+that isn't. **It never commits a node** — design decision 6 — so `--push`
+commits only `build/`, which is generated. Nodes stay uncommitted and get named,
+because a node file that has never been committed is almost always a draft
+nobody has read yet.
+
+Conflicts are near-impossible: nodes are separate append-only files. The only
+shared-file contention is `build/`, and `sync` resolves that itself the way this
+README always prescribed — when a rebase stops *only* on `build/`, it
+regenerates rather than merging, and continues. A conflict anywhere else is left
+for a human, because anywhere else it means something interesting happened.
+
+With `install_context` in place, the pull happens on its own at session start
+and the "you have unpushed work" warning at session end. Neither replaces
+`sync --push`; they make forgetting visible.
 
 **The same mechanism carries a second person.** Two machines and two people are
 the same problem to this repo, so a collaborator is a collaborator on the git

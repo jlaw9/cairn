@@ -1296,6 +1296,361 @@ class Skills(unittest.TestCase):
             self.assertEqual(meta["name"], path.parent.name)
 
 
+class Notes(unittest.TestCase):
+    """A note is a body edit that has to stay findable, stay parseable, and stay
+    out of the status log. Each test here is one of those three going wrong."""
+
+    def note_node(self, body="## Claim\n\nBody text.\n"):
+        text = node_text("2026-08-02-prekd-notes")
+        head, _, _ = text.partition("---\n\n## Claim")
+        return lib.Node(path=FIXTURE / "nodes" / "2026-08-02-prekd-notes.md",
+                        meta={"id": "2026-08-02-prekd-notes", "type": "experiment",
+                              "title": "T", "project": "prekd", "status": "running",
+                              "created": dt.date(2026, 8, 2),
+                              "updated": dt.date(2026, 8, 2),
+                              "history": [{"date": dt.date(2026, 8, 2),
+                                           "status": "running", "note": "created"}]},
+                        body=body)
+
+    def test_a_note_round_trips(self):
+        node = self.note_node()
+        lib.append_note(node, "the spread looks bimodal", who="jlaw",
+                        when=dt.date(2026, 8, 26))
+        notes = lib.read_notes(node)
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0]["date"], dt.date(2026, 8, 26))
+        self.assertEqual(notes[0]["who"], "jlaw")
+        self.assertEqual(notes[0]["text"], "the spread looks bimodal")
+
+    def test_a_note_survives_the_yaml_writer(self):
+        """The frontmatter writer once mangled commas; the body must be immune,
+        and a note is the first body content written by a tool rather than typed."""
+        node = self.note_node()
+        lib.append_note(node, "past 1,000 systems: it held", who="jlaw",
+                        when=dt.date(2026, 8, 26))
+        node.path.write_text(node.to_text(), encoding="utf-8")
+        reread = lib.parse_file(node.path)
+        self.assertEqual(lib.read_notes(reread)[0]["text"],
+                         "past 1,000 systems: it held")
+
+    def test_notes_do_not_touch_status_or_updated(self):
+        """Rule 4 ties `status` and `history` together, and `updated` to both. A
+        note is not a claim about the state of the work — if it moved `updated`,
+        the replay slider would show a status change that never happened."""
+        node = self.note_node()
+        before = (node.status, node.meta["updated"], len(node.history))
+        lib.append_note(node, "a thought", who="jlaw", when=dt.date(2026, 8, 26))
+        self.assertEqual((node.status, node.meta["updated"], len(node.history)), before)
+
+    def test_a_note_lands_inside_an_existing_notes_section(self):
+        """Appending at the end of the file instead would leave `## Next` below a
+        stray second `## Notes`, and split the notes across two places."""
+        node = self.note_node(
+            "## Claim\n\nBody.\n\n## Notes\n\n- **2026-08-10** (jlaw) earlier\n"
+            "\n## Next\n\nRe-run at 15 seeds.\n")
+        lib.append_note(node, "later", who="jlaw", when=dt.date(2026, 8, 26))
+        self.assertEqual(node.body.count("## Notes"), 1)
+        self.assertIn("Re-run at 15 seeds.", node.body)
+        self.assertEqual([n["text"] for n in lib.read_notes(node)], ["earlier", "later"])
+        self.assertEqual(lib.body_section(node.body, ["next"]), "Re-run at 15 seeds.")
+
+    def test_a_hand_written_continuation_line_is_not_dropped(self):
+        """These files are markdown someone will edit by hand. Losing a sentence
+        because it lacked a bold date is the wrong trade for a capture tool."""
+        node = self.note_node(
+            "## Notes\n\n- **2026-08-10** (jlaw) first part\n  and the rest of it\n")
+        self.assertEqual(lib.read_notes(node)[0]["text"],
+                         "first part and the rest of it")
+
+    def test_a_multiline_note_is_folded_to_one_line(self):
+        """A note is one bullet. An embedded newline would end the bullet and turn
+        the tail into a sibling of the list, which read back as a second note."""
+        node = self.note_node()
+        lib.append_note(node, "line one\nline two", who="jlaw",
+                        when=dt.date(2026, 8, 26))
+        self.assertEqual(len(lib.read_notes(node)), 1)
+        self.assertEqual(lib.read_notes(node)[0]["text"], "line one line two")
+
+
+class OpenNotes(unittest.TestCase):
+    """"Unanswered" is derived, not stored: a note dated at or after the node's
+    last status change is one no later work responded to."""
+
+    def setUp(self):
+        clear()
+        import standup
+        self.standup = standup
+
+    def node_with(self, note_date, updated="2026-08-10"):
+        write("2026-08-02-prekd-n.md", node_text(
+            "2026-08-02-prekd-n", updated=updated,
+            history=(f"  - {{date: 2026-08-02, status: running, note: created}}\n"
+                     f"  - {{date: {updated}, status: running, note: moved}}"))
+            + f"\n## Notes\n\n- **{note_date}** (jlaw) look at this\n")
+        nodes, _ = lib.load_nodes()
+        return nodes["2026-08-02-prekd-n"]
+
+    def test_a_note_after_the_last_change_is_open(self):
+        self.assertEqual(len(self.standup.open_notes(self.node_with("2026-08-20"))), 1)
+
+    def test_a_note_the_work_moved_past_is_closed(self):
+        """Otherwise every note ever left is reported forever, and the section
+        becomes a nag list people learn to skip."""
+        self.assertEqual(self.standup.open_notes(self.node_with("2026-08-01")), [])
+
+
+class Sync(unittest.TestCase):
+    """sync's job is to be un-scary: it must never commit a node, and it must not
+    fail when the network or the interpreter is missing."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_it_never_commits_a_node(self):
+        """Design decision 6. A grep, because this is a property of the whole file
+        rather than of one call, and a future `git add -A` would break it."""
+        text = (self.ROOT / "scripts" / "sync.py").read_text()
+        for line in text.splitlines():
+            if 'git("add"' in line or 'git("commit"' in line:
+                self.assertTrue(
+                    "build" in line or "-m" in line,
+                    f"sync must only ever stage build/: {line.strip()}")
+
+    def test_check_exits_zero_on_a_repo_with_nothing_to_say(self):
+        """It is wired into a session hook, and a hook that fails gets deleted."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            for sub in ("nodes", "build"):
+                (Path(tmp) / sub).mkdir()
+            subprocess.run(["git", "init", "-q", tmp], timeout=30)
+            result = subprocess.run(
+                [str(self.ROOT / "bin" / "cairn"), "sync", "--check"],
+                capture_output=True, text=True, timeout=60,
+                env={**os.environ, "CAIRN_ROOT": tmp})
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_it_does_not_need_pyyaml(self):
+        """capture and sync are the two commands that must work on a machine where
+        Cairn is otherwise broken, so neither may import lib."""
+        text = (self.ROOT / "scripts" / "sync.py").read_text()
+        self.assertNotRegex(text, r"^import lib", )
+        self.assertNotIn("\nimport lib", text)
+
+
+class SessionHook(unittest.TestCase):
+    """The hook runs before everything else in every session on the machine. It
+    has exactly one hard requirement: never hang, never fail, always valid JSON."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def run_hook(self, *args, stdin=None):
+        import subprocess
+        return subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "session_hook", *args],
+            capture_output=True, text=True, timeout=90, input=stdin,
+            env={**os.environ, "CAIRN_ROOT": str(FIXTURE)})
+
+    def test_it_emits_valid_json_with_the_right_event_name(self):
+        import json
+        result = self.run_hook(stdin="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        if payload:
+            self.assertEqual(payload["hookSpecificOutput"]["hookEventName"],
+                             "SessionStart")
+
+    def test_it_returns_promptly_with_a_pipe_nobody_writes_to(self):
+        """The regression: `isatty()` is false for any pipe, so a bare read()
+        waited for an EOF that never came and every session start hung."""
+        import subprocess
+        result = subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "session_hook", "--dry-run"],
+            capture_output=True, text=True, timeout=60,
+            stdin=subprocess.PIPE, env={**os.environ, "CAIRN_ROOT": str(FIXTURE)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_end_is_valid_json_too(self):
+        import json
+        result = self.run_hook("--end", stdin="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        json.loads(result.stdout)
+
+
+class InstallContext(unittest.TestCase):
+    """It edits files outside the repo that affect every session on the machine,
+    so the tests are all about not destroying what it did not write."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def run_install(self, home, *args):
+        import subprocess
+        return subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "install_context", *args],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "CLAUDE_CONFIG_DIR": str(home)})
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp(prefix="cairn-cfg-"))
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+
+    def test_dry_run_writes_nothing(self):
+        result = self.run_install(self.home)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Dry run", result.stdout)
+        self.assertFalse((self.home / "settings.json").exists())
+        self.assertFalse((self.home / "CLAUDE.md").exists())
+
+    def test_it_preserves_settings_it_did_not_write(self):
+        import json
+        (self.home / "settings.json").write_text(json.dumps({
+            "model": "opus",
+            "permissions": {"allow": ["Bash(ls)"]},
+            "hooks": {"SessionStart": [{"hooks": [{"type": "command",
+                                                   "command": "echo mine"}]}]},
+        }))
+        self.run_install(self.home, "--apply")
+        after = json.loads((self.home / "settings.json").read_text())
+        self.assertEqual(after["model"], "opus")
+        self.assertEqual(after["permissions"]["allow"], ["Bash(ls)"])
+        self.assertIn("echo mine", json.dumps(after))
+        self.assertIn("session_hook", json.dumps(after))
+
+    def test_apply_is_idempotent(self):
+        self.run_install(self.home, "--apply")
+        first = (self.home / "settings.json").read_text()
+        second_run = self.run_install(self.home, "--apply")
+        self.assertIn("Nothing to change", second_run.stdout)
+        self.assertEqual(first, (self.home / "settings.json").read_text())
+
+    def test_remove_restores_the_original(self):
+        import json
+        original = {"model": "opus", "hooks": {"Stop": [
+            {"hooks": [{"type": "command", "command": "echo mine"}]}]}}
+        (self.home / "settings.json").write_text(json.dumps(original))
+        (self.home / "CLAUDE.md").write_text("# Mine\n\nKeep this.\n")
+        self.run_install(self.home, "--apply")
+        self.run_install(self.home, "--remove", "--apply")
+        after = json.loads((self.home / "settings.json").read_text())
+        self.assertNotIn("session_hook", json.dumps(after))
+        self.assertIn("echo mine", json.dumps(after))
+        self.assertEqual((self.home / "CLAUDE.md").read_text(), "# Mine\n\nKeep this.\n")
+
+    def test_a_malformed_settings_file_is_reported_not_overwritten(self):
+        """A broken settings.json already disables every setting in it. Silently
+        replacing it would discard the lot; naming the file is the useful act."""
+        (self.home / "settings.json").write_text("{ not json")
+        result = self.run_install(self.home, "--apply")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not valid JSON", result.stdout)
+        self.assertEqual((self.home / "settings.json").read_text(), "{ not json")
+
+
+class ImportNote(unittest.TestCase):
+    """A meeting import writes two files on purpose: the record, and the
+    obligation to read it. Collapsing them loses one or the other."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def run_import(self, *args, stdin=None):
+        import subprocess
+        return subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "import_note", *args],
+            capture_output=True, text=True, timeout=60, input=stdin,
+            env={**os.environ, "CAIRN_ROOT": str(FIXTURE)})
+
+    def setUp(self):
+        for sub in ("inbox", "meetings"):
+            (FIXTURE / sub).mkdir(exist_ok=True)
+            for path in (FIXTURE / sub).glob("*.md"):
+                path.unlink()
+
+    def test_a_meeting_writes_the_record_and_queues_a_pointer(self):
+        result = self.run_import("--meeting", "--who", "dave", "--date", "2026-08-26",
+                                 stdin="* decisions\n- dave owns it\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        record = FIXTURE / "meetings" / "2026-08-26-dave.md"
+        self.assertTrue(record.exists())
+        self.assertIn("dave owns it", record.read_text())
+        pointers = list((FIXTURE / "inbox").glob("*.md"))
+        self.assertEqual(len(pointers), 1)
+        self.assertIn("meetings/2026-08-26-dave.md", pointers[0].read_text())
+
+    def test_org_markup_lands_verbatim(self):
+        """inbox/ and meetings/ have no schema, so org syntax in a .md file is not
+        a problem to be solved. Converting it would lose the author's structure."""
+        self.run_import("--meeting", "--who", "d", "--date", "2026-08-26",
+                        stdin="** TODO [#A] thing\n:PROPERTIES:\n:ID: x\n:END:\n")
+        text = (FIXTURE / "meetings" / "2026-08-26-d.md").read_text()
+        self.assertIn("** TODO [#A] thing", text)
+        self.assertIn(":PROPERTIES:", text)
+
+    def test_two_meetings_with_one_person_on_one_day_do_not_overwrite(self):
+        for body in ("morning notes", "afternoon notes"):
+            self.run_import("--meeting", "--who", "dave", "--date", "2026-08-26",
+                            stdin=body)
+        bodies = "".join(p.read_text() for p in (FIXTURE / "meetings").glob("*.md"))
+        self.assertEqual(len(list((FIXTURE / "meetings").glob("*.md"))), 2)
+        self.assertIn("morning notes", bodies)
+        self.assertIn("afternoon notes", bodies)
+
+    def test_without_meeting_it_goes_to_the_inbox_only(self):
+        self.run_import("--project", "polyid", stdin="a scrap of a thought")
+        self.assertEqual(len(list((FIXTURE / "meetings").glob("*.md"))), 0)
+        self.assertEqual(len(list((FIXTURE / "inbox").glob("*.md"))), 1)
+
+
+class Report(unittest.TestCase):
+    """The report exists to answer "how much do I trust a gap", so the number it
+    reports has to mean what it says."""
+
+    def setUp(self):
+        clear()
+        import report
+        self.report = report
+
+    def test_coverage_counts_dead_ends_and_settled_separately(self):
+        write("a.md", node_text("2026-08-02-prekd-a", status="dead",
+              history="  - {date: 2026-08-02, status: dead, note: refuted}"))
+        write("b.md", node_text("2026-08-02-prekd-b", status="worked",
+              history="  - {date: 2026-08-02, status: worked, note: held}"))
+        write("c.md", node_text("2026-08-02-prekd-c", status="running"))
+        nodes, _ = lib.load_nodes()
+        row = self.report.coverage(nodes, {})[0]
+        self.assertEqual((row["total"], row["settled"], row["dead"]), (3, 2, 1))
+
+    def test_contemporaneous_share_is_none_when_git_knows_nothing(self):
+        """The fixture graph has no git history. Reporting 0% there would read as
+        "none of this was recorded at the time", which is a different claim from
+        "we cannot tell"."""
+        write("a.md", node_text("2026-08-02-prekd-a"))
+        nodes, _ = lib.load_nodes()
+        self.assertIsNone(self.report.coverage(nodes, {})[0]["contemporaneous"])
+
+    def test_lag_splits_written_at_the_time_from_reconstructed(self):
+        write("a.md", node_text("2026-08-02-prekd-a"))
+        write("b.md", node_text("2026-08-02-prekd-b"))
+        nodes, _ = lib.load_nodes()
+        lag = {"2026-08-02-prekd-a": 1, "2026-08-02-prekd-b": 40}
+        self.assertAlmostEqual(self.report.coverage(nodes, lag)[0]["contemporaneous"], 0.5)
+
+    def test_cross_project_edges_are_the_ones_it_lists(self):
+        write("a.md", node_text("2026-08-02-prekd-a"))
+        write("b.md", node_text("2026-08-03-polyid-b", project="polyid",
+                                created="2026-08-03",
+                                parents="[2026-08-02-prekd-a]"))
+        write("c.md", node_text("2026-08-04-prekd-c", created="2026-08-04",
+                                parents="[2026-08-02-prekd-a]"))
+        nodes, _ = lib.load_nodes()
+        crossing = self.report.cross_project(nodes)
+        self.assertEqual([(n.id, o.id) for n, _, o, _ in crossing],
+                         [("2026-08-03-polyid-b", "2026-08-02-prekd-a")])
+
+    def test_it_renders_without_git(self):
+        write("a.md", node_text("2026-08-02-prekd-a"))
+        nodes, _ = lib.load_nodes()
+        text = self.report.build(nodes, "")
+        self.assertIn("Coverage, and what a gap means", text)
+
+
 class DocumentedCommands(unittest.TestCase):
     """Docs must not tell anyone to run scripts/*.py directly — it fails on the
     machine most likely to be reading them."""

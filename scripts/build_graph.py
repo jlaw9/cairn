@@ -374,6 +374,15 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
             "commitUrl": commit_url(str(node.meta.get("repo", "")), str(node.meta.get("commit", ""))),
             "terminal": node.is_terminal,
             "author": authors.get(node.id, UNCOMMITTED),
+            # Notes are parsed out of the body rather than left inside the
+            # rendered HTML, so the map can mark which nodes carry one and the
+            # panel can show them as their own section. They are still *in* the
+            # body — nothing is moved, the section is just read twice.
+            "notes": [
+                {"date": n["date"].isoformat() if n["date"] else "",
+                 "who": n["who"], "text": n["text"]}
+                for n in lib.read_notes(node)
+            ],
         })
 
     all_dates = sorted({d for n in payload_nodes for d in [n["created"]] + [h["date"] for h in n["history"]] if d})
@@ -525,6 +534,20 @@ def main() -> int:
 
     print(f"build/graph.html  ({len(nodes)} nodes, {len(lanes)} projects)")
     print("build/graph.md")
+
+    # report.md is generated here rather than from its own make target so that
+    # "regenerate build/" has exactly one meaning. `cairn sync` and the session
+    # hook both shell out to `cairn build`, and a third output that only appears
+    # when someone remembers a second command would be stale most of the time —
+    # which for a report about how much to trust the graph is the worst failure.
+    try:
+        import report
+        (build / "report.md").write_text(report.build(nodes, ""), encoding="utf-8")
+        print("build/report.md")
+    except Exception as exc:                       # noqa: BLE001
+        # The map is the product; the report is a convenience. Never let it take
+        # the build down with it.
+        print(f"warning: build/report.md not written ({exc})", file=sys.stderr)
     return 0
 
 

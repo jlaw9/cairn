@@ -134,6 +134,25 @@ def age(node: lib.Node, today: dt.date) -> int:
     return (today - last).days if last else -1
 
 
+def open_notes(node: lib.Node) -> list[dict]:
+    """Notes left on a node *after* its last status change.
+
+    This is the derived "somebody asked for something and nobody has acted"
+    signal, and it needs no field to carry it. A note is a body edit that
+    deliberately does not move `updated` (see lib.append_note), so a note dated
+    later than the node's last history entry is by construction a reaction that
+    no subsequent work has answered. Once the thread moves, the note stops being
+    reported — which is the behaviour that keeps this from becoming a nag list.
+    """
+    last = node.updated or node.created
+    out = []
+    for note in lib.read_notes(node):
+        when = note.get("date")
+        if when is None or last is None or when >= last:
+            out.append(note)
+    return out
+
+
 def survey(nodes: dict[str, lib.Node], today: dt.date, quiet_after: int,
            horizon: int) -> list[dict]:
     """Per-project frontier, ordered by how much it needs attention.
@@ -171,6 +190,18 @@ def survey(nodes: dict[str, lib.Node], today: dt.date, quiet_after: int,
         # a resume packet, so it belongs in the briefing without counting as work.
         threads = [n for n in members if n.type == "direction" and n.status == "open"]
 
+        # Notes a human left and nothing has answered. Deliberately ranked with
+        # "quiet" rather than above it: an unaddressed note is an explicit ask,
+        # so it must not sink below a project that is merely live, but an overdue
+        # deadline is still the more expensive thing to miss. Ranks keep their
+        # existing numbers so the ordering contract doesn't shift underneath the
+        # digest/standup split.
+        notes = []
+        for node in members:
+            for note in open_notes(node):
+                notes.append((note.get("date") or dt.date.min, node, note))
+        notes.sort(key=lambda row: row[0], reverse=True)
+
         touched = max((age(n, today) for n in members if age(n, today) >= 0),
                       default=-1)
         quiet = min((age(n, today) for n in live if age(n, today) >= 0), default=-1)
@@ -178,7 +209,7 @@ def survey(nodes: dict[str, lib.Node], today: dt.date, quiet_after: int,
 
         if overdue:
             rank = 0
-        elif live and quiet >= quiet_after:
+        elif (live and quiet >= quiet_after) or notes:
             rank = 1
         elif live:
             rank = 2
@@ -188,7 +219,7 @@ def survey(nodes: dict[str, lib.Node], today: dt.date, quiet_after: int,
         out.append({
             "project": project, "live": live, "deadlines": deadlines,
             "threads": threads, "rank": rank, "quiet": quiet,
-            "since": touched, "total": len(members),
+            "since": touched, "total": len(members), "notes": notes,
         })
 
     out.sort(key=lambda row: (row["rank"], -row["quiet"], row["project"]))
@@ -210,17 +241,33 @@ def render(rows: list[dict], today: dt.date, quiet_after: int, horizon: int,
              else f"Cairn standup — {today.isoformat()}"]
 
     live_total = sum(len(row["live"]) for row in rows)
-    stalled = [row for row in rows if row["rank"] == 1]
+    stalled = [row for row in rows
+               if row["rank"] == 1 and row["quiet"] >= quiet_after]
+    note_total = sum(len(row["notes"]) for row in rows)
     lines.append(f"{live_total} live thread(s) across {len(rows)} project(s); "
                  f"{len(stalled)} project(s) quiet for {quiet_after}+ days")
+    if note_total:
+        lines.append(f"{note_total} note(s) left on nodes and not yet answered "
+                     f"— `cairn note --list`")
     if pending:
         lines.append(f"{pending} untriaged inbox item(s) — `/triage` or read inbox/")
 
     for row in rows:
-        if not row["live"] and not row["deadlines"]:
-            continue                       # nothing open; the map is the right view
+        # Notes count as something open. A project whose threads are all settled
+        # but which carries a note someone left is exactly the case where the map
+        # is the *wrong* view — nobody browses to a note.
+        if not row["live"] and not row["deadlines"] and not row["notes"]:
+            continue
 
-        flag = {0: "OVERDUE", 1: f"quiet {row['quiet']}d", 2: "live"}.get(row["rank"], "")
+        if row["rank"] == 0:
+            flag = "OVERDUE"
+        elif row["rank"] == 1:
+            flag = (f"quiet {row['quiet']}d" if row["quiet"] >= quiet_after
+                    else f"{len(row['notes'])} note(s)")
+        elif row["rank"] == 2:
+            flag = "live"
+        else:
+            flag = ""
         header = f"{row['project']}  ({flag})" if flag else row["project"]
         lines.append(f"\n### {header}\n" if markdown
                      else f"\n{header}\n{'-' * min(len(header), width)}")
@@ -230,6 +277,12 @@ def render(rows: list[dict], today: dt.date, quiet_after: int, horizon: int,
             label = f"OVERDUE {-days}d" if days < 0 else f"due in {days}d"
             lines.append(f"{bullet}{b(label)}  {node.title}")
             lines.append(f"{indent}{node.id} · {node.status}")
+
+        for when, node, note in row["notes"]:
+            who = f" {note['who']}" if note["who"] else ""
+            lines.append(f"{bullet}{b(f'note{who}')}  {node.title}")
+            lines.append(f"{indent}{node.id} · {when}")
+            lines.append(f'{indent}"{truncate(note["text"], width - len(indent) - 2)}"')
 
         for node in row["live"]:
             days = age(node, today)
@@ -242,7 +295,7 @@ def render(rows: list[dict], today: dt.date, quiet_after: int, horizon: int,
             if action:
                 lines.append(f"{indent}next: {truncate(action, width - len(indent) - 6)}")
 
-    if not any(row["live"] or row["deadlines"] for row in rows):
+    if not any(row["live"] or row["deadlines"] or row["notes"] for row in rows):
         lines.append("\nNothing live anywhere. Either genuinely between things, or"
                      "\nthe last few sessions never got logged.")
 
@@ -274,6 +327,14 @@ def render_packet(row: dict, nodes: dict[str, lib.Node], today: dt.date,
         for node in row["threads"]:
             lines.append(f"{bullet}{b(node.title)}")
             lines.append(f"{indent}{node.id}")
+
+    if row["notes"]:
+        lines.append(head("Notes left, not yet answered"))
+        for when, node, note in row["notes"]:
+            who = f" ({note['who']})" if note["who"] else ""
+            lines.append(f"{bullet}{b(str(when))}{who}  {node.title}")
+            lines.append(f"{indent}{node.id}")
+            lines += wrapped("", f'"{note["text"]}"', indent, width)
 
     if row["deadlines"]:
         lines.append(head("Deadlines"))

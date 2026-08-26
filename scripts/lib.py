@@ -781,6 +781,115 @@ def validate(root: Path | None = None) -> list[Issue]:
 
 
 # --------------------------------------------------------------------------
+# Notes on a node body
+# --------------------------------------------------------------------------
+
+# A note is a human sentence added to a node after the fact — a second thought, a
+# doubt, a "this is the one that matters" — and it is a body edit, not a status
+# change. That distinction is the whole design:
+#
+#   * No new field. `notes:` in the frontmatter would be a fifth list to
+#     maintain and a sixth thing to validate, against the resist-new-fields
+#     rule, and the body is already where prose lives.
+#   * `status` and `updated` do not move. Rule 4 ties those to each other, and a
+#     note is not a claim about the state of the work. Moving `updated` for a
+#     note would make the replay slider show a status change that never happened.
+#   * It is still findable, because the line carries its own date. `standup` and
+#     `digest` read `## Next` out of bodies already; reading `## Notes` the same
+#     way costs one regex and invents no bookkeeping.
+#
+# The shape is fixed rather than free prose because it has to parse back out:
+#
+#     - **2026-08-26** (jlaw) the variance looks bimodal — check the seeds
+#
+# Bold date first so it reads correctly in the rendered panel, in GitHub, and in
+# Obsidian, none of which know anything about this format.
+
+NOTES_HEADING = "notes"
+
+NOTE_RE = re.compile(
+    r"^-\s+\*\*(\d{4}-\d{2}-\d{2})\*\*(?:\s+\(([^)]*)\))?\s*(.*)$"
+)
+
+#: Matches a markdown heading at any of the levels node bodies actually use.
+HEADING_RE = re.compile(r"^\s{0,3}#{2,4}\s*(.+?)\s*$", re.MULTILINE)
+
+
+def body_section(body: str, headings) -> str:
+    """The text under the first heading matching `headings`, or "".
+
+    `headings` is a collection of lowercased heading titles. Matching is on the
+    title with a trailing colon stripped, because hand-written nodes write both
+    `## Next` and `## Next:`.
+    """
+    wanted = {h.lower() for h in headings}
+    matches = list(HEADING_RE.finditer(body))
+    for index, match in enumerate(matches):
+        if match.group(1).strip().lower().rstrip(":") not in wanted:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        return body[match.end():end].strip()
+    return ""
+
+
+def read_notes(node: Node) -> list[dict]:
+    """Parsed `## Notes` entries, in the order written (oldest first).
+
+    Lines that don't match the shape are kept as continuation text on the
+    previous note rather than dropped. Someone will hand-edit this section — it
+    is markdown in a text file, that is the point — and losing their sentence
+    because it lacked a bold date would be the wrong trade.
+    """
+    section = body_section(node.body, [NOTES_HEADING])
+    if not section:
+        return []
+    notes: list[dict] = []
+    for line in section.splitlines():
+        match = NOTE_RE.match(line.strip())
+        if match:
+            notes.append({
+                "date": as_date(match.group(1)),
+                "who": (match.group(2) or "").strip(),
+                "text": match.group(3).strip(),
+            })
+        elif notes and line.strip():
+            notes[-1]["text"] = (notes[-1]["text"] + " " + line.strip()).strip()
+    return notes
+
+
+def format_note(text: str, who: str = "", when: dt.date | None = None) -> str:
+    """One `## Notes` bullet. Newlines are folded — a note is one line."""
+    when = when or dt.date.today()
+    flat = " ".join(str(text).split())
+    stamp = f"- **{when.isoformat()}**"
+    if who:
+        stamp += f" ({who})"
+    return f"{stamp} {flat}".rstrip()
+
+
+def append_note(node: Node, text: str, who: str = "", when: dt.date | None = None) -> str:
+    """Add a note to the node's `## Notes` section, creating it if absent.
+
+    Appends *inside* the existing section rather than at the end of the file, so
+    a `## Notes` written above `## Next` stays where the author put it and notes
+    stay in one place instead of accumulating stray headings.
+    """
+    line = format_note(text, who, when)
+    body = node.body.rstrip()
+    matches = list(HEADING_RE.finditer(body))
+    for index, match in enumerate(matches):
+        if match.group(1).strip().lower().rstrip(":") != NOTES_HEADING:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        head, section, tail = body[:match.end()], body[match.end():end], body[end:]
+        section = section.rstrip() + "\n" + line + "\n"
+        node.body = (head + section + ("\n" + tail.lstrip("\n") if tail.strip() else "")).rstrip() + "\n"
+        return line
+    node.body = f"{body}\n\n## Notes\n\n{line}\n"
+    return line
+
+
+# --------------------------------------------------------------------------
 # Derived views
 # --------------------------------------------------------------------------
 

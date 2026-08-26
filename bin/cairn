@@ -39,6 +39,12 @@ usage: cairn <command> [args...]
   mine_sessions  survey Claude Code transcripts (read-only)
   digest         what changed, and what needs you
   standup        what to pick up today; --project for a resume packet
+  sync           pull the graph; --push to regenerate build/ and push
+  note           append a dated note to a node's body
+  import_note    bring a meeting note or external file into the graph
+  report         write build/report.md — where to start, what a gap means
+  install_context make every Claude session on this machine see the graph
+  session_hook   emit Claude Code session-hook JSON (called by the hook)
   capture        append a note to inbox/ — no schema, never refuses
   sync_issues    mirror open task nodes to GitHub Issues (dry run by default)
   doctor         check the install
@@ -72,9 +78,19 @@ if [ ! -f "$target" ] || [ "$cmd" = lib ]; then
     exit 2
 fi
 
+# capture and sync are written not to import lib, precisely so they survive a
+# machine where PyYAML is missing — capture because losing a thought to a
+# dependency error is the one failure it exists to prevent, sync because its job
+# is to work when something else is broken. Demanding PyYAML in order to *launch*
+# them would undo that here, one layer above where the guarantee was made.
+case $cmd in
+    capture | sync | session_hook) probe="--any" ;;
+    *)                             probe="" ;;
+esac
+
 # find_python.sh already explains itself when CAIRN_PYTHON is set but unusable;
 # don't print a second, vaguer version of the same message over the top of it.
-if ! py=$("$scripts/find_python.sh"); then
+if ! py=$("$scripts/find_python.sh" $probe); then
     if [ -z "$CAIRN_PYTHON" ]; then
         echo "cairn: no usable Python found (need >= 3.7 with PyYAML)." >&2
         echo "  Cairn needs PyYAML and nothing else. Install it on any python3.7+," >&2

@@ -69,6 +69,29 @@ is not a failure to report as one: it is the normal state of parallel projects,
 and it is the specific thing this view exists to surface. Say which threads and
 what they were waiting on.
 
+## Notes somebody left
+
+The resume packet has a **"Notes left, not yet answered"** section when one
+applies. Read it first and treat it as the highest-priority item in the packet:
+it is a human explicitly asking for something, where everything else in the view
+is inferred from status and dates.
+
+A note is a dated line in the node body under `## Notes`. It is reported as
+unanswered while its date is at or after the node's last status change, so if you
+act on one, the status change that records the work also clears the note — you
+never have to mark it done.
+
+## How much to trust a gap
+
+`$CAIRN_PATH/build/report.md` carries a coverage table: per project, how many
+nodes, how many settled, how many dead ends, and **what share were committed
+within a week of the work they describe**.
+
+That last column is the one to check before saying "we never tried that." A
+project at 0% is a reconstruction rather than a record, and a reconstruction is
+biased toward what worked — so a gap there means the graph doesn't know, not that
+nobody tried. Say which of the two you mean; they are very different answers.
+
 ## Do not
 
 - **Do not write anything.** This skill is read-only. Recording a result is

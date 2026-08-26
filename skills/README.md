@@ -15,7 +15,23 @@ reading it, which is why nothing needs installing.
 | `cairn-resume/` | starting or returning to work on a project |
 | `cairn-log/` | a work session produced a result worth a node |
 
+`cairn-capture` also covers `cairn note` (a reaction to a node that already
+exists, which belongs on the node rather than in the queue) and `import_note`
+(a meeting or an outside file). `cairn-resume` covers reading `build/report.md`
+before claiming something was never tried.
+
 ## Wiring it up
+
+`bin/cairn install_context --apply` covers this machine-wide, and is now the
+first thing to reach for: it writes the pointer into `~/.claude/CLAUDE.md`, which
+is loaded in every session in every directory, and installs a `SessionStart` hook
+that goes further than a pointer can — it returns the graph's current state as
+the session's context, so the agent starts already knowing what needs attention
+rather than having to go and look.
+
+The per-project line below still matters, because it is what makes these *skills*
+reachable rather than just the four commands. Use both: the hook for state, the
+line for conventions.
 
 One line in a project's `CLAUDE.md` is the whole integration:
 

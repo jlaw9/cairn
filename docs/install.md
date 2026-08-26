@@ -124,9 +124,15 @@ silently, and five projects with five slightly different ideas of what
 ### Starting a session
 
 ```sh
+cairn sync                        # pull, then say what still needs you
 cairn standup                     # every project, most-needs-you first
 cairn standup --project <key>     # the resume packet for one project
 ```
+
+On a machine where `cairn install_context --apply` has been run, the `sync` half
+happens on its own — a `SessionStart` hook pulls (at most every 30 minutes) and
+injects the graph's state into the session. `cairn session_hook --dry-run` prints
+exactly what a session is told.
 
 `standup` is ordered by **what needs you**, not by when it happened — a project
 touched this morning sinks to the bottom, a project quiet for six weeks rises.
@@ -153,6 +159,24 @@ cairn capture --from-file ~/notes/meeting.org --title "meeting with Dave"
 tail -40 slurm-12345.out | cairn capture --title "why the run died"
 ```
 
+A reaction to a node that already exists is a different thing, and has its own
+command — it belongs *on* the node, not in a queue:
+
+```sh
+cairn note 2026-07-20-polyid-run-variance "the spread looks bimodal — seeds?"
+cairn note polyid-run-variance    # a unique suffix is enough; opens $EDITOR
+cairn note --list                 # every note, newest first
+```
+
+A file that already exists elsewhere — a meeting's org buffer, a pasted mail —
+goes through `import_note`. With `--meeting` it writes the record to
+`meetings/<date>-<who>.md` *and* a one-line pointer to `inbox/`, so the record is
+permanent and the obligation to read it is a queue item:
+
+```sh
+cairn import_note ~/notes/2026-08-26-dave.org --meeting --who dave
+```
+
 This writes to `inbox/`, which has **no schema and no validation**. It never
 refuses, never prompts, never asks which project. That is not laziness in the
 design; it is the design. Every previous attempt at a system like this died on
@@ -173,13 +197,22 @@ cairn new_node experiment "<the claim>" --project <key> --parent <id> \
   --host $(hostname -s) --note "<one line>"
 ```
 
-Then, in the graph repo: `make build`, commit, push.
+Then, in the graph repo:
+
+```sh
+cairn sync --push                 # regenerate build/, commit build/, push
+```
+
+It **never commits a node** — that is design decision 6, and it is why `--push`
+names your uncommitted drafts instead of sweeping them in. Read them, then commit
+them yourself (or let `/log` do it).
 
 ### Weekly-ish
 
 ```sh
 /triage                           # turn inbox notes into nodes, or discard them
 make build && open build/graph.html
+less build/report.md              # where to start, and how much to trust a gap
 ```
 
 Triage is the pass that pays for capture being free. Separating them is the whole
@@ -192,8 +225,15 @@ about nodes.
 ## Two machines, or two people
 
 Same problem, same answer: clone from the same remote on each, run `make setup`
-on each, `git pull --rebase` at the start of a session, commit and push at the
-end.
+and `cairn install_context --apply` on each, then `cairn sync` at the start of a
+session and `cairn sync --push` at the end.
+
+`sync` also resolves the one merge conflict this repo can produce. Nodes are
+separate append-only files, so two writers don't collide; `build/` is one file
+both machines rewrite. When a rebase stops *only* on `build/`, `sync` regenerates
+rather than merging and carries on — which is what the docs always said to do by
+hand. A conflict anywhere else is left alone, because anywhere else it means
+something interesting happened.
 
 Neither machine ever needs to reach the other. Nodes reference code by `repo` +
 `commit` and heavy outputs by `host:/path`, so a node written on a cluster is
@@ -232,16 +272,28 @@ source than the repo, because they contain the dead ends.
 
 ```sh
 cairn standup        what to pick up today; --project for a resume packet
-cairn capture        append a note to inbox/ — no schema, never refuses
 cairn digest         what changed, and what needs you
+cairn capture        append a note to inbox/ — no schema, never refuses
+cairn note           a dated note on a node's body; --list to read them back
+cairn import_note    a meeting or an outside file, verbatim, into the graph
+cairn sync           pull; --push to regenerate build/ and push; --check for state
 cairn new_node       create a node, or append a status change to one
 cairn add_paper      DOI in, CrossRef-verified papers/ entry out
 cairn validate       check every node against the schema
-cairn build          regenerate build/graph.html and build/graph.md
+cairn build          regenerate build/graph.html, graph.md and report.md
+cairn report         build/report.md on its own; --project for one project
 cairn mine_sessions  survey Claude Code transcripts (read-only)
 cairn sync_issues    mirror open task nodes to GitHub Issues (docs/github.md)
+cairn install_context wire this machine's Claude sessions to the graph
+cairn session_hook   the hook payload itself; --dry-run to see it
 cairn doctor         check the install
 ```
 
 `cairn <command> --help` for a command's own options. Slash commands: `/standup`,
-`/capture`, `/log`, `/triage`, `/paper`.
+`/digest`, `/capture`, `/log`, `/triage`, `/paper`.
+
+`capture` and `sync` are the two commands that work on a machine where Cairn is
+otherwise broken: neither imports PyYAML, and `bin/cairn` probes for an
+interpreter without demanding it for those two. Losing a thought — or being
+unable to pull — because of a dependency error is the failure they exist to
+prevent.

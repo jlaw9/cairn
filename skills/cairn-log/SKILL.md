@@ -121,7 +121,23 @@ cd $CAIRN_PATH && make build && git add -A \
 The pre-commit hook validates. If it fails, fix the node — do not `--no-verify`
 past a validation error.
 
+## 6. Make it visible from the other machine
+
+A committed node is still invisible from the laptop until it is pushed.
+
+```sh
+$CAIRN_PATH/bin/cairn sync --push
+```
+
+That regenerates `build/`, commits **only** `build/`, and pushes. It never
+commits a node — so if it reports uncommitted drafts, those are yours to show
+Jeff and commit, not for it to sweep in.
+
 ## Do not
+
+- **Do not write a `## Notes` bullet.** That section is where *Jeff* reacts to a
+  node, and `cairn note` stamps his handle on it. Your observations go in the
+  history note of the status change, where they are correctly attributed.
 
 - Do not commit a node the user hasn't seen.
 - Do not copy large outputs in. Reference them as `host:/path` in `artifacts`.

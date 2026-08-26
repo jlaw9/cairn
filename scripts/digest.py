@@ -80,12 +80,22 @@ def previous_status(node: lib.Node, entry: dict) -> str:
 
 def gather(nodes: dict[str, lib.Node], start: dt.date, end: dt.date,
            stale_days: int, horizon_days: int) -> dict:
-    opened, changed, deadlines, quiet = [], [], [], []
+    opened, changed, deadlines, quiet, noted = [], [], [], [], []
     for node in nodes.values():
         if node.created and start <= node.created <= end:
             opened.append(node)
         for entry in transitions(node, start, end):
             changed.append((node, entry))
+
+        # A note is a human sentence added to a node body, dated on its own line
+        # (see lib.read_notes). It is not a status change and deliberately does
+        # not move `updated`, so this is the only place a digest would ever see
+        # it — and "somebody wrote a doubt on a node this week" is exactly the
+        # kind of thing this view exists to surface.
+        for note in lib.read_notes(node):
+            when = note.get("date")
+            if when is not None and start <= when <= end:
+                noted.append((when, node, note))
 
         if node.is_terminal:
             continue
@@ -112,7 +122,9 @@ def gather(nodes: dict[str, lib.Node], start: dt.date, end: dt.date,
     # it is never the most urgent thing on the list.
     deadlines.sort(key=lambda pair: (pair[0] is None, pair[0] or dt.date.min, pair[1].id))
     quiet.sort(key=lambda pair: -pair[0])
-    return {"opened": opened, "changed": changed, "deadlines": deadlines, "quiet": quiet}
+    noted.sort(key=lambda row: row[0], reverse=True)
+    return {"opened": opened, "changed": changed, "deadlines": deadlines,
+            "quiet": quiet, "noted": noted}
 
 
 def render_brief(found: dict, start: dt.date, end: dt.date, project: str) -> str:
@@ -137,6 +149,7 @@ def render_brief(found: dict, start: dt.date, end: dt.date, project: str) -> str
     group("deadlines", [
         f"{(w.isoformat() if w else 'no date '):11s} {n.title}" for w, n in found["deadlines"]])
     group("going quiet", [f"{d:>3d}d        {n.title}" for d, n in found["quiet"]])
+    group("notes", [f"{w.isoformat()}  {x['text'][:60]}" for w, n, x in found.get("noted", [])])
 
     if not any(found.values()):
         lines.append("\nnothing in this window — a quiet week, or nothing got logged")
@@ -158,7 +171,17 @@ def render(found: dict, start: dt.date, end: dt.date, project: str,
 
     counts = (f"{len(found['changed'])} status change(s), {len(found['opened'])} opened, "
               f"{len(found['deadlines'])} deadline(s), {len(found['quiet'])} going quiet")
+    if found.get("noted"):
+        counts += f", {len(found['noted'])} note(s)"
     lines.append(counts)
+
+    if found.get("noted"):
+        lines.append(head("Notes left on nodes"))
+        for when, node, note in found["noted"]:
+            who = f" {note['who']}" if note["who"] else ""
+            lines.append(f"{bullet}{b(f'{when}{who}')}  {node.title}")
+            lines.append(f"{'  ' if markdown else '    '}{node.project} · {node.id}")
+            lines.append(f"{'  ' if markdown else '    '}\"{note['text']}\"")
 
     if found["changed"]:
         lines.append(head("What moved"))
