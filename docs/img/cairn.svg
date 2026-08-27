@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 76" width="60" height="76" role="img" aria-label="Cairn — four stacked stones">
+  <!-- same mark as cairn-deck; colors from scripts/graph_template.html -->
+  <style>
+    .stone { fill: #1a1d22; }
+    .stone.a { fill: #275e9c; }
+    @media (prefers-color-scheme: dark) {
+      .stone { fill: #e6e8ec; }
+      .stone.a { fill: #7aa7d9; }
+    }
+  </style>
+  <rect class="stone a" x="14" y="4"  width="32" height="13" rx="6"/>
+  <rect class="stone"   x="6"  y="22" width="48" height="14" rx="7"/>
+  <rect class="stone"   x="2"  y="41" width="56" height="15" rx="7"/>
+  <rect class="stone"   x="9"  y="61" width="42" height="11" rx="5"/>
+</svg>

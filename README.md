@@ -1,5 +1,7 @@
 # Cairn
 
+<img src="docs/img/cairn.svg" alt="" width="66" align="right">
+
 A persistent, git-backed DAG of research activity across projects —
 experiments, dead ends, open threads, conference ideas, tasks with deadlines,
 papers, milestones — maintained by Claude Code as a side effect of doing the
@@ -16,6 +18,26 @@ of its own.
 The point isn't visualization. The point is that six months from now, *"did we
 already try this, and what happened?"* has an answer, and *"what should I do
 next?"* has a defensible one.
+
+## Contents
+
+- [Why this can exist now](#why-this-can-exist-now) · [What about Graphify?](#what-about-graphify)
+- [Install — once per machine](#install--once-per-machine) · [The one dependency](#the-one-dependency)
+- [Then pick your path](#then-pick-your-path)
+  - [A. Work that already happened → backfill first](#a-you-have-work-that-already-happened--backfill-first)
+  - [B. Starting something new → open the node before you run it](#b-you-are-starting-something-new--open-the-node-before-you-run-it)
+  - [C. Starting from a literature review](#c-you-are-starting-from-a-literature-review)
+  - [D. Your work isn't computational](#d-your-work-isnt-computational)
+- [What's here](#whats-here)
+- [What to pick up today](#what-to-pick-up-today) — `standup`
+- [Capture, from anywhere](#capture-from-anywhere) — `capture`, `import_note`
+- [Notes on a node](#notes-on-a-node) — `note`
+- [Where to start, and how much to trust a gap](#where-to-start-and-how-much-to-trust-a-gap) — `build/report.md`
+- [What changed, and what needs you](#what-changed-and-what-needs-you) — `digest` · [Tasks as issues](#tasks-as-issues)
+- [The map](#the-map) — `build/graph.html`
+- [Design decisions](#design-decisions)
+- [Two machines, or two people](#two-machines-or-two-people) — `sync`
+- [Status](#status)
 
 ## Why this can exist now
 
