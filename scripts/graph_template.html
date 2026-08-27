@@ -120,6 +120,13 @@
     display: inline-block; font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
     padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; margin-right: 6px;
   }
+  /* The lane label is the fold control. It is already the only thing anchored to
+     a lane, and a separate caret would be a second target for one action. */
+  .lane-label { cursor: pointer; user-select: none; }
+  .lane-label:hover { fill: var(--ink); }
+  .strip-rule { stroke: var(--line); stroke-width: 1; }
+  .strip-tick { stroke: var(--bg); stroke-width: .5; }
+  .strip-note { fill: var(--ink-faint); font-size: 10.5px; }
   .node { cursor: pointer; }
   .node .glyph { stroke: var(--bg); stroke-width: 1.5; }
   /* Clickable: the label is a bigger target than the glyph, and people aim at words. */
@@ -230,6 +237,12 @@
   #fillKey { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--ink-dim); }
   #fillKey .row { display: flex; align-items: center; gap: 6px; }
   #fillKey .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .chk .fold {
+    margin-left: 6px; color: var(--ink-faint); cursor: pointer; font-size: 10px;
+    padding: 0 3px; border-radius: 3px;
+  }
+  .chk .fold:hover { color: var(--ink); background: var(--panel-2); }
+  .chk .fold.on { color: var(--accent); }
 
   /* A note is a human sentence someone added after the fact. It gets a marker on
      the glyph rather than a colour, because colour already means status and
@@ -313,6 +326,7 @@
     <h2>Status</h2><div id="fStatus"></div>
     <h2>Author</h2><div id="fAuthor"></div>
     <button id="reset">Reset filters</button>
+    <button id="foldAll">Collapse all lanes</button>
     <h2>Legend</h2>
     <div class="muted" style="line-height:1.9">
       ● experiment &nbsp; ◆ seed<br>▮ direction &nbsp; ■ task<br>⬢ milestone
@@ -366,6 +380,7 @@ const state = {
   isolate: null,
   needs: false,
   colour: 'status',
+  collapsed: new Set(),
 };
 
 /* ---------- status as of a date: this is the replay ---------- */
@@ -441,6 +456,51 @@ function visible(n) {
   if (state.query && !haystack(n).includes(state.query)) return false;
   return true;
 }
+
+/* ---------- collapsing a project lane ----------
+   Legibility degrades with node count rather than with complexity, and the lane
+   is the unit to fold because the layout already uses it: y is a project, so
+   collapsing one costs no new concept and no new position for anything else.
+
+   A collapsed lane is NOT a dot. Folding a project to a single glyph would throw
+   away the time axis, which is the one thing this layout has that a force layout
+   does not — so it folds to a strip: one tick per node at that node's real date,
+   still painted by whatever fill currently means. You keep "when was this project
+   alive, how dense, and is any of it shouting" and lose only the titles.
+
+   Lane offsets are recomputed here rather than baked, because `top` in the
+   payload assumes every lane is open. Everything else about a node's position is
+   still build-time: x never moves, and y moves only by its own lane's offset, so
+   a collapse cannot reshuffle anything within a lane. */
+const LANE_GAP = DATA.lanes.length > 1
+  ? DATA.lanes[1].top - (DATA.lanes[0].top + DATA.lanes[0].height)
+  : 30;
+const COLLAPSED_H = 30;
+
+//: Filled at the top of every draw() and read by Y(); a node's y is meaningless
+//: without knowing which lanes above it are folded.
+let laneNow = new Map();
+
+function laneGeometry(collapsedSet) {
+  const out = new Map();
+  let cursor = DATA.lanes.length ? DATA.lanes[0].top : 0;
+  for (const lane of DATA.lanes) {
+    const collapsed = collapsedSet.has(lane.project);
+    const height = collapsed ? COLLAPSED_H : lane.height;
+    out.set(lane.project, { top: cursor, height, dy: cursor - lane.top, collapsed });
+    cursor += height + LANE_GAP;
+  }
+  return out;
+}
+
+/** A node's y on screen, after the lanes above it have had their say. */
+const Y = n => n.y + (laneNow.get(n.project)?.dy || 0);
+
+/** The row a collapsed lane's strip sits on. */
+const stripY = project => {
+  const g = laneNow.get(project);
+  return g.top + g.height / 2;
+};
 
 /* ---------- what fill means ----------
    Four encodings, one active at a time. That constraint is the whole design: a
@@ -599,16 +659,18 @@ function glyph(shape, r) {
 
 function edgePath(a, b) {
   const dx = Math.max(30, Math.abs(b.x - a.x) * 0.45);
-  return `M${a.x + radiusOf(a)},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x - radiusOf(b) - 3},${b.y}`;
+  const ay = Y(a), by = Y(b);
+  return `M${a.x + radiusOf(a)},${ay} C${a.x + dx},${ay} ${b.x - dx},${by} ${b.x - radiusOf(b) - 3},${by}`;
 }
 
 /* A relation may run backwards in time (a later result contradicting an earlier
    one), so its curve bows instead of using the left-to-right lineage bezier —
    the shape alone says "this is not derivation". */
 function relPath(a, b) {
-  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  const ay = Y(a), by = Y(b);
+  const mx = (a.x + b.x) / 2, my = (ay + by) / 2;
   const bow = Math.max(26, Math.abs(b.x - a.x) * 0.14);
-  return `M${a.x},${a.y} Q${mx},${my - bow} ${b.x},${b.y}`;
+  return `M${a.x},${ay} Q${mx},${my - bow} ${b.x},${by}`;
 }
 
 /* Unordered pair -> relation type. A pair joined by both lineage and a typed
@@ -626,15 +688,6 @@ for (const n of (DATA.nodes || [])) {
 function draw() {
   const parts = [];
 
-  for (const lane of DATA.lanes) {
-    parts.push(`<rect class="lane-band" x="0" y="${lane.top}" width="${DATA.width}" height="${lane.height}"></rect>`);
-    parts.push(`<text class="lane-label" x="14" y="${lane.top + 16}">${esc(lane.project)}</text>`);
-  }
-  for (const tick of DATA.ticks) {
-    parts.push(`<line class="tick-line" x1="${tick.x}" y1="30" x2="${tick.x}" y2="${DATA.height - 20}"></line>`);
-    parts.push(`<text class="tick-text" x="${tick.x + 4}" y="24">${esc(tick.label)}</text>`);
-  }
-
   let shown = DATA.nodes.filter(visible);
   // Isolate mode: the selected node's full ancestry and descent, nothing else.
   // This is the "how did we get here" view — for a milestone it's the whole
@@ -644,14 +697,48 @@ function draw() {
     shown = shown.filter(n => keep.has(n.id));
   }
   const shownIds = new Set(shown.map(n => n.id));
+
+  // Isolate wins over collapse. You asked to see one chain of reasoning; a lane
+  // you folded an hour ago is not a reason to hide half of it.
+  const inLane = new Map();
+  for (const n of shown) {
+    if (!inLane.has(n.project)) inLane.set(n.project, []);
+    inLane.get(n.project).push(n);
+  }
+  const folded = new Set([...state.collapsed].filter(
+    p => !(state.isolate && (inLane.get(p) || []).length)));
+  laneNow = laneGeometry(folded);
+
+  const bottom = DATA.lanes.length
+    ? laneNow.get(DATA.lanes[DATA.lanes.length - 1].project).top +
+      laneNow.get(DATA.lanes[DATA.lanes.length - 1].project).height + 20
+    : DATA.height;
+
+  for (const lane of DATA.lanes) {
+    const g = laneNow.get(lane.project);
+    parts.push(`<rect class="lane-band" x="0" y="${g.top}" width="${DATA.width}" height="${g.height}"></rect>`);
+    parts.push(`<text class="lane-label${g.collapsed ? ' folded' : ''}" x="14" y="${g.top + 16}" ` +
+      `data-lane="${esc(lane.project)}">${g.collapsed ? '▸' : '▾'} ${esc(lane.project)}</text>`);
+  }
+  for (const tick of DATA.ticks) {
+    parts.push(`<line class="tick-line" x1="${tick.x}" y1="30" x2="${tick.x}" y2="${bottom}"></line>`);
+    parts.push(`<text class="tick-text" x="${tick.x + 4}" y="24">${esc(tick.label)}</text>`);
+  }
   const sel = state.selected;
   const kin = sel && !state.isolate
     ? new Set([sel, ...byId.get(sel).parents, ...byId.get(sel).children,
                ...(byId.get(sel).relations || []).map(r => r.id)]) : null;
 
+  // An edge with both ends inside one folded lane would be a horizontal scribble
+  // along the strip, saying nothing. An edge that LEAVES a folded lane is kept:
+  // that is where projects touch, and it is the thing folding makes easier to see.
+  const buried = (a, b) => laneNow.get(a.project)?.collapsed &&
+                           laneNow.get(b.project)?.collapsed && a.project === b.project;
+
   for (const n of shown) {
     for (const p of n.parents) {
       if (!shownIds.has(p)) continue;
+      if (buried(n, byId.get(p))) continue;
       const lit = sel && (n.id === sel || p === sel) ? ' lit' : '';
       const type = typedPair.get(pairKey(n.id, p));
       const typed = type ? ` rel rel-${type}` : '';
@@ -665,13 +752,36 @@ function draw() {
       if (r.dir !== 'out' || !shownIds.has(r.id)) continue;
       const other = byId.get(r.id);
       if (n.parents.includes(r.id) || other.parents.includes(n.id)) continue;
+      if (buried(n, other)) continue;
       const lit = sel && (n.id === sel || r.id === sel) ? ' lit' : '';
       parts.push(`<path class="edge rel rel-${r.type}${lit}" d="${relPath(n, other)}"></path>`);
     }
   }
 
   const when = cutoff();
+
+  // A folded lane: one tick per node at its real date, painted by whatever fill
+  // currently means, so the encoding survives folding. Plus the count, which is
+  // the number the lane label never showed.
+  for (const [project, members] of inLane) {
+    if (!laneNow.get(project)?.collapsed) continue;
+    const y = stripY(project);
+    const xs = members.map(n => n.x);
+    parts.push(`<line class="strip-rule" x1="${Math.min(...xs)}" y1="${y}" x2="${Math.max(...xs)}" y2="${y}"></line>`);
+    for (const n of members) {
+      const cls = CLS[statusAt(n, when)] || 'idle';
+      const paint = fillVar(n, when);
+      parts.push(`<rect class="strip-tick ${cls}" x="${n.x - 1.5}" y="${y - 7}" width="3" height="14" rx="1.5"` +
+        (paint ? ` style="fill:var(--${paint})"` : '') + `></rect>`);
+    }
+    const attn = members.filter(n => needsYou(n, when)).length;
+    parts.push(`<text class="strip-note" x="${Math.max(...xs) + 10}" y="${y + 4}">` +
+      `${members.length} node${members.length === 1 ? '' : 's'}` +
+      `${attn ? ` · ${attn} need${attn === 1 ? 's' : ''} you` : ''}</text>`);
+  }
+
   for (const n of shown) {
+    if (laneNow.get(n.project)?.collapsed) continue;
     const cls = CLS[statusAt(n, when)] || 'idle';
     const dim = kin && !kin.has(n.id) ? ' dim' : '';
     const on = n.id === sel ? ' sel' : '';
@@ -686,7 +796,7 @@ function draw() {
     parts.push(
       `<g class="node ${cls}${dim}${on}${attn ? ' needs' : ''}"` +
       (paint ? ` style="fill:var(--${paint})"` : '') +
-      ` transform="translate(${n.x},${n.y})" data-id="${esc(n.id)}">` +
+      ` transform="translate(${n.x},${Y(n)})" data-id="${esc(n.id)}">` +
       (attn ? `<circle class="ring" r="${r + 5}"></circle>` : '') +
       glyph(n.shape, r) +
       (noted ? `<circle class="flag" cx="${r - 3}" cy="${-r + 3}" r="3.4"></circle>` : '') +
@@ -696,13 +806,16 @@ function draw() {
   }
 
   view.innerHTML = parts.join('');
-  $('#count').textContent = state.isolate
+  const nFolded = [...laneNow.values()].filter(g => g.collapsed).length;
+  $('#count').textContent = (state.isolate
     ? `${shown.length} in lineage of “${byId.get(state.isolate).label}”`
-    : `${shown.length} of ${DATA.nodes.length} nodes`;
+    : `${shown.length} of ${DATA.nodes.length} nodes`)
+    + (nFolded ? ` · ${nFolded} lane${nFolded === 1 ? '' : 's'} folded` : '');
   $('#isolateOff').hidden = !state.isolate;
   $('#empty').hidden = DATA.nodes.length > 0;
   refreshCounts();
   fillLegend();
+  syncCarets();
 }
 
 /** Every ancestor and every descendant of `id`, plus `id` itself. */
@@ -804,13 +917,28 @@ function artifactRow(value) {
 
 
 /* ---------- filters ---------- */
-function chk(container, values, key, colour) {
+/* `fold` adds a per-row fold toggle, which only the Project rail gets. The lane
+   label on the canvas does the same job, but `fit()` zooms to the shown nodes and
+   the labels sit in the gutter at x=14, so at most pans they are off screen — a
+   control you cannot reach is not a control. The rail is always visible. */
+function chk(container, values, key, colour, fold) {
   container.innerHTML = values.map(v =>
     `<label class="chk">` +
     `<input type="checkbox" data-key="${key}" value="${esc(v)}" checked>` +
     (colour ? `<span class="swatch" style="background:var(--${CLS[v] || 'idle'})"></span>` : '') +
-    `<span>${esc(v)}</span><span class="n" data-count="${key}:${esc(v)}"></span></label>`
+    `<span>${esc(v)}</span><span class="n" data-count="${key}:${esc(v)}"></span>` +
+    (fold ? `<span class="fold" data-lane="${esc(v)}" title="Fold this lane to a strip">▾</span>` : '') +
+    `</label>`
   ).join('');
+}
+
+/** Keep the rail's carets agreeing with the map. */
+function syncCarets() {
+  document.querySelectorAll('.fold[data-lane]').forEach(el => {
+    const on = state.collapsed.has(el.dataset.lane);
+    el.textContent = on ? '\u25b8' : '\u25be';
+    el.classList.toggle('on', on);
+  });
 }
 
 function refreshCounts() {
@@ -863,6 +991,9 @@ function noteCommand(id) {
 function open(id) {
   const n = byId.get(id);
   if (!n) return;
+  // Following a link into a folded lane has to unfold it, or the panel describes
+  // a node the map is not showing.
+  if (state.collapsed.has(n.project)) setFolded(n.project, false);
   state.selected = id;
 
   const rows = [];
@@ -1016,8 +1147,8 @@ function fit() {
   if (shown.length) {
     x0 = Math.min(...shown.map(n => n.x - radiusOf(n) - 10));
     x1 = Math.max(...shown.map(n => n.x + radiusOf(n) + 12 + n.label.length * 5.9));
-    y0 = Math.min(...shown.map(n => n.y - radiusOf(n) - 26));
-    y1 = Math.max(...shown.map(n => n.y + radiusOf(n) + 14));
+    y0 = Math.min(...shown.map(n => Y(n) - radiusOf(n) - 26));
+    y1 = Math.max(...shown.map(n => Y(n) + radiusOf(n) + 14));
   }
   const w = Math.max(x1 - x0, 1), h = Math.max(y1 - y0, 1);
 
@@ -1037,12 +1168,12 @@ function centerOn(id) {
   const rect = svg.getBoundingClientRect();
   scale = Math.max(scale, 0.85);
   tx = rect.width / 2 - n.x * scale;
-  ty = rect.height / 2 - n.y * scale;
+  ty = rect.height / 2 - Y(n) * scale;
   applyTransform();
 }
 
 /* ---------- wiring ---------- */
-chk($('#fProject'), [...new Set(DATA.nodes.map(n => n.project))].sort(), 'project', false);
+chk($('#fProject'), [...new Set(DATA.nodes.map(n => n.project))].sort(), 'project', false, true);
 chk($('#fType'), DATA.types, 'type', false);
 chk($('#fStatus'), DATA.statuses, 'status', true);
 chk($('#fAuthor'), DATA.authors, 'author', false);
@@ -1124,6 +1255,12 @@ document.addEventListener('click', e => {
     e.target.textContent = 'copied';
     setTimeout(() => { e.target.textContent = 'copy link'; }, 1200);
   }
+  if (d.lane) {
+    // Inside the rail this span lives in a <label>, whose default action is to
+    // toggle the checkbox it wraps. Folding a lane must not also filter it out.
+    e.preventDefault();
+    return setFolded(d.lane, !state.collapsed.has(d.lane));
+  }
   const art = e.target.closest?.('.art[data-artifact]');
   if (art) {
     navigator.clipboard?.writeText(art.dataset.artifact);
@@ -1151,6 +1288,25 @@ document.addEventListener('input', e => {
   }
 });
 $('#isolateOff').onclick = () => { state.isolate = null; draw(); fit(); };
+
+function setFolded(project, on) {
+  if (on) state.collapsed.add(project); else state.collapsed.delete(project);
+  syncFoldButton();
+  draw();
+}
+
+function syncFoldButton() {
+  const all = DATA.lanes.length && state.collapsed.size >= DATA.lanes.length;
+  $('#foldAll').textContent = all ? 'Expand all lanes' : 'Collapse all lanes';
+}
+
+$('#foldAll').onclick = () => {
+  const all = DATA.lanes.length && state.collapsed.size >= DATA.lanes.length;
+  state.collapsed = all ? new Set() : new Set(DATA.lanes.map(l => l.project));
+  syncFoldButton();
+  draw();
+  fit();
+};
 
 $('#colourBy').addEventListener('change', e => {
   state.colour = e.target.value;
@@ -1333,6 +1489,11 @@ document.addEventListener('keydown', e => {
     state.t = index === -1 ? DATA.dates.length - 1 : Math.max(0, index - 1);
     timeInput.value = state.t;
   }
+  const folded = params.get('folded');
+  if (folded) {
+    const known = new Set(DATA.lanes.map(l => l.project));
+    state.collapsed = new Set(folded.split(',').filter(p => known.has(p)));
+  }
   const colour = params.get('colour');
   if (colour && [...$('#colourBy').options].some(o => o.value === colour)) {
     state.colour = colour;
@@ -1347,6 +1508,7 @@ document.addEventListener('keydown', e => {
 })();
 
 updateTimeLabel();
+syncFoldButton();
 draw();
 fit();
 if (location.hash.length > 1) open(decodeURIComponent(location.hash.slice(1)));
