@@ -217,7 +217,7 @@
 
 <header>
   <h1>Cairn</h1>
-  <input id="search" type="search" placeholder="Search titles, ids, projects…" autocomplete="off">
+  <input id="search" type="search" placeholder="Search titles, bodies, notes…" autocomplete="off">
   <span id="count" class="muted"></span>
   <button id="isolateOff" hidden>show all</button>
   <span class="grow"></span>
@@ -240,6 +240,10 @@
     <h2>Legend</h2>
     <div class="muted" style="line-height:1.9">
       ● experiment &nbsp; ◆ seed<br>▮ direction &nbsp; ■ task<br>⬢ milestone
+    </div>
+    <div class="muted" style="line-height:1.6;margin-top:8px">
+      shape = type · fill = status<br>size = work downstream<br>
+      ring = needs you · dot = open note
     </div>
     <h2>Edges</h2>
     <div id="relKey"></div>
@@ -355,34 +359,104 @@ function visible(n) {
   if (!state.type.has(n.type)) return false;
   if (!state.status.has(s)) return false;
   if (!state.author.has(n.author)) return false;
-  if (state.query) {
-    const hay = (n.title + ' ' + n.id + ' ' + n.project + ' ' + n.type + ' ' + n.author).toLowerCase();
-    if (!hay.includes(state.query)) return false;
-  }
+  if (state.query && !haystack(n).includes(state.query)) return false;
   return true;
 }
 
 /* ---------- geometry ---------- */
 const R = 13;
-function glyph(shape) {
-  if (shape === 'circle') return `<circle class="glyph" r="${R}"></circle>`;
-  if (shape === 'square') return `<rect class="glyph" x="${-R+1}" y="${-R+1}" width="${2*R-2}" height="${2*R-2}" rx="2"></rect>`;
-  if (shape === 'rect')   return `<rect class="glyph" x="${-R-5}" y="${-R+4}" width="${2*R+10}" height="${2*R-8}" rx="4"></rect>`;
-  if (shape === 'diamond')return `<path class="glyph" d="M0,${-R-2} L${R+2},0 L0,${R+2} L${-R-2},0 Z"></path>`;
+
+/* ---------- size is descent ----------
+   `docs/schema.md` argues that the view worth having is which nodes a lot of
+   work hangs off — that a milestone is just a node with a lot of edges, and that
+   the hubs are what make a methods section writable. Every glyph was drawn at
+   one radius, so that was the one thing the map could not show.
+
+   **Descendants, not parents.** The bullet that asked for this said fan-in, but
+   fan-in has no signal in this graph to be a channel of: 93 of 125 nodes have
+   exactly one parent and three have more than two, so 98% of glyphs would come
+   out the same size. Descent spreads 0 to 24 over the same nodes. It is the same
+   question — which claims did a lot of work grow out of — measured on the side
+   that answers it.
+
+   **Size is the only thing that changes.** Shape still means type, fill still
+   means status, the ring still means needs-you, the dot still means an
+   unanswered note. Every one of those is drawn off the node's own radius rather
+   than off `R`, so the glyph scales as a whole and their relationship to each
+   other is identical at every size; the ring stroke and the dot stay fixed,
+   because they are booleans and have no magnitude to encode.
+
+   **sqrt, off a constant, clamped.** sqrt makes the channel area-proportional,
+   which is how a count should read. The constant is fixed rather than normalised
+   against the graph's current maximum: normalising would mean adding one hub
+   silently shrinks every other glyph on the map, and geometry that is stable
+   between builds is most of why this map is memorable. The clamp is what keeps
+   the lane rows apart — `ROW_H` is 46 and a needs-you ring is radius + 5, so
+   R_MAX + 5 = 22 leaves 2px between the rings of two adjacent rows in the worst
+   case. 0.8 * sqrt(25) = 4, so the clamp bites at 25 descendants; the largest
+   hub today has 24, so the scale is not yet saturated.
+
+   Counted as of the slider's cutoff, for exactly the reason `needsYou` is: a
+   node in June has the descent it had in June, not the descent it has now, and
+   watching the hubs inflate over a replay is the point.
+
+   Not fed back into the layout. Row packing reserves `NODE_R + 7 + label + 16`
+   in the builder, so a hub's label overruns its reservation by at most 4px into
+   a 16px margin — and it cannot be fixed properly anyway, because a radius that
+   depends on the time slider cannot decide a build-time x. */
+const R_MAX = R + 4;
+const R_PER_DESC = 0.8;
+
+const descCache = new Map();
+
+/** id -> number of transitive descendants that existed on `when`. */
+function descendants(when) {
+  let counts = descCache.get(when);
+  if (counts) return counts;
+  counts = new Map();
+  for (const n of DATA.nodes) {
+    if (n.created > when) { counts.set(n.id, 0); continue; }
+    const seen = new Set();
+    const stack = [...n.children];
+    while (stack.length) {
+      const id = stack.pop();
+      const kid = byId.get(id);
+      if (!kid || seen.has(id) || kid.created > when) continue;
+      seen.add(id);
+      stack.push(...kid.children);
+    }
+    counts.set(n.id, seen.size);
+  }
+  descCache.set(when, counts);
+  return counts;
+}
+
+const descCount = n => descendants(cutoff()).get(n.id) || 0;
+
+function radiusOf(n) {
+  const d = descCount(n);
+  return d ? Math.min(R_MAX, Math.round((R + R_PER_DESC * Math.sqrt(d)) * 10) / 10) : R;
+}
+
+function glyph(shape, r) {
+  if (shape === 'circle') return `<circle class="glyph" r="${r}"></circle>`;
+  if (shape === 'square') return `<rect class="glyph" x="${-r+1}" y="${-r+1}" width="${2*r-2}" height="${2*r-2}" rx="2"></rect>`;
+  if (shape === 'rect')   return `<rect class="glyph" x="${-r-5}" y="${-r+4}" width="${2*r+10}" height="${2*r-8}" rx="4"></rect>`;
+  if (shape === 'diamond')return `<path class="glyph" d="M0,${-r-2} L${r+2},0 L0,${r+2} L${-r-2},0 Z"></path>`;
   if (shape === 'hex') {
     const pts = [];
     for (let i = 0; i < 6; i++) {
       const a = Math.PI / 6 + i * Math.PI / 3;
-      pts.push(`${(R+2)*Math.cos(a)},${(R+2)*Math.sin(a)}`);
+      pts.push(`${((r+2)*Math.cos(a)).toFixed(2)},${((r+2)*Math.sin(a)).toFixed(2)}`);
     }
     return `<polygon class="glyph" points="${pts.join(' ')}"></polygon>`;
   }
-  return `<circle class="glyph" r="${R}"></circle>`;
+  return `<circle class="glyph" r="${r}"></circle>`;
 }
 
 function edgePath(a, b) {
   const dx = Math.max(30, Math.abs(b.x - a.x) * 0.45);
-  return `M${a.x + R},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x - R - 3},${b.y}`;
+  return `M${a.x + radiusOf(a)},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x - radiusOf(b) - 3},${b.y}`;
 }
 
 /* A relation may run backwards in time (a later result contradicting an earlier
@@ -464,12 +538,13 @@ function draw() {
     // decoration or the map stops being decodable.
     const attn = needsYou(n, when);
     const noted = openNotes(n, when).length;
+    const r = radiusOf(n);
     parts.push(
       `<g class="node ${cls}${dim}${on}${attn ? ' needs' : ''}" transform="translate(${n.x},${n.y})" data-id="${esc(n.id)}">` +
-      (attn ? `<circle class="ring" r="${R + 5}"></circle>` : '') +
-      glyph(n.shape) +
-      (noted ? `<circle class="flag" cx="${R - 3}" cy="${-R + 3}" r="3.4"></circle>` : '') +
-      `<text class="label" x="${R + 7}" y="4">${esc(n.label)}</text>` +
+      (attn ? `<circle class="ring" r="${r + 5}"></circle>` : '') +
+      glyph(n.shape, r) +
+      (noted ? `<circle class="flag" cx="${r - 3}" cy="${-r + 3}" r="3.4"></circle>` : '') +
+      `<text class="label" x="${r + 7}" y="4">${esc(n.label)}</text>` +
       `</g>`
     );
   }
@@ -501,6 +576,44 @@ function lineage(id) {
 }
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- the search haystack ----------
+   The box used to match title + id + project + type + author, which is the
+   frontmatter and none of the content: the claim, the result and the `## Next`
+   line were all unsearchable from the map. Those are the sentences someone is
+   looking for when they ask the question this graph exists to answer — "did we
+   already try this, and what happened?" — so they are what the box now matches.
+
+   Two things beyond the body go in, and both are one-line reasons a human wrote
+   rather than prose: the `## Notes` bullets, which come along for free because
+   they are still inside the body, and the `history` notes, which are where a
+   `dead` node keeps *why* it died. That is the highest-value string in the file
+   for this kind of search and it lives nowhere else.
+
+   Derived from the rendered body rather than shipped as a second copy in the
+   payload. The body HTML is already in the file; a plain-text twin would grow
+   every node's payload for a string nobody ever reads. Tags come off through an
+   inert `<template>`, whose content is parsed but never loads a resource, so
+   this is text extraction and not a second place HTML gets executed.
+
+   Memoised, because `visible()` runs over every node on every keystroke and a
+   node's body cannot change while the page is open. Keyed off the id rather than
+   stashed on the node so the payload objects stay exactly as the builder wrote
+   them. */
+const scratch = document.createElement('template');
+const hayCache = new Map();
+function haystack(n) {
+  let hay = hayCache.get(n.id);
+  if (hay === undefined) {
+    scratch.innerHTML = n.body || '';
+    hay = [n.title, n.id, n.project, n.type, n.author,
+           scratch.content.textContent || '',
+           ...(n.history || []).map(h => h.note)]
+      .join(' ').toLowerCase().replace(/\s+/g, ' ');
+    hayCache.set(n.id, hay);
+  }
+  return hay;
+}
 
 /* ---------- filters ---------- */
 function chk(container, values, key, colour) {
@@ -705,10 +818,10 @@ function fit() {
 
   let x0 = 0, y0 = 0, x1 = DATA.width, y1 = DATA.height;
   if (shown.length) {
-    x0 = Math.min(...shown.map(n => n.x - R - 10));
-    x1 = Math.max(...shown.map(n => n.x + R + 12 + n.label.length * 5.9));
-    y0 = Math.min(...shown.map(n => n.y - R - 26));
-    y1 = Math.max(...shown.map(n => n.y + R + 14));
+    x0 = Math.min(...shown.map(n => n.x - radiusOf(n) - 10));
+    x1 = Math.max(...shown.map(n => n.x + radiusOf(n) + 12 + n.label.length * 5.9));
+    y0 = Math.min(...shown.map(n => n.y - radiusOf(n) - 26));
+    y1 = Math.max(...shown.map(n => n.y + radiusOf(n) + 14));
   }
   const w = Math.max(x1 - x0, 1), h = Math.max(y1 - y0, 1);
 
@@ -856,7 +969,10 @@ function showHover(g, clientX, clientY) {
       // person in it; on a solo graph it is the same name every time.
       `${DATA.authors.length > 1 ? ' · ' + esc(n.author) : ''}</div>` +
     (note ? `<div class="note">${esc(note.note)}</div>` : '') +
-    `<div class="hint">click to open${n.parents.length || n.children.length ? ' · ' + (n.parents.length + n.children.length) + ' linked' : ''}</div>`;
+    // A magnitude channel with no way to read the magnitude is decoration, and
+    // the hover card is where the glyph's size gets its number.
+    `<div class="hint">click to open${n.parents.length || n.children.length ? ' · ' + (n.parents.length + n.children.length) + ' linked' : ''}` +
+      `${descCount(n) ? ' · ' + descCount(n) + ' downstream' : ''}</div>`;
   hover.hidden = false;
   // Flip to the other side of the cursor near the viewport edges.
   const box = hover.getBoundingClientRect();
