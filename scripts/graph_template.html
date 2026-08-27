@@ -14,6 +14,25 @@
        purpose, so a typed edge never reads as a status. */
     --rel-supports: #2aa198; --rel-contradicts: #cc5490;
     --rel-supersedes: #8f6fd6; --rel-resolves: #3fb0bf;
+
+    /* Fill can encode one of four things, and only ever one at a time. Status
+       keeps the palette above; these are the other three.
+
+       Age is ordinal, one hue, five buckets, and the ramp inverts by mode so
+       that RECENT is always the step furthest from the surface: darkest on
+       light, lightest on dark. Recent work is what should catch the eye on a
+       map of what is happening — and it has to be this way round rather than
+       the reverse, because stale-but-active already has a channel (the
+       needs-you ring), and two marks competing to shout "stale" would fight.
+       Steps are 100 apart on the reference ramp because adjacent 50-steps fail
+       the >= 0.06 lightness gap.
+
+       Author is categorical and stops at three, because a map is the all-pairs
+       case — any two glyphs can end up side by side — and past three slots the
+       all-pairs colourblind floors cannot be cleared. A fourth writer folds into
+       `--who-other` rather than getting a hue nobody can distinguish. */
+    --age-1: #184f95; --age-2: #256abf; --age-3: #3987e5; --age-4: #6da7ec; --age-5: #9ec5f4;
+    --who-1: #3987e5; --who-2: #d95926; --who-3: #199e70; --who-other: #6b7280;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -22,6 +41,8 @@
       --accent: #275e9c;
       --rel-supports: #157f77; --rel-contradicts: #a83a70;
       --rel-supersedes: #6b4dbd; --rel-resolves: #1f7f8f;
+      --age-1: #6da7ec; --age-2: #3987e5; --age-3: #256abf; --age-4: #184f95; --age-5: #0d366b;
+      --who-1: #2a78d6; --who-2: #eb6834; --who-3: #1baf7a;
     }
   }
   * { box-sizing: border-box; }
@@ -154,6 +175,28 @@
     display: block; width: 100%; height: auto; border-radius: 6px;
     background: var(--panel-2); border: 1px solid var(--line);
   }
+  /* An artifact is an address, and the two halves answer different questions:
+     the host says which machine, the basename says what it is. Both were buried
+     in one long <code> run before, which is why 44 of them read as noise. */
+  .art {
+    display: block; padding: 5px 0; cursor: pointer; position: relative;
+    border-bottom: 1px solid var(--line);
+  }
+  .art:last-child { border-bottom: 0; }
+  .art:hover .base { text-decoration: underline; }
+  .art .host {
+    font-size: 10.5px; color: var(--ink-dim); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; margin-right: 7px;
+  }
+  .art .base { font-size: 12.5px; color: var(--accent); word-break: break-all; }
+  .art .dir {
+    display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px; color: var(--ink-faint); word-break: break-all; margin-top: 2px;
+  }
+  .art.copied::after {
+    content: "path copied"; position: absolute; right: 0; top: 5px;
+    font-size: 10.5px; color: var(--good);
+  }
   .hist { font-size: 12.5px; }
   .hist li { margin-bottom: 4px; list-style: none; }
   .hist .d { color: var(--ink-faint); font-variant-numeric: tabular-nums; margin-right: 6px; }
@@ -176,6 +219,17 @@
   }
   .hbtn:hover { color: var(--ink); }
   .hbtn.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+  #colourBy {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim);
+    border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  /* One key at a time. When fill stops meaning status, the swatches beside the
+     status filter stop being true — and the age ramp is blue, which is exactly
+     what `running` looks like. So they go away rather than contradict the map. */
+  body:not([data-colour="status"]) #fStatus .swatch { display: none; }
+  #fillKey { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--ink-dim); }
+  #fillKey .row { display: flex; align-items: center; gap: 6px; }
+  #fillKey .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
 
   /* A note is a human sentence someone added after the fact. It gets a marker on
      the glyph rather than a colour, because colour already means status and
@@ -237,6 +291,13 @@
   <button id="isolateOff" hidden>show all</button>
   <span class="grow"></span>
   <button id="needs" class="hbtn" title="Only what needs attention (w)">needs you</button>
+  <label class="muted" for="colourBy">fill</label>
+  <select id="colourBy" title="What the glyph colour means">
+    <option value="status">status</option>
+    <option value="needs">needs you</option>
+    <option value="age">age</option>
+    <option value="author">author</option>
+  </select>
   <div class="timebar">
     <label class="muted" for="time">as of</label>
     <button id="play" class="hbtn" title="Replay history (space)">▶</button>
@@ -257,9 +318,11 @@
       ● experiment &nbsp; ◆ seed<br>▮ direction &nbsp; ■ task<br>⬢ milestone
     </div>
     <div class="muted" style="line-height:1.6;margin-top:8px">
-      shape = type · fill = status<br>size = work downstream<br>
+      shape = type · size = work downstream<br>
       ring = needs you · dot = open note
     </div>
+    <h2>Fill</h2>
+    <div id="fillKey"></div>
     <h2>Edges</h2>
     <div id="relKey"></div>
     <h2>Keys</h2>
@@ -302,6 +365,7 @@ const state = {
   selected: null,
   isolate: null,
   needs: false,
+  colour: 'status',
 };
 
 /* ---------- status as of a date: this is the replay ---------- */
@@ -376,6 +440,70 @@ function visible(n) {
   if (!state.author.has(n.author)) return false;
   if (state.query && !haystack(n).includes(state.query)) return false;
   return true;
+}
+
+/* ---------- what fill means ----------
+   Four encodings, one active at a time. That constraint is the whole design: a
+   "green = to do, red = blocked" overlay would have collided with fill-is-status
+   and with the relation palette at once, and then neither would be readable. One
+   channel changes meaning, the legend says which, and everything else on the
+   glyph — shape, size, ring, dot — keeps meaning exactly what it meant.
+
+   Status stays a CSS class because the map has always worked that way and the
+   filter rail shares the palette. The other three return a colour, set inline on
+   the group, which beats the class rule for `fill` and leaves the ring, the note
+   dot and the label alone (each sets its own fill).
+
+   All three are computed as of the slider's cutoff, like `needsYou` and the
+   radius: a node's age in June is its age in June. */
+const AGE_BUCKETS = [
+  [7,   'age-5', 'touched this week'],
+  [14,  'age-4', '1–2 weeks'],
+  [30,  'age-3', '2–4 weeks'],
+  [90,  'age-2', '1–3 months'],
+  [1e9, 'age-1', 'over 3 months'],
+];
+
+/** Writers get a hue in a fixed order; `uncommitted` is not a person. */
+const WHO = new Map();
+(function assignAuthors() {
+  let slot = 0;
+  for (const a of DATA.authors) {
+    if (a === 'uncommitted') { WHO.set(a, 'idle'); continue; }
+    slot += 1;
+    WHO.set(a, slot <= 3 ? `who-${slot}` : 'who-other');
+  }
+})();
+
+function ageBucket(n, when) {
+  const last = [...(n.history || [])].filter(h => h.date <= when).pop();
+  const days = daysSince(last ? last.date : n.created, ageRef());
+  return AGE_BUCKETS.find(b => days <= b[0]) || AGE_BUCKETS[AGE_BUCKETS.length - 1];
+}
+
+/** The CSS variable this node's glyph should be filled with, or null for status. */
+function fillVar(n, when) {
+  if (state.colour === 'needs') return needsYou(n, when) ? 'pending' : 'idle';
+  if (state.colour === 'age') return ageBucket(n, when)[1];
+  if (state.colour === 'author') return WHO.get(n.author) || 'who-other';
+  return null;
+}
+
+function fillLegend() {
+  const rows = [];
+  if (state.colour === 'status') {
+    // The status filter already carries this key, swatch for swatch.
+    rows.push(['', 'each status has its own colour — see the Status filter above']);
+  } else if (state.colour === 'needs') {
+    rows.push(['pending', 'needs you'], ['idle', 'quiet, or answered']);
+  } else if (state.colour === 'age') {
+    for (const [, token, label] of AGE_BUCKETS) rows.push([token, label]);
+  } else {
+    for (const [who, token] of WHO) rows.push([token, who]);
+  }
+  $('#fillKey').innerHTML = rows.map(([token, label]) =>
+    `<div class="row">${token ? `<span class="sw" style="background:var(--${token})"></span>` : ''}` +
+    `<span>${esc(label)}</span></div>`).join('');
 }
 
 /* ---------- geometry ---------- */
@@ -554,8 +682,11 @@ function draw() {
     const attn = needsYou(n, when);
     const noted = openNotes(n, when).length;
     const r = radiusOf(n);
+    const paint = fillVar(n, when);
     parts.push(
-      `<g class="node ${cls}${dim}${on}${attn ? ' needs' : ''}" transform="translate(${n.x},${n.y})" data-id="${esc(n.id)}">` +
+      `<g class="node ${cls}${dim}${on}${attn ? ' needs' : ''}"` +
+      (paint ? ` style="fill:var(--${paint})"` : '') +
+      ` transform="translate(${n.x},${n.y})" data-id="${esc(n.id)}">` +
       (attn ? `<circle class="ring" r="${r + 5}"></circle>` : '') +
       glyph(n.shape, r) +
       (noted ? `<circle class="flag" cx="${r - 3}" cy="${-r + 3}" r="3.4"></circle>` : '') +
@@ -571,6 +702,7 @@ function draw() {
   $('#isolateOff').hidden = !state.isolate;
   $('#empty').hidden = DATA.nodes.length > 0;
   refreshCounts();
+  fillLegend();
 }
 
 /** Every ancestor and every descendant of `id`, plus `id` itself. */
@@ -629,6 +761,47 @@ function haystack(n) {
   }
   return hay;
 }
+
+/* `host:/path`, split so the machine and the filename are both readable, and
+   clickable so the path lands on the clipboard instead of being re-typed.
+
+   Copying the PATH rather than the whole address is deliberate: the address is
+   what the schema stores, but the path is what you paste into a terminal, and
+   the host is already on screen next to it.
+
+   There is no link to follow, and inventing one would be worse than not having
+   it — `hero:/<file-id>` is the address that would resolve from anywhere
+   ([[2026-08-21-cairn-hero-artifacts]]), but that node is still `planned`, no
+   artifact in the graph uses the scheme, and this renderer is not the place to
+   guess a base URL. An `http(s):` artifact does get a real link, because that
+   one resolves itself.
+
+   Whether the path still EXISTS is the question this cannot answer: a static
+   file cannot stat a remote scratch directory. That is the natural seam for
+   `cairn serve` — a server knows its own hostname and can check. */
+function artifactRow(value) {
+  const raw = String(value);
+  const cut = raw.indexOf(':/');
+  const host = cut < 0 ? '' : raw.slice(0, cut);
+  const path = cut < 0 ? raw : raw.slice(cut + 1);
+  if (/^https?$/i.test(host)) {
+    return `<div class="art"><a href="${esc(raw)}" target="_blank" rel="noopener" class="base">${esc(raw)}</a></div>`;
+  }
+  // A directory artifact keeps its trailing slash on the name, because that is
+  // what says it is a directory. Splitting before trimming it would put the whole
+  // path in both halves.
+  const isDir = path.endsWith('/') && path.length > 1;
+  const stem = isDir ? path.slice(0, -1) : path;
+  const slash = stem.lastIndexOf('/');
+  const base = (stem.slice(slash + 1) || stem) + (isDir ? '/' : '');
+  const dir = stem.slice(0, slash + 1);
+  return `<div class="art" data-artifact="${esc(path)}" title="click to copy the path">` +
+    (host ? `<span class="host">${esc(host)}</span>` : '') +
+    `<span class="base">${esc(base)}</span>` +
+    (dir ? `<span class="dir">${esc(dir)}</span>` : '') +
+    `</div>`;
+}
+
 
 /* ---------- filters ---------- */
 function chk(container, values, key, colour) {
@@ -706,6 +879,8 @@ function open(id) {
         `${esc(c.name || '')}${c.email ? ` &lt;<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>&gt;` : ''}` +
         `${c.affiliation ? `<span class="muted"> · ${esc(c.affiliation)}</span>` : ''}`
       ).join('<br>'));
+    } else if (k === 'artifacts') {
+      continue;                       // rendered as its own section, full width
     } else if (Array.isArray(v)) {
       push(k, v.map(x => `<code>${esc(x)}</code>`).join('<br>'));
     } else if (k === 'commit' && n.commitUrl) {
@@ -758,6 +933,7 @@ function open(id) {
       (r.note ? `<div class="muted" style="margin-top:2px">${esc(r.note)}</div>` : '') +
       `</div>`
     ).join('')) +
+    section('Artifacts', (n.extra.artifacts || []).map(artifactRow).join('')) +
     section('References', n.refs.map(r =>
       `<div style="margin-bottom:6px"><a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.title || r.doi)}</a>` +
       (r.cocited.length ? `<div class="muted">also cited by ${r.cocited.length} other node(s)</div>` : '') + `</div>`
@@ -948,6 +1124,12 @@ document.addEventListener('click', e => {
     e.target.textContent = 'copied';
     setTimeout(() => { e.target.textContent = 'copy link'; }, 1200);
   }
+  const art = e.target.closest?.('.art[data-artifact]');
+  if (art) {
+    navigator.clipboard?.writeText(art.dataset.artifact);
+    art.classList.add('copied');
+    setTimeout(() => art.classList.remove('copied'), 1400);
+  }
   if (d.note) {
     const cmd = noteCommand(d.note);
     navigator.clipboard?.writeText(cmd);
@@ -969,6 +1151,12 @@ document.addEventListener('input', e => {
   }
 });
 $('#isolateOff').onclick = () => { state.isolate = null; draw(); fit(); };
+
+$('#colourBy').addEventListener('change', e => {
+  state.colour = e.target.value;
+  document.body.dataset.colour = state.colour;
+  draw();
+});
 
 /* ---------- hover card ---------- */
 const hover = $('#hover');
@@ -1145,6 +1333,12 @@ document.addEventListener('keydown', e => {
     state.t = index === -1 ? DATA.dates.length - 1 : Math.max(0, index - 1);
     timeInput.value = state.t;
   }
+  const colour = params.get('colour');
+  if (colour && [...$('#colourBy').options].some(o => o.value === colour)) {
+    state.colour = colour;
+    $('#colourBy').value = colour;
+  }
+  document.body.dataset.colour = state.colour;
   const project = params.get('project');
   if (project) {
     state.project = new Set([project]);
