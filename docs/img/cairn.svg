@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 76" width="60" height="76" role="img" aria-label="Cairn — four stacked stones">
-  <!-- same mark as cairn-deck; colors from scripts/graph_template.html -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 82" width="64" height="82" role="img" aria-label="Cairn — a stack of balanced stones">
+  <!-- colors from scripts/graph_template.html, so mark, map and deck stay one system -->
   <style>
     .stone { fill: #1a1d22; }
     .stone.a { fill: #275e9c; }
@@ -8,8 +8,8 @@
       .stone.a { fill: #7aa7d9; }
     }
   </style>
-  <rect class="stone a" x="14" y="4"  width="32" height="13" rx="6"/>
-  <rect class="stone"   x="6"  y="22" width="48" height="14" rx="7"/>
-  <rect class="stone"   x="2"  y="41" width="56" height="15" rx="7"/>
-  <rect class="stone"   x="9"  y="61" width="42" height="11" rx="5"/>
+  <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+  <ellipse class="stone"   cx="31" cy="31" rx="20" ry="9"   transform="rotate(4 31 31)"/>
+  <ellipse class="stone"   cx="33" cy="51" rx="26" ry="10"  transform="rotate(-3 33 51)"/>
+  <ellipse class="stone"   cx="32" cy="71" rx="20" ry="8"   transform="rotate(2 32 71)"/>
 </svg>

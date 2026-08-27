@@ -1,6 +1,4 @@
-# Cairn
-
-<img src="docs/img/cairn.svg" alt="" width="66" align="right">
+# <img src="docs/img/cairn.svg" height="30" alt=""> Cairn
 
 A persistent, git-backed DAG of research activity across projects —
 experiments, dead ends, open threads, conference ideas, tasks with deadlines,
