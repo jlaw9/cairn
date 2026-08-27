@@ -62,8 +62,11 @@ Three traps found while checking these:
   requests fail. Strip the tags, or use sigma.js + graphology for a genuinely
   zero-request page. It also pulls `dask[complete]`, which is a lot of install
   for one figure.
-- **`@cosmograph/*` is CC-BY-NC-4.0.** The MIT fork is `@cosmos.gl/graph`, same
-  version number. Non-commercial is a hard blocker for NLR work.
+- **`@cosmograph/*` is CC-BY-NC-4.0**, where the MIT fork `@cosmos.gl/graph` sits
+  at the same version number. Not a blocker for the academic collaborations this
+  work sits in — but take the MIT package anyway, since it is the same code and
+  costs nothing to prefer. Worth a check with tech transfer only if a map ever
+  ships inside a deliverable to an industry partner.
 - **`pyvis` is effectively dead** (0.3.2, Feb 2023; the fix for its broken offline
   mode has been an open PR since Dec 2022). Don't start there.
 
@@ -318,17 +321,33 @@ trusted.
 
 ## The clustered-graph project from the LinkedIn post
 
-Not confirmed. LinkedIn post bodies are essentially absent from the search index.
-The closest fit, at medium confidence, is **Jay Alammar's "Inside NeurIPS 2025:
-The Year's AI Research, Mapped"** ([map](https://jalammar.github.io/assets/neurips_2025.html),
-[write-up](https://newsletter.languagemodels.co/p/the-illustrated-neurips-2025-a-visual)):
-~5,787 papers → Cohere Embed 4 → k-means then hierarchical clustering of
-centroids → UMAP → cluster names and per-paper summaries from an LLM →
-customised `datamapplot`. Exactly the described artifact, and demonstrably viral
-on LinkedIn — **but he released no repo of his own.** If "public GitHub repo" is
-firm, it isn't this.
+**Identified, and confirmed by Jeff: Jay Alammar's "Inside NeurIPS 2025: The
+Year's AI Research, Mapped"** ([map](https://jalammar.github.io/assets/neurips_2025.html),
+[write-up](https://newsletter.languagemodels.co/p/the-illustrated-neurips-2025-a-visual)).
 
-Other candidates, all lower confidence and none with a confirmed post:
+The recipe: ~5,787 NeurIPS papers → Cohere Embed 4 → k-means, then hierarchical
+clustering of the centroids → UMAP → cluster names *and* per-paper summaries from
+an LLM → a customised `datamapplot`.
+
+**There is no repo** — he published the map and the write-up, not the code. So the
+reusable part is the recipe plus `datamapplot`, which is the one dependency the
+pipeline above already names. Two things in his approach are worth copying
+directly and one is worth not copying:
+
+- **Copy: k-means, then cluster the centroids hierarchically.** k-means produces
+  no noise bucket, which sidesteps failure mode 1 outright — and the hierarchy
+  over centroids is what gives readable zoom levels without a second fit. At
+  1,000–2,000 PDFs this is a better default than UMAP+HDBSCAN.
+- **Copy: per-paper summaries, not just cluster labels.** He generated both. The
+  per-paper line is what makes an exemplar checkable at a glance, which is
+  exactly what a cluster node's body needs to be falsifiable.
+- **Don't copy: a one-off map with no frozen model.** A conference proceedings is
+  a closed corpus mapped once; your corpora grow. His pipeline has no reason to
+  care about assigning new papers to existing clusters, and yours has to — see
+  the two-tier scheme above.
+
+The other candidates found while searching, kept because several are closer to
+what a *reusable* pipeline looks like than Alammar's one-off is:
 
 | project | repo | note |
 |---|---|---|

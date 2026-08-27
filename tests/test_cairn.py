@@ -1088,6 +1088,17 @@ class Standup(unittest.TestCase):
     def rank_of(self, rows, project):
         return next(row["rank"] for row in rows if row["project"] == project)
 
+    def test_last_touched_is_the_newest_node_not_the_oldest(self):
+        """`age` is days *since*, so max() reported the stalest node's age as the
+        project's recency. A project with a node from today and one from six weeks
+        ago read as six weeks cold — on exactly the line someone uses to judge
+        whether they have lost that project's context."""
+        fresh = self.make("2026-08-21-p-fresh", "experiment", "running", self.today)
+        stale = self.make("2026-06-10-p-stale", "experiment", "running",
+                          self.today - dt.timedelta(days=60))
+        row = self.survey(fresh, stale)[0]
+        self.assertEqual(row["since"], 0)
+
     def test_quiet_project_outranks_a_project_that_moved_today(self):
         """The whole point. Recency is what a digest sorts by and it is exactly
         backwards here: the project you touched this morning is the one whose

@@ -49,6 +49,7 @@ replaces running `sync --push` yourself; they make forgetting visible.
 | `build/` | generated. Never hand-edit |
 | `scripts/` | the tooling |
 | `docs/github.md` | tasks as GitHub Issues: what works, what's unverified |
+| `docs/literature.md` | corpora of thousands of papers: clusters, and what earns a node |
 | `build/report.md` | generated: where to start, and how much to trust a gap |
 
 Nothing heavy ever enters this repo. Big outputs are referenced by

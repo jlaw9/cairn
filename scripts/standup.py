@@ -202,7 +202,12 @@ def survey(nodes: dict[str, lib.Node], today: dt.date, quiet_after: int,
                 notes.append((note.get("date") or dt.date.min, node, note))
         notes.sort(key=lambda row: row[0], reverse=True)
 
-        touched = max((age(n, today) for n in members if age(n, today) >= 0),
+        # min, not max. `age` is days *since* a node was written to, so max()
+        # returns the age of the stalest node in the project and reports it as
+        # "last touched Nd ago" — which is the opposite of true. A project with a
+        # node from today and one from six weeks ago read as six weeks cold, on
+        # the one line a reader uses to judge whether they have lost its context.
+        touched = min((age(n, today) for n in members if age(n, today) >= 0),
                       default=-1)
         quiet = min((age(n, today) for n in live if age(n, today) >= 0), default=-1)
         overdue = any(when < today for when, _ in deadlines)

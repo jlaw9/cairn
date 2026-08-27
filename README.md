@@ -280,6 +280,14 @@ Use the `litsearch-workflow` or `property-matrix-litsearch` skills to do the
 retrieval — don't reimplement it. What lands here is the conclusion and the
 verified DOIs, not the corpus.
 
+**At corpus scale — hundreds or thousands of PDFs — read
+[docs/literature.md](docs/literature.md).** Those papers can't each get a node,
+and the answer is not one node per cluster either: the map is an artifact, one
+node describes the mapping run, and a cluster becomes a node only once someone
+has read it. That doc works out the pipeline, why cluster *identity* is the hard
+part when node ids are permanent, and where the boundary sits between "corpus
+member", "cited evidence with a `papers/` page", and "a claim of its own".
+
 ### D. Your work isn't computational
 
 The *model* here is domain-neutral — claims, results, dead ends, directions,
