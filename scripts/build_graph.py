@@ -315,6 +315,7 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
     titles = {node_id: node.title for node_id, node in nodes.items()}
 
     authors = node_authors()
+    assets = lib.find_assets()
 
     payload_nodes = []
     for node in nodes.values():
@@ -384,6 +385,14 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
                 for n in lib.read_notes(node)
             ],
         })
+
+        # `assets/<node-id>.<ext>`, discovered rather than declared. Only the
+        # filename travels: the panel resolves it as `../assets/<name>` the same
+        # way the `source` link already resolves `../nodes/<id>.md`, so the figure
+        # is not embedded and the payload does not carry it.
+        asset = assets.get(node.id)
+        if asset is not None:
+            payload_nodes[-1]["asset"] = asset.name
 
     all_dates = sorted({d for n in payload_nodes for d in [n["created"]] + [h["date"] for h in n["history"]] if d})
 

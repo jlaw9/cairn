@@ -502,6 +502,43 @@ def require_graph(root: Path | None = None) -> Path:
     )
 
 
+def asset_dir(root: Path | None = None) -> Path:
+    return (root or REPO_ROOT) / "assets"
+
+
+#: What counts as a figure. A closed list rather than "any file", because the
+#: panel puts it in an `<img>` and anything else would render as a broken image
+#: instead of as the mistake it is.
+ASSET_SUFFIXES = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+#: `assets/` is documented as "small figures only". This is that promise, in
+#: bytes. A warning rather than an error: it is a judgement about repo weight,
+#: not a schema violation, and blocking a commit over it would be the kind of
+#: friction that costs a capture.
+ASSET_MAX_BYTES = 100_000
+
+
+def find_assets(root: Path | None = None) -> dict[str, Path]:
+    """node id -> its figure, by filename convention: `assets/<node-id>.<ext>`.
+
+    Derived from the filesystem, never stored on the node. Same reasoning as
+    `author` being read out of git: a path recorded in frontmatter is a second
+    copy of the truth that can disagree with the first, and one more field that
+    stops getting filled in.
+
+    One per node. If a node has several, the first by sorted suffix wins and
+    `validate` says so — silently picking one would make the other invisible.
+    """
+    folder = asset_dir(root)
+    if not folder.is_dir():
+        return {}
+    found: dict[str, Path] = {}
+    for path in sorted(folder.iterdir()):
+        if path.is_file() and path.suffix.lower() in ASSET_SUFFIXES:
+            found.setdefault(path.stem, path)
+    return found
+
+
 def load_nodes(root: Path | None = None) -> tuple[dict[str, Node], list[str]]:
     """Load every node. Returns (by-id map, list of parse errors)."""
     require_graph(root)
@@ -809,6 +846,44 @@ def _check_body_links(nodes: dict[str, Node], out: list[Issue]) -> None:
                 ))
 
 
+def _check_assets(nodes: dict[str, Node], out: list[Issue], root: Path | None = None) -> None:
+    """A figure has to belong to a node, be the only one, and stay small.
+
+    All three failures are silent otherwise: an orphan never renders anywhere, a
+    second figure for the same node is simply never shown, and a large one is
+    invisible until the clone is slow.
+    """
+    folder = asset_dir(root)
+    if not folder.is_dir():
+        return
+    seen: dict[str, list[str]] = {}
+    for path in sorted(folder.iterdir()):
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        where = f"assets/{path.name}"
+        if path.suffix.lower() not in ASSET_SUFFIXES:
+            out.append(Issue("warn", where, (
+                f"not a figure type {ASSET_SUFFIXES} — the panel renders assets in an "
+                f"<img>, so this will never be shown")))
+            continue
+        if path.stem not in nodes:
+            out.append(Issue("warn", where, (
+                "no node with this id — a figure is addressed by filename, so this one "
+                "renders nowhere")))
+        else:
+            seen.setdefault(path.stem, []).append(path.name)
+        size = path.stat().st_size
+        if size > ASSET_MAX_BYTES:
+            out.append(Issue("warn", where, (
+                f"{size // 1000} kB — assets/ is documented as small figures only, and "
+                f"this repo is meant to stay text-sized forever")))
+    for node_id, names in seen.items():
+        if len(names) > 1:
+            out.append(Issue("warn", f"assets/{names[0]}", (
+                f"{node_id} has {len(names)} figures ({', '.join(names)}) — only the "
+                f"first is shown")))
+
+
 def validate(root: Path | None = None) -> list[Issue]:
     """Validate the whole graph. Errors block a commit; warnings don't."""
     issues: list[Issue] = []
@@ -826,6 +901,7 @@ def validate(root: Path | None = None) -> list[Issue]:
     _check_relations(nodes, issues)
     _check_refs(nodes, papers, issues)
     _check_body_links(nodes, issues)
+    _check_assets(nodes, issues, root)
     return issues
 
 

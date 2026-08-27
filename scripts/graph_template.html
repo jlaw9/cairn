@@ -139,6 +139,21 @@
      parent and relation lists are. */
   .body .lnk { display: inline; padding: 0; font-size: inherit; }
   .lnk.broken { color: var(--muted); cursor: help; text-decoration: underline dotted; }
+  /* A figure is referenced, not embedded: `../assets/<file>`, resolved the same
+     way the `source` link resolves `../nodes/<id>.md`. So the payload never
+     carries image bytes, and `assets/` can hold an SVG that themes itself —
+     inside an <img> a media query still sees the reader's colour scheme.
+
+     <img> rather than inlining the file, deliberately. Inlining an SVG would put
+     unreviewed markup from `assets/` into the page's own DOM; an <img> is inert,
+     which is the right trade for a record you are supposed to be able to trust.
+     The cost is that a figure cannot be interactive, and that is acceptable —
+     it is a thumbnail, and the node body carries the numbers. */
+  .fig a { display: block; }
+  .fig img {
+    display: block; width: 100%; height: auto; border-radius: 6px;
+    background: var(--panel-2); border: 1px solid var(--line);
+  }
   .hist { font-size: 12.5px; }
   .hist li { margin-bottom: 4px; list-style: none; }
   .hist .d { color: var(--ink-faint); font-variant-numeric: tabular-nums; margin-right: 6px; }
@@ -727,6 +742,11 @@ function open(id) {
     `</div>` +
     `<dl class="kv">${rows.join('')}</dl>` +
     `<div class="body">${n.body}</div>` +
+    // After the body: the body states the claim, the figure shows the result.
+    (n.asset ? `<div class="sect fig"><div class="hd">Figure</div>` +
+      `<a href="../assets/${encodeURIComponent(n.asset)}" target="_blank" rel="noopener">` +
+      `<img src="../assets/${encodeURIComponent(n.asset)}" alt="Figure for ${esc(n.title)}">` +
+      `</a></div>` : '') +
     section('Parents', links(n.parents)) +
     section('Children', links(n.children)) +
     // Phrased from this node's side in both directions, so a contradiction is
