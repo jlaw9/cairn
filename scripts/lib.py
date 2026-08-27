@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -935,6 +936,141 @@ def append_note(node: Node, text: str, who: str = "", when: dt.date | None = Non
         return line
     node.body = f"{body}\n\n## Notes\n\n{line}\n"
     return line
+
+
+# --------------------------------------------------------------------------
+# Review, derived from git
+# --------------------------------------------------------------------------
+
+# Design decision 9 again: git already knows, so `reviewed:` is not a field.
+#
+# The signal cannot be committer identity — `git rebase` rewrites the committer,
+# and `cairn sync` rebases at the start of every session, so it would be erased
+# as routine housekeeping. It cannot be author identity either: `git log
+# --diff-filter=A` is already how authorship is derived, and an agent committing
+# as itself would make every node's author the agent, which is false. So it is a
+# message trailer, which survives both.
+#
+# The trailer carries the node id rather than relying on the diff, because a
+# review with nothing to add is an *empty* commit, and `git log -- nodes/<id>.md`
+# drops commits that do not touch that path. Two passes, therefore: reviews from
+# trailers over the whole log, writes from the pathspec log.
+
+#: `Cairn-Review: <who> <node-id>`, repeatable — one commit may review several.
+REVIEW_TRAILER = "Cairn-Review"
+
+REVIEW_TRAILER_RE = re.compile(
+    r"^%s:[ \t]*(\S+)[ \t]+(\S+)[ \t]*$" % REVIEW_TRAILER, re.MULTILINE)
+
+#: What `review_state` can say about a node.
+#:   reviewed      a human has read it since the last thing written to it
+#:   unreviewed    it has not been read since the last write
+#:   unclassified  written before the convention existed; git cannot say
+#:   uncommitted   no commit touches it at all — a draft, which sync reports
+REVIEW_STATES = ("reviewed", "unreviewed", "unclassified", "uncommitted")
+
+
+def review_trailer(who: str, node_id: str) -> str:
+    return f"{REVIEW_TRAILER}: {who} {node_id}"
+
+
+def _log(root: Path, *args: str) -> str:
+    """`git log` or an empty string. No git, no history and no repo all mean the
+    same thing here — nothing is derivable — and none of them is an error."""
+    try:
+        done = subprocess.run(["git", "-C", str(root), "log", *args],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout if done.returncode == 0 else ""
+
+
+def review_state(root: Path | None = None) -> dict[str, dict]:
+    """node id -> {state, reviewed_on, reviewed_by, written_on}.
+
+    Ordering is by position in the log rather than by date, because a review and
+    the write it answers routinely land on the same day and a date comparison
+    cannot separate them. Position is exact and survives rebase; `%ad` is carried
+    only so the caller has something to print.
+    """
+    root = root or REPO_ROOT
+
+    order: dict[str, int] = {}
+    reviews: dict[str, tuple[int, dt.date | None, str]] = {}
+    epoch: int | None = None          # oldest commit carrying the trailer
+
+    # Pass one: every commit, no pathspec, so empty review commits are visible.
+    # %B rather than %(trailers:...) — the latter wants a newer git than an HPC
+    # login node reliably has, and parsing a trailer is four lines.
+    for index, chunk in enumerate(
+            c for c in _log(root, "--format=%x00%H%x1f%ad%x1f%B",
+                            "--date=short").split("\x00")[1:]):
+        parts = chunk.split("\x1f", 2)
+        if len(parts) != 3:
+            continue
+        sha, stamp, message = parts
+        order[sha] = index
+        when = as_date(stamp.strip())
+        for who, node_id in REVIEW_TRAILER_RE.findall(message):
+            epoch = index if epoch is None else max(epoch, index)
+            if node_id not in reviews or index < reviews[node_id][0]:
+                reviews[node_id] = (index, when, who)
+
+    # Pass two: what each commit wrote. Newest first, so the first sighting of a
+    # file is its most recent write.
+    writes: dict[str, tuple[int, dt.date | None]] = {}
+    for chunk in _log(root, "--format=%x00%H%x1f%ad", "--date=short",
+                      "--name-only", "--", "nodes").split("\x00")[1:]:
+        lines = [line for line in chunk.splitlines() if line.strip()]
+        if not lines:
+            continue
+        head = lines[0].split("\x1f", 1)
+        if len(head) != 2:
+            continue
+        index = order.get(head[0])
+        if index is None:
+            continue
+        when = as_date(head[1].strip())
+        for path in lines[1:]:
+            if path.endswith(".md"):      # nodes/ also holds a .gitkeep
+                writes.setdefault(Path(path).stem, (index, when))
+
+    out: dict[str, dict] = {}
+    for node_id in set(writes) | set(reviews):
+        write = writes.get(node_id)
+        review = reviews.get(node_id)
+        if write is None:
+            # Reviewed by trailer but the file never appears — a typo in the id,
+            # or a node deleted in defiance of rule 2. Say nothing rather than
+            # inventing a state.
+            continue
+        # A note-carrying review touches the file and stamps the trailer in the
+        # same commit, so equal positions must count as reviewed.
+        if review is not None and review[0] <= write[0]:
+            state = "reviewed"
+        elif epoch is None or write[0] > epoch:
+            state = "unclassified"
+        else:
+            state = "unreviewed"
+        out[node_id] = {
+            "state": state,
+            "written_on": write[1],
+            "reviewed_on": review[1] if review else None,
+            "reviewed_by": review[2] if review else "",
+        }
+    return out
+
+
+def review_states(nodes: dict[str, Node], root: Path | None = None) -> dict[str, dict]:
+    """`review_state` widened to every node, so a caller can index it freely.
+
+    A node git has never seen is `uncommitted` — the draft case design decision 6
+    exists for, and the one `sync` already names.
+    """
+    derived = review_state(root)
+    blank = {"state": "uncommitted", "written_on": None,
+             "reviewed_on": None, "reviewed_by": ""}
+    return {node_id: derived.get(node_id, dict(blank)) for node_id in nodes}
 
 
 # --------------------------------------------------------------------------

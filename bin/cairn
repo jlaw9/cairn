@@ -42,6 +42,7 @@ usage: cairn <command> [args...]
   standup        what to pick up today; --project for a resume packet
   sync           pull the graph; --push to regenerate build/ and push
   note           append a dated note to a node's body
+  review         mark a node read; --list for what nobody has read
   import_note    bring a meeting note or external file into the graph
   report         write build/report.md — where to start, what a gap means
   install_hooks  enable pre-commit validation for a graph repo

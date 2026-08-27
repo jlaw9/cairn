@@ -1,0 +1,74 @@
+#!/bin/sh
+# Cairn commit-msg: a review stamp that does nothing is worse than none.
+#
+# `reviewed` is derived from `Cairn-Review: <who> <node-id>` trailers (see the
+# design note above REVIEW_TRAILER in scripts/lib.py). The failure mode that
+# derivation has is silent: a typo in the node id matches nothing, so the commit
+# succeeds, the log looks right, and the node stays unreviewed forever. Nobody
+# would ever look for that. So the shape gets checked at the one moment the
+# message still exists as a file.
+#
+# What this hook is NOT: a guarantee that a human did the reading. Agents run as
+# the person who owns the clone, so nothing here can tell the two apart, and
+# pretending otherwise would be worse than saying so. CLAUDE.md is the control;
+# this only ensures an honest stamp lands where it was aimed.
+#
+# Installed by `cairn install_hooks`, which points the graph's core.hooksPath at
+# this directory. A clone made before the tool/graph split has its own in-repo
+# `.githooks/` instead, which will not contain this file — `cairn doctor` reports
+# that case by resolving the path rather than matching the string.
+
+set -e
+
+message=$1
+[ -n "$message" ] && [ -f "$message" ] || exit 0
+
+# Trailers only: a line in the body that merely mentions the token is prose.
+stamps=$(grep '^Cairn-Review:' "$message" 2>/dev/null || true)
+[ -n "$stamps" ] || exit 0
+
+graph=$(git rev-parse --show-toplevel 2>/dev/null || true)
+[ -n "$graph" ] || exit 0
+
+fail() {
+    echo "" >&2
+    echo "cairn: malformed review stamp — commit blocked." >&2
+    echo "  $1" >&2
+    echo "" >&2
+    echo "  expected:  Cairn-Review: <who> <node-id>" >&2
+    echo "  a stamp with the wrong id marks nothing, and nothing reports it." >&2
+    exit 1
+}
+
+# The graph is not always the repo root. `nodes/` can sit in a subdirectory — a
+# project repo keeping its own record, or the pre-split layout where the tool and
+# the graph shared a clone — so the obvious `$graph/nodes/$id.md` would reject
+# every honest stamp there. Look where CAIRN_ROOT says first (it is often unset
+# in the shell a commit is made from, hence the fallbacks), then the repo root,
+# then anywhere shallow. The search only runs when a stamp is present.
+exists() {
+    for base in "$CAIRN_ROOT" "$graph"; do
+        if [ -n "$base" ] && [ -f "$base/nodes/$1.md" ]; then
+            return 0
+        fi
+    done
+    hit=$(find "$graph" -maxdepth 4 -path "*/nodes/$1.md" -print 2>/dev/null | head -n 1)
+    [ -n "$hit" ]
+}
+
+# Fed by redirect rather than a pipe: a `while` on the right of a pipe runs in a
+# subshell, where `fail`'s exit would end the subshell and let the commit through.
+while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    value=${line#*:}
+    who=$(echo "$value" | awk '{print $1}')
+    node=$(echo "$value" | awk '{print $2}')
+    extra=$(echo "$value" | awk '{print $3}')
+
+    [ -n "$who" ] || fail "no reviewer in: $value"
+    [ -n "$node" ] || fail "no node id in: $value"
+    [ -z "$extra" ] || fail "expected two fields, got:$value"
+    exists "$node" || fail "no such node: $node"
+done <<STAMPS
+$stamps
+STAMPS

@@ -41,15 +41,27 @@ else
     say_note "python3 -m venv ~/.cairn/venv && ~/.cairn/venv/bin/pip install pyyaml"
 fi
 
-# 2. The pre-commit hook. Without it the graph commits unvalidated. It is set on
-#    the *graph* repo and points at an absolute path in the tool, so accept either
-#    that or the old in-repo form.
+# 2. The hooks. Without pre-commit the graph commits unvalidated; without
+#    commit-msg a mistyped review stamp marks nothing and says nothing.
+#
+#    core.hooksPath is checked by *resolving* it rather than by string-matching
+#    the two forms it usually takes. A clone made before the tool/graph split
+#    carries its own `.githooks/` with only a pre-commit in it, and that path
+#    string looks correct while silently lacking every hook added since.
 hooks_path=$(git -C "$graph" config core.hooksPath 2>/dev/null || true)
-if [ "$hooks_path" = "$tool/.githooks" ] || [ "$hooks_path" = ".githooks" ]; then
-    say_ok "pre-commit validation enabled for the graph"
-else
+case $hooks_path in
+    "")  resolved="" ;;
+    /*)  resolved=$hooks_path ;;
+    *)   resolved=$graph/$hooks_path ;;
+esac
+if [ -z "$resolved" ] || [ ! -x "$resolved/pre-commit" ]; then
     say_bad "pre-commit hook not installed on $graph" \
             "cairn install_hooks $graph"
+elif [ ! -x "$resolved/commit-msg" ]; then
+    say_bad "hooks at $resolved predate the review-stamp check" \
+            "cairn install_hooks $graph"
+else
+    say_ok "pre-commit validation and review-stamp checks enabled for the graph"
 fi
 
 # 3. /log and /paper, which only work from other repos once symlinked.

@@ -474,6 +474,50 @@ on comments I left?". Yes: notes are in the node body, so they are in `standup`'
 resume packet, in the session-start context, and in the report. A note is how you
 hand an instruction to next week's session without writing a prompt.
 
+## Which claims a human has actually read
+
+```sh
+cairn review --list                    # what nobody has read
+cairn review polyid-run-variance "the seeds explain it"
+cairn review polyid-run-variance       # read it, nothing to add
+```
+
+`reviewed` is **derived from git, never a field**. A commit that carries a
+`Cairn-Review: <who> <node-id>` trailer says a human read that node; a node whose
+last write came after its last stamp is one nobody has read since.
+
+The signal has to be a message trailer rather than an identity, and both halves
+of that are load-bearing. **Committer identity is erased by `sync`** — `git
+rebase` rewrites the committer, and the session protocol rebases twice a day.
+**Author identity is already spoken for**: `git log --diff-filter=A` is how
+authorship is derived, and an agent committing under its own name would make
+itself the author of work it only typed up. A trailer survives rebase and answers
+a different question.
+
+The trailer carries the node id rather than relying on the diff, because a review
+with nothing to add is an *empty* commit and `git log -- nodes/<id>.md` never
+shows one. So the derivation is two passes: stamps from the whole log, writes
+from the path.
+
+Three consequences worth knowing:
+
+- **A note is a review.** `cairn note` stamps the trailer itself — reading a node
+  and reacting to it is the thing being measured, so it should not take two
+  commands. `cairn review` with no text exists for "I read it and had nothing to
+  add", which is a real outcome.
+- **Reviewing an uncommitted draft admits it.** The file and the stamp land in
+  the same commit. That is the queue design decision 6 creates, draining.
+- **What predates the convention stays `unclassified`.** The epoch is derived —
+  the oldest commit carrying a stamp — so nothing has to be stored. Those nodes
+  are left out of the report column rather than counted as unread, because git
+  has nothing to say about them either way.
+
+What this is *not* is proof a human did the reading. Agents run as whoever owns
+the clone, so nothing in git can tell them apart; the `commit-msg` hook only
+checks that a stamp is well-formed and aimed at a node that exists, because the
+failure it prevents — a mistyped id that marks nothing and reports nothing — is
+otherwise silent.
+
 ## Where to start, and how much to trust a gap
 
 `make build` also writes **`build/report.md`**, which answers the questions the

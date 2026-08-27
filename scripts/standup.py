@@ -237,7 +237,7 @@ def inbox_count(root: Path | None = None) -> int:
 
 
 def render(rows: list[dict], today: dt.date, quiet_after: int, horizon: int,
-           markdown: bool, width: int, pending: int) -> str:
+           markdown: bool, width: int, pending: int, unread: int = 0) -> str:
     b = (lambda s: f"**{s}**") if markdown else (lambda s: s)
     bullet = "- " if markdown else "  "
     indent = "  " if markdown else "    "
@@ -256,6 +256,11 @@ def render(rows: list[dict], today: dt.date, quiet_after: int, horizon: int,
                      f"— `cairn note --list`")
     if pending:
         lines.append(f"{pending} untriaged inbox item(s) — `/triage` or read inbox/")
+    # A count, not a list. Unread claims are a backlog to drain deliberately, and
+    # a standup that opens with twenty of them is a standup nobody finishes.
+    if unread:
+        lines.append(f"{unread} node(s) written since anyone read them "
+                     f"— `cairn review --list`")
 
     for row in rows:
         # Notes count as something open. A project whose threads are all settled
@@ -422,8 +427,11 @@ def main() -> int:
             sys.exit(f"no project '{args.project}'. known: {keys}")
         print(render_packet(match, nodes, today, args.format == "md", width), end="")
     else:
+        states = lib.review_states(nodes)
+        unread = sum(1 for s in states.values()
+                     if s["state"] in ("unreviewed", "uncommitted"))
         print(render(rows, today, args.quiet_after, args.horizon,
-                     args.format == "md", width, inbox_count()), end="")
+                     args.format == "md", width, inbox_count(), unread), end="")
     return 0
 
 

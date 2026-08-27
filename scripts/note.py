@@ -21,7 +21,9 @@ by reading the body, exactly as they already read `## Next`.
 **It commits by default**, which is the one place this deliberately differs from
 `capture`. Design decision 6 refuses to commit a node *Jeff hasn't seen*; a
 sentence he just typed is the definition of seen, and the whole value of a note
-is that it is visible from the other machine tomorrow. The note is written to
+is that it is visible from the other machine tomorrow. The commit carries a
+`Cairn-Review:` trailer for the same reason — leaving a note *is* reading the
+node, so it should count as one without a second command. The note is written to
 the file before the commit is attempted, so a commit that fails on unrelated
 schema drift costs the note nothing — it is already on disk, and the message
 says so.
@@ -196,9 +198,15 @@ def main() -> int:
               "until you push.")
         return 0
 
+    # A note is a human reading the node and reacting to it, which is exactly
+    # what `reviewed` derives from — so the same commit carries the stamp, and
+    # `cairn review` is only needed when you have nothing to add. The trailer
+    # names the git identity rather than `--who`: --who transcribes someone
+    # else's remark, and the person who read the node is still the one typing.
+    message = (f"note on {node.id}: {' '.join(text.split())[:60]}"
+               f"\n\n{lib.review_trailer(whoami(), node.id)}\n")
     # --only so a note never drags an unreviewed node draft into the same commit.
-    code, text_out = git("commit", "--only", str(rel), "-m",
-                         f"note on {node.id}: {' '.join(text.split())[:60]}")
+    code, text_out = git("commit", "--only", str(rel), "-m", message)
     if code == 0:
         print("  committed. `cairn sync --push` to make it visible elsewhere.")
     else:

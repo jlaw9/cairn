@@ -94,7 +94,8 @@ def degree(nodes: dict[str, lib.Node]) -> dict[str, int]:
     }
 
 
-def coverage(nodes: dict[str, lib.Node], lag: dict[str, int]) -> list[dict]:
+def coverage(nodes: dict[str, lib.Node], lag: dict[str, int],
+             review: dict[str, dict] | None = None) -> list[dict]:
     """Per-project: how much is here, and how much of it was written at the time.
 
     The point of this table is a single instruction in CLAUDE.md that was
@@ -103,6 +104,7 @@ def coverage(nodes: dict[str, lib.Node], lag: dict[str, int]) -> list[dict]:
     number is two — how many nodes, and what fraction were recorded
     contemporaneously rather than reconstructed.
     """
+    review = review if review is not None else {}
     by_project: dict[str, list[lib.Node]] = {}
     for node in nodes.values():
         by_project.setdefault(node.project or "(unassigned)", []).append(node)
@@ -114,12 +116,21 @@ def coverage(nodes: dict[str, lib.Node], lag: dict[str, int]) -> list[dict]:
         lags = [lag[n.id] for n in members if n.id in lag]
         fresh = [d for d in lags if d <= LAG_DAYS]
         spans = [n.created for n in members if n.created]
+        # Only nodes git can actually classify go in the denominator. A node
+        # written before the convention existed is not evidence of a review that
+        # did not happen, and folding it in as a miss would make the number a
+        # complaint about history rather than a measurement.
+        known = [review[n.id]["state"] for n in members
+                 if review.get(n.id, {}).get("state") in ("reviewed", "unreviewed")]
+        read = [s for s in known if s == "reviewed"]
         rows.append({
             "project": project,
             "total": len(members),
             "settled": len(settled),
             "dead": len(dead),
             "contemporaneous": (len(fresh) / len(lags)) if lags else None,
+            "reviewed": (len(read) / len(known)) if known else None,
+            "unclassified": len(members) - len(known),
             "first": min(spans) if spans else None,
             "last": max(spans) if spans else None,
         })
@@ -206,21 +217,25 @@ def build(nodes: dict[str, lib.Node], project: str) -> str:
                 lines.append(f"  - {note}")
 
     # ---- Coverage ---------------------------------------------------------
-    rows = coverage(nodes, lag)
+    review = lib.review_states(nodes)
+    rows = coverage(nodes, lag, review)
     lines += ["", "## Coverage, and what a gap means", "",
               "`CLAUDE.md` says to read a missing node as \"not tried\" only where "
               "a project is well covered. That needs a number, and the honest one "
               "is two: how much is recorded, and how much of it was written *at "
               "the time* rather than reconstructed afterwards.", "",
-              "| project | nodes | settled | dead ends | written at the time | span |",
-              "|---|---:|---:|---:|---:|---|"]
+              "| project | nodes | settled | dead ends | written at the time | "
+              "read by a human | span |",
+              "|---|---:|---:|---:|---:|---:|---|"]
     for row in rows:
         share = ("—" if row["contemporaneous"] is None
                  else f"{row['contemporaneous'] * 100:.0f}%")
+        seen = ("—" if row["reviewed"] is None
+                else f"{row['reviewed'] * 100:.0f}%")
         span = (f"{row['first']} → {row['last']}"
                 if row["first"] and row["last"] else "—")
         lines.append(f"| {row['project']} | {row['total']} | {row['settled']} | "
-                     f"{row['dead']} | {share} | {span} |")
+                     f"{row['dead']} | {share} | {seen} | {span} |")
     lines += ["",
               f"*Written at the time* means the node's file was committed within "
               f"{LAG_DAYS} days of the date it claims the work happened. A low "
@@ -229,6 +244,16 @@ def build(nodes: dict[str, lib.Node], project: str) -> str:
               "are a reconstruction, and a reconstruction is biased toward what "
               "worked. Read a gap in a thin or heavily-backfilled project as "
               "\"the graph doesn't know\", not as \"nobody tried it\"."]
+
+    stale = sum(row["unclassified"] for row in rows)
+    if stale:
+        lines += ["",
+                  "*Read by a human* is derived from `Cairn-Review:` trailers in "
+                  "the git log, so it can only speak about nodes written after "
+                  f"that convention existed. **{stale} node(s) predate it** and "
+                  "are left out of the column rather than counted as unread — git "
+                  "has nothing to say about them either way. `cairn review --list` "
+                  "is the working queue."]
 
     # ---- Reconstructions --------------------------------------------------
     late = sorted(((days, nodes[i]) for i, days in lag.items() if days > LAG_DAYS),

@@ -1745,6 +1745,179 @@ class DocumentedCommands(unittest.TestCase):
         self.assertEqual(offenders, [], f"use `bin/cairn <cmd>` instead: {offenders}")
 
 
+class Review(unittest.TestCase):
+    """`reviewed` is derived from git, so every check here is about what the log
+    can and cannot honestly say. The failure mode to guard is a derivation that
+    reports "reviewed" for work nobody read — which is what the *old* signal
+    (`Co-Authored-By`) would have done, since under decision 6 a node only ever
+    reached a commit after a human had looked at it."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cairn-review-"))
+        (self.tmp / "nodes").mkdir()
+        (self.tmp / "build").mkdir()
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "jlaw@example.gov")
+        self.git("config", "user.name", "Jeff Law")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args):
+        import subprocess
+        return subprocess.run(["git", "-C", str(self.tmp), *args],
+                              capture_output=True, text=True, timeout=30)
+
+    def node(self, name, body="x"):
+        path = self.tmp / "nodes" / f"{name}.md"
+        path.write_text(node_text(name, project="demo").lstrip("\n") + f"\n{body}\n")
+        return path
+
+    def commit(self, message, add=True):
+        if add:
+            self.git("add", "-A")
+        return self.git("commit", "-q", "--allow-empty", "-m", message)
+
+    def states(self):
+        return {k: v["state"] for k, v in lib.review_state(self.tmp).items()}
+
+    # -- the derivation ---------------------------------------------------
+
+    def test_without_the_convention_nothing_is_classified(self):
+        """Day one, and the honest answer for the 125 nodes already in the real
+        graph: git has no opinion, and saying "unreviewed" would be a claim the
+        record cannot support."""
+        self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        self.assertEqual(self.states(), {"2026-08-01-demo-a": "unclassified"})
+
+    def test_a_stamp_marks_the_node_read(self):
+        self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        self.commit(f"review\n\n{lib.review_trailer('jlaw', '2026-08-01-demo-a')}",
+                    add=False)
+        self.assertEqual(self.states()["2026-08-01-demo-a"], "reviewed")
+
+    def test_a_write_after_a_review_re_arms_the_node(self):
+        """The unit is "touched since the last write", not a boolean. An agent
+        appending a result to a node someone read last week has produced a claim
+        nobody has read."""
+        path = self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        self.commit(f"review\n\n{lib.review_trailer('jlaw', '2026-08-01-demo-a')}",
+                    add=False)
+        path.write_text(path.read_text() + "\n## Result\n\nworked\n")
+        self.commit("agent appends a result")
+        self.assertEqual(self.states()["2026-08-01-demo-a"], "unreviewed")
+
+    def test_a_note_and_its_stamp_in_one_commit_count_as_read(self):
+        """`cairn note` writes the body and stamps the trailer in a single
+        commit, so the write and the review share a position. Equal has to mean
+        reviewed or a note would never count as one."""
+        path = self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        path.write_text(path.read_text() + "\n- **2026-08-27** (jlaw) hm\n")
+        self.commit(f"note on it\n\n{lib.review_trailer('jlaw', '2026-08-01-demo-a')}")
+        self.assertEqual(self.states()["2026-08-01-demo-a"], "reviewed")
+
+    def test_a_node_older_than_the_convention_stays_unclassified(self):
+        """The epoch is derived — the oldest commit carrying a stamp — so no
+        date has to be stored anywhere. Work that predates it is not a miss."""
+        self.node("2026-08-01-demo-old")
+        self.commit("seed")
+        self.node("2026-08-02-demo-new")
+        self.commit("second node")
+        self.commit(f"review\n\n{lib.review_trailer('jlaw', '2026-08-02-demo-new')}",
+                    add=False)
+        states = self.states()
+        self.assertEqual(states["2026-08-02-demo-new"], "reviewed")
+        self.assertEqual(states["2026-08-01-demo-old"], "unclassified")
+
+    def test_an_uncommitted_draft_is_not_reviewed(self):
+        """The case decision 6 exists for. It is `uncommitted` rather than
+        `unreviewed` because the two need different actions."""
+        self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        self.node("2026-08-02-demo-draft")
+        nodes, _ = lib.load_nodes(self.tmp)
+        states = lib.review_states(nodes, self.tmp)
+        self.assertEqual(states["2026-08-02-demo-draft"]["state"], "uncommitted")
+
+    def test_a_stamp_for_a_node_git_never_saw_is_ignored(self):
+        """A typo'd id must not invent a node. The commit-msg hook is what stops
+        it being written; this is the belt to that pair of braces."""
+        self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        self.commit(f"review\n\n{lib.review_trailer('jlaw', '2026-08-01-demo-nope')}",
+                    add=False)
+        self.assertNotIn("2026-08-01-demo-nope", self.states())
+
+    def test_it_survives_a_repo_with_no_git_at_all(self):
+        """Same contract as node_authors: no git is not an error, it is silence."""
+        with tempfile.TemporaryDirectory() as bare:
+            (Path(bare) / "nodes").mkdir()
+            self.assertEqual(lib.review_state(Path(bare)), {})
+
+    # -- the command ------------------------------------------------------
+
+    def test_review_admits_an_untracked_draft(self):
+        """`git commit --only` refuses a path git has never seen, which is
+        exactly the draft case. Reviewing one has to stage it first, or the
+        queue this command exists to drain cannot drain."""
+        import subprocess
+        self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        self.node("2026-08-02-demo-draft")
+        done = subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "review", "demo-draft", "keep it"],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "CAIRN_ROOT": str(self.tmp)})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.states()["2026-08-02-demo-draft"], "reviewed")
+        self.assertNotIn("demo-draft", self.git("status", "--porcelain").stdout)
+
+    def test_review_with_nothing_to_add_is_an_empty_commit(self):
+        """"I read it and had nothing to say" is a real outcome, and the whole
+        reason the trailer carries the node id rather than relying on the diff."""
+        import subprocess
+        self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        done = subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "review", "demo-a"],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "CAIRN_ROOT": str(self.tmp)})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.states()["2026-08-01-demo-a"], "reviewed")
+        touched = self.git("show", "--name-only", "--format=", "HEAD").stdout
+        self.assertEqual(touched.strip(), "", "a review with no note wrote a file")
+
+    # -- the hook ---------------------------------------------------------
+
+    def test_the_hook_blocks_a_stamp_aimed_at_nothing(self):
+        """The one failure this derivation has is silent: a mistyped id matches
+        nothing, the commit succeeds, and the node stays unread forever."""
+        self.node("2026-08-01-demo-a")
+        self.commit("seed")
+        self.git("config", "core.hooksPath", str(self.ROOT / ".githooks"))
+        before = self.git("rev-parse", "HEAD").stdout.strip()
+        done = self.commit(
+            f"review\n\n{lib.review_trailer('jlaw', '2026-08-01-demo-typo')}",
+            add=False)
+        self.assertNotEqual(done.returncode, 0, "a bad stamp was allowed through")
+        self.assertIn("no such node", done.stdout + done.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), before)
+
+    def test_the_hook_is_silent_when_there_is_no_stamp(self):
+        """Most commits carry no trailer. The convention marks the human act, not
+        the agent one, so an ordinary commit must not need anything."""
+        self.node("2026-08-01-demo-a")
+        self.git("config", "core.hooksPath", str(self.ROOT / ".githooks"))
+        done = self.commit("an ordinary commit")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+
 if __name__ == "__main__":
     try:
         result = unittest.main(exit=False, verbosity=2).result

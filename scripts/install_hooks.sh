@@ -29,7 +29,8 @@ git -C "$graph" rev-parse --git-dir >/dev/null 2>&1 || {
     exit 2
 }
 
-chmod +x "$tool/.githooks/pre-commit"
+chmod +x "$tool/.githooks/pre-commit" "$tool/.githooks/commit-msg"
 git -C "$graph" config core.hooksPath "$tool/.githooks"
 echo "cairn: pre-commit validation enabled for $graph"
+echo "       commit-msg checks review stamps"
 echo "       (core.hooksPath = $tool/.githooks)"
