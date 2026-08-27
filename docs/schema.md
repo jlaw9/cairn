@@ -242,6 +242,28 @@ and each citing node shows what else cites the same paper. Use the
 `litsearch-workflow` skill to produce verified DOIs; don't reimplement
 retrieval.
 
+## Figures
+
+`assets/<node-id>.<ext>` — one optional figure per node, `.svg .png .jpg .jpeg
+.gif .webp`. There is no field. The filename **is** the link, the same way git
+already knows a node's author: a path in frontmatter would be a second copy of
+the truth that can disagree with the first, and one more thing to fill in.
+
+The panel shows it under **Figure**, after the body — the body states the claim,
+the figure shows the result. It is referenced as `../assets/<file>` and rendered
+in an `<img>`, never embedded and never inlined. Three consequences worth knowing:
+
+- **The payload stays text.** `build/graph.html` carries the filename, not the
+  image, so a figure costs the map nothing.
+- **An `<img>` is inert.** Inlining an SVG would put unreviewed markup from
+  `assets/` into the page's own DOM. The cost is that a figure cannot be
+  interactive — it is a thumbnail, and the numbers belong in the body anyway.
+- **An SVG can still theme itself.** A media query inside the file sees the
+  reader's colour scheme even through an `<img>`, so one file works dark and
+  light. `assets/2026-08-27-cairn-size-by-descent.svg` is the worked example.
+
+Prefer SVG. This repo promises to stay text-sized forever, and an SVG is text.
+
 ## What the validator checks
 
 Errors block a commit:
@@ -264,3 +286,6 @@ Warnings don't block:
 - `ref` with no page in `papers/`
 - open task with no `due`
 - `id` date prefix disagreeing with `created`
+- a file in `assets/` naming no node, or a second figure for a node that already
+  has one — both render nowhere, silently, without this
+- an asset over 100 kB, or of a type an `<img>` cannot show

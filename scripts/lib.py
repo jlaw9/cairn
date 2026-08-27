@@ -809,6 +809,44 @@ def _check_body_links(nodes: dict[str, Node], out: list[Issue]) -> None:
                 ))
 
 
+def _check_assets(nodes: dict[str, Node], out: list[Issue], root: Path | None = None) -> None:
+    """A figure has to belong to a node, be the only one, and stay small.
+
+    All three failures are silent otherwise: an orphan never renders anywhere, a
+    second figure for the same node is simply never shown, and a large one is
+    invisible until the clone is slow.
+    """
+    folder = asset_dir(root)
+    if not folder.is_dir():
+        return
+    seen: dict[str, list[str]] = {}
+    for path in sorted(folder.iterdir()):
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        where = f"assets/{path.name}"
+        if path.suffix.lower() not in ASSET_SUFFIXES:
+            out.append(Issue("warn", where, (
+                f"not a figure type {ASSET_SUFFIXES} — the panel renders assets in an "
+                f"<img>, so this will never be shown")))
+            continue
+        if path.stem not in nodes:
+            out.append(Issue("warn", where, (
+                "no node with this id — a figure is addressed by filename, so this one "
+                "renders nowhere")))
+        else:
+            seen.setdefault(path.stem, []).append(path.name)
+        size = path.stat().st_size
+        if size > ASSET_MAX_BYTES:
+            out.append(Issue("warn", where, (
+                f"{size // 1000} kB — assets/ is documented as small figures only, and "
+                f"this repo is meant to stay text-sized forever")))
+    for node_id, names in seen.items():
+        if len(names) > 1:
+            out.append(Issue("warn", f"assets/{names[0]}", (
+                f"{node_id} has {len(names)} figures ({', '.join(names)}) — only the "
+                f"first is shown")))
+
+
 def validate(root: Path | None = None) -> list[Issue]:
     """Validate the whole graph. Errors block a commit; warnings don't."""
     issues: list[Issue] = []
@@ -826,6 +864,7 @@ def validate(root: Path | None = None) -> list[Issue]:
     _check_relations(nodes, issues)
     _check_refs(nodes, papers, issues)
     _check_body_links(nodes, issues)
+    _check_assets(nodes, issues, root)
     return issues
 
 
