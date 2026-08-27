@@ -1,9 +1,23 @@
 # Cairn — conventions for the agent
 
-This repo is a persistent record of research activity across all of Jeff's
-projects: experiments, dead ends, open threads, conference ideas, tasks,
-papers, milestones. It exists so that "did we already try this, and what
-happened?" has an answer six months from now.
+**This repo is the tool.** The graph — the actual record of experiments, dead
+ends, open threads, papers, milestones — lives in a separate repo, one per
+person, found through `$CAIRN_ROOT`. This repo holds the code that reads and
+writes it, the schema, and these conventions.
+
+Two paths, and confusing them is the first thing that goes wrong:
+
+| variable | means | holds |
+|---|---|---|
+| `$CAIRN_PATH` | this repo, the tool | `bin/`, `scripts/`, `skills/`, `docs/` |
+| `$CAIRN_ROOT` | a graph | `nodes/`, `papers/`, `meetings/`, `inbox/`, `build/` |
+
+A clone from before the split — `nodes/` sitting beside `scripts/` — still works
+unchanged: `CAIRN_ROOT` falls back to this repo when it is unset. Everything
+below is about the graph, whichever repo it is in.
+
+The graph exists so that "did we already try this, and what happened?" has an
+answer six months from now.
 
 **The one rule that overrides every other rule in this file: capture wins.**
 Every previous attempt at this kind of system died on capture cost, not on
@@ -38,16 +52,25 @@ replaces running `sync --push` yourself; they make forgetting visible.
 
 ## What goes where
 
+In the **graph** repo (`$CAIRN_ROOT`):
+
 | path | contents |
 |---|---|
 | `nodes/<id>.md` | the graph. One file per node, never deleted, never moved |
-| `skills/<name>/SKILL.md` | path-addressed skills, so agents in *other* repos can use the graph |
 | `papers/<doi-slug>.md` | one page per cited paper, CrossRef-verified metadata |
 | `meetings/<date>-<who>.md` | meeting notes, raw |
 | `inbox/<date>-<hhmm>.md` | unstructured capture, awaiting triage |
 | `assets/` | small figures only — one per node, for the HTML thumbnail |
 | `build/` | generated. Never hand-edit |
+
+In **this** repo (`$CAIRN_PATH`):
+
+| path | contents |
+|---|---|
 | `scripts/` | the tooling |
+| `bin/cairn` | the dispatcher. Run everything through it |
+| `skills/<name>/SKILL.md` | path-addressed skills, so agents in *other* repos can use the graph |
+| `example/` | generated: a scrubbed copy of the `cairn` subgraph, so the tool ships with a real graph |
 | `docs/github.md` | tasks as GitHub Issues: what works, what's unverified |
 | `docs/literature.md` | corpora of thousands of papers: clusters, and what earns a node |
 | `build/report.md` | generated: where to start, and how much to trust a gap |
@@ -233,11 +256,16 @@ anything.
 
 ## When a command fails
 
-Run `make doctor` before debugging anything else. It reports which of the four
-install steps is missing — interpreter, pre-commit hook, slash commands,
-`CAIRN_PATH` — and it runs without a working Python, because the interpreter is
-the most common thing to be wrong. Each of those four fails in a different way
-and none of the failures names itself.
+Run `make doctor` before debugging anything else. It reports which install step
+is missing — interpreter, pre-commit hook, slash commands, `CAIRN_PATH`,
+`CAIRN_ROOT` — and it runs without a working Python, because the interpreter is
+the most common thing to be wrong. Each of those fails in a different way and
+none of the failures names itself.
+
+**"0 nodes" is never a real answer.** If a read reports an empty graph, the cause
+is `CAIRN_ROOT` pointing somewhere without a `nodes/`, not an empty graph. Every
+read path here treats absence as evidence, so `load_nodes` refuses that case
+instead of returning nothing — but if you see a zero, check the path first.
 
 **Run everything through `bin/cairn`, never `scripts/*.py` directly.** The
 dispatcher is `/bin/sh`, so it picks the interpreter via `find_python.sh` — the

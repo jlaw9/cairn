@@ -32,6 +32,7 @@ usage() {
     cat >&2 <<'EOF'
 usage: cairn <command> [args...]
 
+  init           create a research graph repo (run this once, per graph)
   new_node       create a node, or append a status change to one
   validate       check every node against the schema
   build          regenerate build/graph.html and build/graph.md
@@ -43,7 +44,9 @@ usage: cairn <command> [args...]
   note           append a dated note to a node's body
   import_note    bring a meeting note or external file into the graph
   report         write build/report.md — where to start, what a gap means
+  install_hooks  enable pre-commit validation for a graph repo
   install_context make every Claude session on this machine see the graph
+  export_example write a scrubbed, derived copy of one project for publication
   session_hook   emit Claude Code session-hook JSON (called by the hook)
   capture        append a note to inbox/ — no schema, never refuses
   sync_issues    mirror open task nodes to GitHub Issues (dry run by default)
@@ -66,6 +69,9 @@ case $cmd in
     doctor)
         exec "$scripts/doctor.sh" "$@"
         ;;
+    install_hooks)
+        exec "$scripts/install_hooks.sh" "$@"
+        ;;
     build)
         cmd=build_graph
         ;;
@@ -84,7 +90,7 @@ fi
 # is to work when something else is broken. Demanding PyYAML in order to *launch*
 # them would undo that here, one layer above where the guarantee was made.
 case $cmd in
-    capture | sync | session_hook) probe="--any" ;;
+    capture | sync | session_hook | init) probe="--any" ;;
     *)                             probe="" ;;
 esac
 

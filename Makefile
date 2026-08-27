@@ -6,11 +6,22 @@
 
 PY ?= $(shell scripts/find_python.sh)
 
-.PHONY: help setup doctor install-commands validate build test clean python _python \
+.PHONY: help setup init doctor install-commands validate build test clean python _python \
         digest standup sync push install-context
 
+# The graph is a separate repo now. Every data command reads it through
+# CAIRN_ROOT, which the scripts resolve themselves — this variable exists so
+# `make GRAPH=/path/to/graph validate` works without exporting anything.
+# := not ?=, so CAIRN_ROOT is read once. A recursive `GRAPH ?= $(CAIRN_ROOT)`
+# plus `export CAIRN_ROOT = $(GRAPH)` is a self-reference make refuses outright.
+GRAPH := $(if $(GRAPH),$(GRAPH),$(CAIRN_ROOT))
+ifneq ($(GRAPH),)
+export CAIRN_ROOT := $(GRAPH)
+endif
+
 help:
-	@echo "make setup             hook + commands + a CAIRN_PATH reminder (once per machine)"
+	@echo "make setup             hook + commands + a path reminder (once per machine)"
+	@echo "make init GRAPH=<path> create a research graph repo"
 	@echo "make doctor            check this clone is set up, and say what is missing"
 	@echo "make install-commands  make /log and /paper reachable from any repo"
 	@echo "make validate          check every node against the schema"
@@ -41,8 +52,9 @@ install-commands:
 	@echo "cairn: commands installed for this machine"
 	@grep -qs "CAIRN_PATH" "$(HOME)/.bashrc" "$(HOME)/.zshrc" || { \
 	  echo ""; \
-	  echo "  Add this to your shell profile so the commands can find the graph:"; \
-	  echo "    export CAIRN_PATH=$(CURDIR)"; }
+	  echo "  Add these to your shell profile — the tool, then your graph:"; \
+	  echo "    export CAIRN_PATH=$(CURDIR)"; \
+	  echo "    export CAIRN_ROOT=$${CAIRN_ROOT:-/path/to/your-research-graph}"; }
 
 # Fail with something actionable instead of a SyntaxError from a Python too old
 # to parse lib.py.
@@ -57,10 +69,18 @@ _python:
 python: _python
 	@echo "$(PY)"
 
+# install_hooks needs a graph to install into, and on a fresh clone there may not
+# be one yet — so it warns rather than failing the whole setup.
 setup:
-	@scripts/install_hooks.sh
+	@scripts/install_hooks.sh $(GRAPH) || \
+	  echo "  (no graph yet — run: make init GRAPH=~/research-graph)"
 	@$(MAKE) --no-print-directory _python
 	@$(MAKE) --no-print-directory install-commands
+
+init:
+	@test -n "$(GRAPH)" || { \
+	  echo "usage: make init GRAPH=~/research-graph" >&2; exit 2; }
+	@bin/cairn init "$(GRAPH)" $(ARGS)
 
 validate: _python
 	@$(PY) scripts/validate.py

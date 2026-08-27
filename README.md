@@ -5,6 +5,14 @@ experiments, dead ends, open threads, conference ideas, tasks with deadlines,
 papers, milestones — maintained by Claude Code as a side effect of doing the
 work, and rendered as a clickable map.
 
+**Two repos.** This one is the tool. Your graph is its own repo, created with
+`cairn init` and found through `$CAIRN_ROOT` — so the tool can be shared without
+shipping anyone's research record, and one tool can serve several graphs. A
+pre-split clone with `nodes/` beside `scripts/` keeps working unchanged.
+`example/` holds a scrubbed, generated copy of this project's own subgraph,
+because a tool for recording research decisions is best explained by the record
+of its own.
+
 The point isn't visualization. The point is that six months from now, *"did we
 already try this, and what happened?"* has an answer, and *"what should I do
 next?"* has a defensible one.
@@ -69,12 +77,17 @@ with the failure modes named — including what to do when a cluster's `python3`
 can't run the scripts at all.
 
 ```sh
-git clone <your-cairn-remote> ~/Cairn-graph && cd ~/Cairn-graph
+git clone <this-repo> ~/cairn && cd ~/cairn
+cairn init ~/research-graph                 # your graph: dirs, git, hook
+export CAIRN_PATH=$HOME/cairn               # the tool  — add both to your profile
+export CAIRN_ROOT=$HOME/research-graph      # the graph
 make setup                                  # hook + slash commands + checks
-export CAIRN_PATH=$HOME/Cairn-graph         # add to your shell profile
 export PATH=$CAIRN_PATH/bin:$PATH           # optional: plain `cairn` anywhere
-make doctor                                 # confirm all four steps took
+make doctor                                 # confirm every step took
 ```
+
+Already have a graph? Skip `init`, point `CAIRN_ROOT` at it, and run
+`cairn install_hooks $CAIRN_ROOT`.
 
 Then wire the machine up once, so every session sees the graph without a
 per-project step:

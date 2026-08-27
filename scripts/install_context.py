@@ -41,7 +41,10 @@ import os
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or Path(__file__).resolve().parent.parent)
+#: The tool. Where bin/cairn, the skills and the slash commands live.
+TOOL_ROOT = Path(__file__).resolve().parent.parent
+#: The graph. Separate repo since the split; falls back to a pre-split clone.
+GRAPH_ROOT = Path(os.environ.get("CAIRN_ROOT") or TOOL_ROOT).expanduser()
 
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
 MEMORY = CLAUDE_DIR / "CLAUDE.md"
@@ -58,7 +61,7 @@ END = "<!-- cairn:end -->"
 HOOK_MARK = "session_hook"
 
 
-def memory_block(root: Path) -> str:
+def memory_block(tool: Path, graph: Path) -> str:
     """The user-level memory block.
 
     Short on purpose. It is loaded in every session in every directory, so it
@@ -69,21 +72,21 @@ def memory_block(root: Path) -> str:
 ## Cairn — the research record
 
 Research activity across all projects — experiments, dead ends, open threads,
-deadlines — is recorded in **Cairn**, a git-backed graph at `{root}`
-(`$CAIRN_PATH`). It exists so that "did we already try this, and what happened?"
-has an answer.
+deadlines — is recorded in **Cairn**, a git-backed graph. The tool is at
+`{tool}` (`$CAIRN_PATH`); the graph itself is at `{graph}` (`$CAIRN_ROOT`). It
+exists so that "did we already try this, and what happened?" has an answer.
 
 - **Before proposing work**, read what the project already settled:
-  `{root}/bin/cairn standup --project <key>`. A `dead` node is a claim already
+  `{tool}/bin/cairn standup --project <key>`. A `dead` node is a claim already
   refuted with the reason attached — cite it rather than re-running it.
 - **After doing work**, record it: `/log` from inside the project repo.
-- **A thought you don't want to file**: `{root}/bin/cairn capture "..."`.
+- **A thought you don't want to file**: `{tool}/bin/cairn capture "..."`.
   Never refuses, never prompts; lands in `inbox/` for later triage.
-- **A reaction to an existing node**: `{root}/bin/cairn note <node-id> "..."`.
+- **A reaction to an existing node**: `{tool}/bin/cairn note <node-id> "..."`.
 
 Never commit a node Jeff hasn't seen — draft it, show it, then commit. Anything
 written unprompted goes to `inbox/` instead. Full conventions in
-`{root}/CLAUDE.md`; the path-addressed skills are under `{root}/skills/`.
+`{tool}/CLAUDE.md`; the path-addressed skills are under `{tool}/skills/`.
 {END}"""
 
 
@@ -113,9 +116,9 @@ def hook_entries(root: Path) -> dict:
 # --------------------------------------------------------------------------
 
 
-def plan_memory(root: Path) -> tuple[str, str]:
+def plan_memory(tool: Path, graph: Path) -> tuple[str, str]:
     """(verdict, new text). Verdict is 'ok', 'add' or 'update'."""
-    wanted = memory_block(root)
+    wanted = memory_block(tool, graph)
     if not MEMORY.exists():
         return "add", wanted + "\n"
     current = MEMORY.read_text(encoding="utf-8")
@@ -256,11 +259,13 @@ def main() -> int:
                    help="memory block and commands only; leave settings.json alone")
     args = p.parse_args()
 
-    root = REPO_ROOT
-    print(f"cairn install_context — {root}")
+    root = TOOL_ROOT
+    print(f"cairn install_context — tool {root}")
+    print(f"                        graph {GRAPH_ROOT}")
     print(f"  target: {CLAUDE_DIR}\n")
 
-    mem_verdict, mem_text = (plan_memory_removal() if args.remove else plan_memory(root))
+    mem_verdict, mem_text = (plan_memory_removal() if args.remove
+                             else plan_memory(root, GRAPH_ROOT))
     set_verdict, set_new, set_notes = ("skip", {}, [])
     if not args.no_hooks:
         set_verdict, set_new, set_notes = plan_settings(root, args.remove)
@@ -273,7 +278,7 @@ def main() -> int:
     if mem_verdict != "ok":
         print(f"         {'removing' if args.remove else 'installing'} the "
               f"cairn:begin/end block "
-              f"({len(memory_block(root).splitlines())} lines)")
+              f"({len(memory_block(root, GRAPH_ROOT).splitlines())} lines)")
 
     print(f"  {label[set_verdict]}{SETTINGS}")
     for note in set_notes:
@@ -320,8 +325,12 @@ def main() -> int:
         print("next session, not this one. `cairn session_hook --dry-run` shows exactly")
         print("what a new session will be told.")
         if os.environ.get("CAIRN_PATH", "") != str(root):
-            print(f"\nAlso add this to your shell profile, which the slash commands read:")
+            print("\nAlso add this to your shell profile, which the slash commands read:")
             print(f"  export CAIRN_PATH={root}")
+        if not os.environ.get("CAIRN_ROOT"):
+            print("\nAnd this, which is how the tool finds your graph. Without it every")
+            print("read reports an empty graph, and an empty graph reads as 'not tried':")
+            print(f"  export CAIRN_ROOT={GRAPH_ROOT}")
     return 0
 
 

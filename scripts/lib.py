@@ -80,8 +80,34 @@ except ImportError:  # pragma: no cover - environment problem, not a code path
         "  Then `make python` should print that interpreter.\n"
     )
 
-#: CAIRN_ROOT lets the test suite point the whole library at a fixture graph.
-REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or Path(__file__).resolve().parent.parent)
+#: Where the tool lives. Fixed by this file's own location, always.
+TOOL_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _graph_root() -> Path:
+    """Where the graph lives, which is no longer where the tool lives.
+
+    Cairn began as one repo holding both the tooling and one person's research
+    record. Splitting them (2026-08-27-cairn-repo-topology) means the data root
+    has to be resolved rather than assumed:
+
+    1. ``CAIRN_ROOT`` wins. The test suite uses it to point at a fixture graph,
+       and it is how one tool serves several graphs.
+    2. Otherwise, a single-repo clone — ``nodes/`` sitting beside ``scripts/`` —
+       still works unchanged. Anyone who installed before the split keeps working.
+    3. Otherwise the tool root, which will have no ``nodes/``. ``load_nodes``
+       refuses that case loudly rather than reporting an empty graph, because
+       "zero nodes" reads as "nothing was ever tried" — the one wrong answer this
+       project must never give.
+    """
+    env = os.environ.get("CAIRN_ROOT")
+    if env:
+        return Path(env).expanduser()
+    return TOOL_ROOT
+
+
+#: The graph. Not the tool — see _graph_root().
+REPO_ROOT = _graph_root()
 
 # --------------------------------------------------------------------------
 # Schema
@@ -454,8 +480,30 @@ def paper_dir(root: Path | None = None) -> Path:
     return (root or REPO_ROOT) / "papers"
 
 
+def require_graph(root: Path | None = None) -> Path:
+    """Fail with something actionable when the graph root holds no graph.
+
+    The failure this prevents: after the tool/graph split, a tool run with no
+    ``CAIRN_ROOT`` set would find no ``nodes/`` and report a graph of zero nodes.
+    Every read path in Cairn treats absence as evidence — a missing node means
+    "not tried" — so an empty graph is not a harmless default, it is a confident
+    lie. Refuse instead.
+    """
+    d = node_dir(root)
+    if d.is_dir():
+        return d
+    raise SystemExit(
+        f"cairn: no graph at {d.parent}\n"
+        "  The tool and the graph are separate repos. Point at your graph:\n"
+        "    export CAIRN_ROOT=/path/to/your-research-graph\n"
+        "  or create one:\n"
+        f"    {TOOL_ROOT}/bin/cairn init /path/to/your-research-graph"
+    )
+
+
 def load_nodes(root: Path | None = None) -> tuple[dict[str, Node], list[str]]:
     """Load every node. Returns (by-id map, list of parse errors)."""
+    require_graph(root)
     nodes: dict[str, Node] = {}
     errors: list[str] = []
     for path in sorted(node_dir(root).glob("*.md")):

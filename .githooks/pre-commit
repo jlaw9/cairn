@@ -1,19 +1,27 @@
 #!/bin/sh
 # Cairn pre-commit: block schema drift before it enters history.
 #
-# Install with: scripts/install_hooks.sh
+# This hook file lives in the *tool* repo and runs inside the *graph* repo —
+# `install_hooks.sh` sets the graph's core.hooksPath to an absolute path here, so
+# the hook stays version-controlled in one place while validating whichever graph
+# invoked it. That is why it resolves the tool from its own location rather than
+# from `git rev-parse`, which would return the graph.
+#
+# Install with: cairn install_hooks /path/to/graph
 # Bypass (rarely, and fix it after) with: git commit --no-verify
 
 set -e
 
-root=$(git rev-parse --show-toplevel)
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+tool=$(dirname -- "$hook_dir")
+graph=$(git rev-parse --show-toplevel)
 
 # Cairn needs Python >= 3.7 *and* PyYAML, and those can live on different
 # interpreters — Kestrel's default python3 is 3.6.8 with PyYAML, while its
 # python3.9 has none. Probing for "a python3 that can import yaml" is therefore
 # not enough: it succeeds on 3.6.8, and validate.py then dies on a SyntaxError
 # that this hook reports as schema drift. Let find_python.sh decide.
-py=$("$root/scripts/find_python.sh" 2>/dev/null || true)
+py=$("$tool/scripts/find_python.sh" 2>/dev/null || true)
 
 if [ -z "$py" ]; then
   echo "cairn: no Python >= 3.7 with PyYAML found — skipping validation." >&2
@@ -23,7 +31,10 @@ if [ -z "$py" ]; then
   exit 0
 fi
 
-if ! "$py" "$root/scripts/validate.py" --quiet; then
+# CAIRN_ROOT is set explicitly rather than inherited: a commit can be made from
+# a shell that never exported it, and validating the wrong graph — or a graph of
+# zero nodes — would pass silently.
+if ! CAIRN_ROOT="$graph" "$py" "$tool/scripts/validate.py" --quiet; then
   echo "" >&2
   echo "cairn: validation failed — commit blocked." >&2
   echo "Silent schema drift is how this rots. Fix the errors above, or use" >&2
