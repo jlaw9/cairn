@@ -47,6 +47,7 @@ usage: cairn <command> [args...]
   report         write build/report.md — where to start, what a gap means
   install_hooks  enable pre-commit validation for a graph repo
   install_context make every Claude session on this machine see the graph
+  export         write one project's view into that project's own repo
   export_example write a scrubbed, derived copy of one project for publication
   session_hook   emit Claude Code session-hook JSON (called by the hook)
   capture        append a note to inbox/ — no schema, never refuses

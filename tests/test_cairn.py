@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import lib  # noqa: E402
 import build_graph  # noqa: E402
+import export  # noqa: E402
 import new_node  # noqa: E402
 
 
@@ -1916,6 +1917,137 @@ class Review(unittest.TestCase):
         self.git("config", "core.hooksPath", str(self.ROOT / ".githooks"))
         done = self.commit("an ordinary commit")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+
+class Export(unittest.TestCase):
+    """cairn export — one project's view, written into that project's repo.
+
+    The behaviour worth protecting is not that it writes files. It is that a
+    filtered view never makes a hidden edge look like an absent one, because
+    absence meaning something is the whole premise of the graph.
+    """
+
+    def setUp(self):
+        clear()
+        self.dest = Path(tempfile.mkdtemp(prefix="cairn-export-"))
+        self.addCleanup(shutil.rmtree, self.dest, ignore_errors=True)
+
+    def load(self):
+        nodes, errors = lib.load_nodes()
+        self.assertEqual(errors, [])
+        return nodes
+
+    def test_outbound_edge_is_reported_not_dropped(self):
+        write("2026-08-01-alpha-root.md", node_text(
+            "2026-08-01-alpha-root", project="alpha", type_="direction", status="open"))
+        write("2026-08-02-beta-thing.md", node_text(
+            "2026-08-02-beta-thing", project="beta", created="2026-08-02"))
+        write("2026-08-03-alpha-child.md", node_text(
+            "2026-08-03-alpha-child", project="alpha", created="2026-08-03",
+            parents="[2026-08-01-alpha-root]") + "\nMentions [[2026-08-02-beta-thing]].\n")
+
+        nodes = self.load()
+        selected = {i: n for i, n in nodes.items() if n.project == "alpha"}
+        edges = export.outbound_edges(selected, nodes)
+
+        self.assertEqual(len(edges), 1, edges)
+        source, kind, target, project = edges[0]
+        self.assertEqual(source, "2026-08-03-alpha-child")
+        self.assertEqual(kind, "mentions")
+        self.assertEqual(target, "2026-08-02-beta-thing")
+        self.assertEqual(project, "beta")
+
+        # ...and the in-project parent is not reported as leaving.
+        self.assertNotIn("2026-08-01-alpha-root", [e[2] for e in edges])
+
+    def test_one_edge_per_target_even_when_related_and_mentioned(self):
+        """A node that both relates to another and names it in prose is one edge.
+
+        The renderer already collapses a doubled edge, styling it by the more
+        specific claim; reporting it twice here was noise in the first version.
+        """
+        write("2026-08-02-beta-thing.md", node_text(
+            "2026-08-02-beta-thing", project="beta", created="2026-08-02"))
+        write("2026-08-03-alpha-child.md", node_text(
+            "2026-08-03-alpha-child", project="alpha", created="2026-08-03",
+            extra="relates:\n  - {to: 2026-08-02-beta-thing, type: supports, note: why}\n",
+        ) + "\nAlso mentions [[2026-08-02-beta-thing]].\n")
+
+        nodes = self.load()
+        selected = {i: n for i, n in nodes.items() if n.project == "alpha"}
+        edges = export.outbound_edges(selected, nodes)
+
+        self.assertEqual(len(edges), 1, edges)
+        self.assertEqual(edges[0][1], "supports")  # the typed claim wins the label
+
+    def test_prose_wikilink_is_not_read_as_an_edge(self):
+        """`[[wikilinks]]` in prose about the syntax is not a reference to a node."""
+        write("2026-08-03-alpha-child.md", node_text(
+            "2026-08-03-alpha-child", project="alpha", created="2026-08-03",
+        ) + "\nRefer to another node as [[wikilinks]] in the body.\n")
+        nodes = self.load()
+        self.assertEqual(export.outbound_edges(nodes, nodes), [])
+
+    def test_next_line_is_a_whole_sentence(self):
+        """Regression: bodies are hand-wrapped, so the first *line* is half a sentence.
+
+        The first version emitted "...rather than a pretraining target.** The raw
+        value already" — an unclosed bold marker and a cut mid-sentence, which
+        reads as a typo and undermines the index it appears in.
+        """
+        section = ("- **Try density as an input feature** rather than a\n"
+                   "  pretraining target. The raw value already exists.\n"
+                   "- A second item that must not be included.\n")
+        self.assertEqual(
+            export.first_sentence(section),
+            "Try density as an input feature rather than a pretraining target.")
+
+    def test_next_line_drops_wikilink_brackets_but_keeps_the_id(self):
+        section = "Needs the fix in [[2026-08-11-polyid-md-fix-label-audit]] first.\n"
+        self.assertEqual(
+            export.first_sentence(section),
+            "Needs the fix in `2026-08-11-polyid-md-fix-label-audit` first.")
+
+    def test_writes_three_files_each_carrying_the_marker(self):
+        write("2026-08-03-alpha-child.md", node_text(
+            "2026-08-03-alpha-child", project="alpha", created="2026-08-03"))
+        argv = sys.argv
+        sys.argv = ["cairn export", "--project", "alpha", "--dest", str(self.dest)]
+        try:
+            self.assertEqual(export.main(), 0)
+        finally:
+            sys.argv = argv
+        for name in ("graph.html", "graph.md", "README.md"):
+            path = self.dest / name
+            self.assertTrue(path.exists(), name)
+            self.assertIn(export.MARKER, path.read_text(encoding="utf-8"), name)
+
+    def test_refuses_to_overwrite_a_file_it_did_not_write(self):
+        """Hand-written documentation is not something a generator should replace."""
+        write("2026-08-03-alpha-child.md", node_text(
+            "2026-08-03-alpha-child", project="alpha", created="2026-08-03"))
+        mine = self.dest / "README.md"
+        mine.write_text("# My own notes, written by a person\n", encoding="utf-8")
+
+        argv = sys.argv
+        sys.argv = ["cairn export", "--project", "alpha", "--dest", str(self.dest)]
+        try:
+            self.assertEqual(export.main(), 1)
+        finally:
+            sys.argv = argv
+        self.assertEqual(mine.read_text(encoding="utf-8"),
+                         "# My own notes, written by a person\n")
+        self.assertFalse((self.dest / "graph.html").exists())
+
+    def test_unknown_project_is_refused_with_the_known_keys(self):
+        write("2026-08-03-alpha-child.md", node_text(
+            "2026-08-03-alpha-child", project="alpha", created="2026-08-03"))
+        argv = sys.argv
+        sys.argv = ["cairn export", "--project", "alpah", "--dest", str(self.dest)]
+        try:
+            self.assertEqual(export.main(), 2)
+        finally:
+            sys.argv = argv
 
 
 if __name__ == "__main__":
