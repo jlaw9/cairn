@@ -11,6 +11,9 @@ frontmatter is how `status` and `history` drift apart.
     scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \\
         --status dead --note "solvation model wrong for ionics"
 
+    scripts/new_node.py experiment "PET basal face discriminates" --project mplastic \\
+        --status planned --body "The basal chain-end face binds WS2 more strongly than WS3."
+
     scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \\
         --relate "contradicts:2026-07-20-prekd-scoping:opposite sign on the same set"
 """
@@ -191,7 +194,12 @@ def build(args: argparse.Namespace) -> lib.Node:
         meta["refs"] = list(args.ref)
     meta["history"] = [{"date": created, "status": status, "note": args.note or "created"}]
 
-    body = BODY_TEMPLATE[args.type].format(title=args.title)
+    # `--body` fills the opening section — `## Claim` for an experiment, its
+    # analogue for the other types. It defaults to the title because a
+    # template section seeded with the title is still better than an empty
+    # one, and because /log has always passed only a title.
+    body = BODY_TEMPLATE[args.type].format(
+        title=getattr(args, "body", "") or args.title)
     return lib.Node(path=path, meta=meta, body=body)
 
 
@@ -246,6 +254,9 @@ def main() -> int:
     parser.add_argument("--note", default="", help="history note for this change")
     parser.add_argument("--date", help="ISO date; defaults to today")
     parser.add_argument("--slug", help="override the generated id slug")
+    parser.add_argument("--body", default="",
+                        help="text for the opening body section (## Claim for an "
+                             "experiment); defaults to the title")
     parser.add_argument("--parent", action="append", default=[], metavar="ID")
     parser.add_argument(
         "--relate", action="append", default=[], metavar="TYPE:ID:WHY",

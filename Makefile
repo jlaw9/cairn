@@ -7,7 +7,7 @@
 PY ?= $(shell scripts/find_python.sh)
 
 .PHONY: help setup init doctor install-commands validate build test clean python _python \
-        digest standup sync push install-context site-check site-demo site-serve
+        digest standup sync push install-context site-check site-demo site-serve serve
 
 # The graph is a separate repo now. Every data command reads it through
 # CAIRN_ROOT, which the scripts resolve themselves — this variable exists so
@@ -26,6 +26,7 @@ help:
 	@echo "make install-commands  make /log and /paper reachable from any repo"
 	@echo "make validate          check every node against the schema"
 	@echo "make build             regenerate build/graph.html and build/graph.md"
+	@echo "make serve             serve the map on localhost, and let it write back"
 	@echo "make digest            what changed in the last 7 days, and what needs you"
 	@echo "make standup           what to pick up today, most-needs-you first"
 	@echo "make sync              pull the graph, and say what still needs you"
@@ -91,6 +92,11 @@ validate: _python
 
 build: _python
 	@$(PY) scripts/build_graph.py
+
+# `make serve ARGS=--open`. Depends on build because a server with nothing to
+# serve is a worse error message than a missing map.
+serve: build
+	@bin/cairn serve $(ARGS)
 
 digest: _python
 	@$(PY) scripts/digest.py $(ARGS)

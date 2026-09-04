@@ -36,6 +36,7 @@ usage: cairn <command> [args...]
   new_node       create a node, or append a status change to one
   validate       check every node against the schema
   build          regenerate build/graph.html and build/graph.md
+  serve          serve the map on localhost, and let it write back
   add_paper      DOI in, CrossRef-verified papers/ entry out
   mine_sessions  survey Claude Code transcripts (read-only)
   digest         what changed, and what needs you

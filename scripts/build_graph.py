@@ -409,6 +409,12 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
         "authors": sorted({n["author"] for n in payload_nodes},
                           key=lambda a: (a == UNCOMMITTED, a)),
         "statuses": lib.ALL_STATUSES,
+        # Per-type, because a status control has to offer the five a
+        # `task` can hold and not the five an `experiment` can. The flat
+        # list above stays: it is the filter rail, which is deliberately
+        # type-blind.
+        "statusesByType": {name: list(spec.statuses)
+                           for name, spec in sorted(lib.TYPES.items())},
         "relations": sorted(lib.RELATIONS),
         "generated": dt.date.today().isoformat(),
     }

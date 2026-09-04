@@ -129,6 +129,12 @@ bin/cairn new_node --update 2026-08-02-prekd-cosmo-baseline \
 history entry; without it the entry reads `created`, which throws away the one
 sentence you had in hand at the moment you had it.
 
+**`--body` writes the opening section** — `## Claim` for an experiment, its
+analogue for the other types — instead of seeding it with the title. Use it
+whenever you have the claim in hand, which for a `planned` experiment is the
+whole point: a claim written before the result is a pre-registration, written
+after it, it is a story.
+
 **`--project` is checked against the keys already in the graph.** An unrecognised
 key is refused with the near-matches listed, because it is the only field whose
 typo validates cleanly and it silently splits a project in two. Starting a
@@ -294,8 +300,17 @@ error without fixing it afterwards.
 
 Not an experiment tracker — W&B/MLflow own metrics and curves, the graph links
 out to them. Not a replacement for project repos. Not a general task manager,
-only research commitments. No server, no auth, no real-time editing, no
-discussion threads. A static HTML file in a git repo.
+only research commitments. No auth, no real-time editing, no discussion
+threads. A static HTML file in a git repo.
+
+**`cairn serve` is the one server, and it is optional.** A localhost writer that
+lets the map leave a note, move a status, or create a node — including in a
+project the graph has never seen — always by shelling out to `bin/cairn`, never
+by touching a file itself, so the node stays the only copy and `check_project`
+still guards the key. Two rules hold it in scope: `build/graph.html` must stay fully usable with
+the server off, and nothing in the view may hand-edit frontmatter. Anything
+needing auth, or reachability from the other machine, is the webapp
+([[2026-08-05-cairn-webapp]]) and a different decision.
 
 **One graph, many writers, synced through git.** This is in scope and always was:
 one file per node, append-only, never renamed, means two people cannot collide,

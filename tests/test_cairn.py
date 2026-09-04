@@ -1024,7 +1024,8 @@ class Dispatcher(unittest.TestCase):
     def test_help_lists_the_commands(self):
         result = self.run_cairn("help")
         self.assertEqual(result.returncode, 0)
-        for cmd in ("new_node", "validate", "build", "add_paper", "mine_sessions", "doctor"):
+        for cmd in ("new_node", "validate", "build", "serve", "add_paper",
+                    "mine_sessions", "doctor"):
             self.assertIn(cmd, result.stderr + result.stdout)
 
     def test_unknown_command_is_an_error_not_a_traceback(self):
@@ -1716,6 +1717,335 @@ class Report(unittest.TestCase):
         nodes, _ = lib.load_nodes()
         text = self.report.build(nodes, "")
         self.assertIn("Coverage, and what a gap means", text)
+
+
+class Serve(unittest.TestCase):
+    """`cairn serve` is a writer, so the tests that matter are the ones about
+    what it refuses. The design constraint it must never lose: with the server
+    off, `build/graph.html` is exactly the read-only page it always was."""
+
+    @classmethod
+    def setUpClass(cls):
+        import threading
+        global serve
+        import serve                                    # noqa: PLW0603
+        clear()
+        write("2026-08-02-prekd-probe.md",
+              node_text("2026-08-02-prekd-probe", project="prekd"))
+        build_graph.main()
+        cls.httpd = serve.serve(0, quiet=True)
+        cls.port = cls.httpd.server_address[1]
+        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.thread.join(timeout=5)
+        cls.httpd.server_close()
+
+    # -- helpers ---------------------------------------------------------
+
+    def url(self, path):
+        return f"http://127.0.0.1:{self.port}{path}"
+
+    def get(self, path, headers=None, redirect=True):
+        import urllib.error, urllib.request
+        opener = urllib.request.build_opener()
+        if not redirect:
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, *a, **k):
+                    return None
+            opener = urllib.request.build_opener(NoRedirect)
+        req = urllib.request.Request(self.url(path), headers=headers or {})
+        try:
+            with opener.open(req, timeout=30) as res:
+                return res.status, res.read(), res
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read(), exc
+
+    def post(self, payload, headers=None, raw=None):
+        import json as _json
+        import urllib.error, urllib.request
+        head = {"Content-Type": "application/json"}
+        head.update(headers or {})
+        body = raw if raw is not None else _json.dumps(payload).encode()
+        req = urllib.request.Request(self.url("/api/write"), data=body,
+                                     headers=head, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=180) as res:
+                return res.status, _json.loads(res.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, _json.loads(exc.read())
+
+    def node(self, node_id):
+        return lib.parse_file(FIXTURE / "nodes" / f"{node_id}.md")
+
+    # -- reads -----------------------------------------------------------
+
+    def test_health_identifies_this_server_and_not_a_static_one(self):
+        """The page probes for *this* server. `python -m http.server` over the
+        same directory must not make the write controls appear."""
+        code, body, _ = self.get("/api/health")
+        import json as _json
+        self.assertEqual(code, 200)
+        info = _json.loads(body)
+        self.assertEqual(info["cairn"], "serve")
+        self.assertEqual(info["root"], str(lib.REPO_ROOT))
+        self.assertEqual(sorted(info["actions"]), ["create", "note", "status"])
+
+    def test_root_redirects_to_the_map_under_the_graph_root(self):
+        """`/build/graph.html`, not `/`: the panel links `../nodes/<id>.md` and
+        `../assets/<name>`, which only resolve if the map is one level down."""
+        code, _, res = self.get("/", redirect=False)
+        self.assertEqual(code, 302)
+        self.assertEqual(res.headers["Location"], "/build/graph.html")
+
+    def test_it_serves_the_map_and_a_node_source(self):
+        code, body, _ = self.get("/build/graph.html")
+        self.assertEqual(code, 200)
+        self.assertIn(b"<title>", body)
+        code, body, _ = self.get("/nodes/2026-08-02-prekd-probe.md")
+        self.assertEqual(code, 200)
+        self.assertIn(b"2026-08-02-prekd-probe", body)
+
+    def test_it_serves_nothing_outside_the_allowlist(self):
+        for path in ("/scripts/serve.py", "/build/../../etc/passwd",
+                     "/Makefile", "/.git/config"):
+            code, _, _ = self.get(path)
+            self.assertEqual(code, 404, path)
+
+    def test_no_cors_header_is_ever_sent(self):
+        """Its absence is the whole reason a page you are visiting cannot read
+        this graph off your own machine."""
+        _, _, res = self.get("/api/health")
+        self.assertIsNone(res.headers.get("Access-Control-Allow-Origin"))
+
+    # -- writes ----------------------------------------------------------
+
+    def test_a_note_lands_in_the_body_through_cairn_note(self):
+        code, out = self.post({"action": "note", "id": "2026-08-02-prekd-probe",
+                               "text": "the spread looks bimodal"})
+        self.assertEqual(code, 200, out)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["cmd"][:2], ["cairn", "note"])
+        notes = lib.read_notes(self.node("2026-08-02-prekd-probe"))
+        self.assertIn("the spread looks bimodal", [n["text"] for n in notes])
+
+    def test_a_note_that_starts_with_a_dash_is_text_and_not_a_flag(self):
+        code, out = self.post({"action": "note", "id": "2026-08-02-prekd-probe",
+                               "text": "-0.4 eV, not +0.4"})
+        self.assertEqual(code, 200, out)
+        notes = [n["text"] for n in lib.read_notes(self.node("2026-08-02-prekd-probe"))]
+        self.assertIn("-0.4 eV, not +0.4", notes)
+
+    def test_a_status_change_moves_history_with_it(self):
+        """Node rule 4. The server never writes the field — it shells to
+        `new_node --update`, which goes through `lib.Node.set_status`."""
+        before = len(self.node("2026-08-02-prekd-probe").history)
+        code, out = self.post({"action": "status", "id": "2026-08-02-prekd-probe",
+                               "status": "dead", "note": "solvation model wrong"})
+        self.assertEqual(code, 200, out)
+        node = self.node("2026-08-02-prekd-probe")
+        self.assertEqual(node.status, "dead")
+        self.assertEqual(len(node.history), before + 1)
+        self.assertEqual(node.history[-1]["status"], "dead")
+        self.assertEqual(node.history[-1]["note"], "solvation model wrong")
+
+    def test_a_status_the_type_does_not_have_is_refused(self):
+        code, out = self.post({"action": "status", "id": "2026-08-02-prekd-probe",
+                               "status": "accepted"})
+        self.assertEqual(code, 400)
+        self.assertIn("experiment status", out["error"])
+
+    def test_create_goes_through_new_node(self):
+        code, out = self.post({"action": "create", "type": "direction",
+                               "title": "Does the view get used?",
+                               "project": "prekd",
+                               "parents": ["2026-08-02-prekd-probe"]})
+        self.assertEqual(code, 200, out)
+        made = list((FIXTURE / "nodes").glob("*-prekd-does-view-get-used.md"))
+        self.assertEqual(len(made), 1, made)
+        node = lib.parse_file(made[0])
+        self.assertEqual(node.type, "direction")
+        self.assertEqual(node.parents, ["2026-08-02-prekd-probe"])
+
+    def test_create_writes_the_claim_into_the_body(self):
+        """`--body` fills the opening section. The point is pre-registration:
+        a claim written before the result, not a title standing in for one."""
+        code, out = self.post({"action": "create", "type": "experiment",
+                               "title": "Does the tether survive 60 ns?",
+                               "project": "prekd", "status": "planned",
+                               "body": "It does not; the 20 ns result was unconverged."})
+        self.assertEqual(code, 200, out)
+        node = lib.parse_file(FIXTURE / "nodes" / f"{out['node']}.md")
+        self.assertEqual(node.status, "planned")
+        self.assertIn("It does not; the 20 ns result was unconverged.", node.body)
+        self.assertIn("## Claim", node.body)
+
+    def test_an_experiment_without_a_claim_is_refused(self):
+        before = len(list((FIXTURE / "nodes").glob("*.md")))
+        code, out = self.post({"action": "create", "type": "experiment",
+                               "title": "A title standing in for a claim",
+                               "project": "prekd"})
+        self.assertEqual(code, 400)
+        self.assertIn("claim", out["error"])
+        self.assertEqual(len(list((FIXTURE / "nodes").glob("*.md"))), before)
+
+    def test_a_direction_needs_no_claim(self):
+        """Only `experiment` carries the pre-registration argument, so only
+        `experiment` is refused without one."""
+        code, out = self.post({"action": "create", "type": "direction",
+                               "title": "Where does this go next?",
+                               "project": "prekd"})
+        self.assertEqual(code, 200, out)
+
+    def test_the_result_names_the_node_it_made(self):
+        code, out = self.post({"action": "create", "type": "task",
+                               "title": "Read the tether paper", "project": "prekd"})
+        self.assertEqual(code, 200, out)
+        self.assertTrue((FIXTURE / "nodes" / f"{out['node']}.md").exists())
+        self.assertFalse(out["committed"], "a new node is a draft, not a claim yet")
+
+    def test_a_new_project_key_that_would_scar_every_id_is_refused(self):
+        """The key is the first word of every id in the project, permanently."""
+        for bad in ("Poly Sol", "PolySol", "poly sol", "poly/sol", "poly_sol"):
+            code, out = self.post({"action": "create", "type": "direction",
+                                   "title": "A new direction", "project": bad,
+                                   "newProject": True})
+            self.assertEqual(code, 400, bad)
+            self.assertIn("project key", out["error"])
+        # A leading dash is caught earlier, by the guard against a value that
+        # argparse would read as a flag. Different message, same refusal.
+        code, out = self.post({"action": "create", "type": "direction",
+                               "title": "A new direction", "project": "-polysol",
+                               "newProject": True})
+        self.assertEqual(code, 400)
+        self.assertIn("may not start with", out["error"])
+
+    def test_an_unknown_project_is_still_refused_without_the_flag(self):
+        """`check_project` is the guard against the one typo that validates
+        cleanly. The form must not be a way around it."""
+        code, out = self.post({"action": "create", "type": "direction",
+                               "title": "A new direction", "project": "prekdd"})
+        self.assertEqual(code, 422, out)
+        self.assertIn("not a project in this graph", out["out"])
+
+    def test_a_new_project_can_be_started_from_the_map(self):
+        code, out = self.post({"action": "create", "type": "direction",
+                               "title": "Does the solvent model transfer?",
+                               "project": "polysol", "newProject": True})
+        self.assertEqual(code, 200, out)
+        self.assertEqual(lib.parse_file(FIXTURE / "nodes" / f"{out['node']}.md").project,
+                         "polysol")
+
+    def test_claiming_a_project_is_new_when_it_is_not_does_not_disarm_the_guard(self):
+        """`--new-project` is passed only where it means something; a key the
+        graph already has is not new however the form was filled in."""
+        code, out = self.post({"action": "create", "type": "direction",
+                               "title": "An existing project, claimed as new",
+                               "project": "prekd", "newProject": True})
+        self.assertEqual(code, 200, out)
+        self.assertNotIn("--new-project", out["cmd"])
+
+    def test_an_unknown_node_is_a_404_not_a_new_file(self):
+        code, out = self.post({"action": "note", "id": "2026-08-02-prekd-ghost",
+                               "text": "x"})
+        self.assertEqual(code, 404)
+        self.assertFalse((FIXTURE / "nodes" / "2026-08-02-prekd-ghost.md").exists())
+
+    def test_an_id_that_is_a_path_is_refused_before_it_reaches_a_command(self):
+        for bad in ("../../etc/passwd", "2026-08-02-prekd-probe; rm -rf /",
+                    "--help", ""):
+            code, out = self.post({"action": "note", "id": bad, "text": "x"})
+            self.assertIn(code, (400, 404), (bad, out))
+            self.assertIn("error", out)
+
+    def test_only_three_actions_exist(self):
+        for bad in ("delete", "edit", "frontmatter", ""):
+            code, out = self.post({"action": bad, "id": "2026-08-02-prekd-probe"})
+            self.assertEqual(code, 400)
+            self.assertIn("action", out["error"])
+
+    def test_an_empty_note_is_refused(self):
+        code, out = self.post({"action": "note", "id": "2026-08-02-prekd-probe",
+                               "text": "   "})
+        self.assertEqual(code, 400)
+
+    # -- the security model ----------------------------------------------
+
+    def test_a_cross_origin_write_is_refused(self):
+        """Including `Origin: null`, which is what a file:// page and any
+        sandboxed iframe both send."""
+        for origin in ("https://evil.example", "null",
+                       "http://127.0.0.1:1", "http://localhost"):
+            code, out = self.post(
+                {"action": "note", "id": "2026-08-02-prekd-probe", "text": "x"},
+                headers={"Origin": origin})
+            self.assertEqual(code, 403, origin)
+            self.assertIn("cross-origin", out["error"])
+
+    def test_our_own_origin_is_accepted(self):
+        code, out = self.post(
+            {"action": "note", "id": "2026-08-02-prekd-probe", "text": "same origin"},
+            headers={"Origin": f"http://127.0.0.1:{self.port}"})
+        self.assertEqual(code, 200, out)
+
+    def test_a_rebound_host_header_is_refused(self):
+        """Binding to loopback does not stop DNS rebinding — the packets really
+        do arrive on loopback. The Host header is what still names the attacker."""
+        for verb in ("get", "post"):
+            if verb == "get":
+                code, _, _ = self.get("/api/health", headers={"Host": "evil.example"})
+            else:
+                code, _ = self.post({"action": "note", "id": "2026-08-02-prekd-probe",
+                                     "text": "x"}, headers={"Host": "evil.example"})
+            self.assertEqual(code, 403, verb)
+
+    def test_a_plain_form_post_cannot_reach_the_writer(self):
+        """Requiring JSON forces a preflight on any cross-origin attempt, and
+        this server answers none."""
+        code, out = self.post(None, raw=b"action=note",
+                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+        self.assertEqual(code, 415)
+
+    def test_write_is_the_only_endpoint(self):
+        code, out = self.post({"action": "note"}, headers={})
+        self.assertIn(code, (400, 404))
+        import json as _json
+        import urllib.error, urllib.request
+        req = urllib.request.Request(self.url("/api/anything"), data=b"{}",
+                                     headers={"Content-Type": "application/json"},
+                                     method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as res:
+                self.fail(f"expected a refusal, got {res.status}")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 404)
+
+    # -- the constraint that makes the server optional --------------------
+
+    def test_the_map_is_read_only_until_the_probe_answers(self):
+        """`build/graph.html` opened as a file must be exactly the page it was
+        before this feature existed. Every write control is rendered only when
+        `server.up`, and `server.up` is false until /api/health answers."""
+        html = (FIXTURE / "build" / "graph.html").read_text()
+        self.assertIn("const server = { up: false };", html)
+        self.assertIn("probeServer();", html)
+        # Not merely hidden with CSS — not emitted at all.
+        self.assertRegex(html, r"\(server\.up\s*\n\s*\?\s*`<div class=\"wr\"><button data-save")
+        self.assertRegex(html, r"server\.up && isLive\(\) \? statusBox\(n\)")
+        self.assertRegex(html, r"server\.up \? `<span data-newchild")
+        # The header button ships hidden and is unhidden by the probe, never by CSS.
+        self.assertRegex(html, r'<button id="newNode"[^>]*hidden>')
+        self.assertIn("$('#newNode').hidden = false;", html)
+
+    def test_the_clipboard_path_survives(self):
+        """The command-composing fallback is what the file:// copy still has, so
+        it must not be quietly replaced by the button."""
+        html = (FIXTURE / "build" / "graph.html").read_text()
+        self.assertIn("copy command", html)
+        self.assertIn("function noteCommand(", html)
 
 
 class DocumentedCommands(unittest.TestCase):

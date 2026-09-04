@@ -618,11 +618,12 @@ It's a full interactive app, just one served from disk instead of a server:
   answered. Same rule as `cairn standup`, evaluated against the slider's date, so
   "needs you as of June" means what it meant in June
 - **leave a note** → type it in the panel and copy the exact `cairn note` command
-  to your clipboard. The page is `file://` with no server by design, so it cannot
-  write to the repo — and a comment living in one browser's localStorage, invisible
-  from the other machine, is the failure this whole repo exists to avoid. Two
-  keystrokes at a terminal and the note is in the node body, in git, on both
-  machines, where `standup` and the next agent session both find it
+  to your clipboard. Opened as a `file://`, the page cannot write to the repo —
+  and a comment living in one browser's localStorage, invisible from the other
+  machine, is the failure this whole repo exists to avoid. Two keystrokes at a
+  terminal and the note is in the node body, in git, on both machines, where
+  `standup` and the next agent session both find it. Run [`cairn
+  serve`](#writing-from-the-map) and the same box saves directly
 - **keyboard navigation** — arrow keys walk the layout (x is time, y is a project
   lane), `p`/`c` walk the edges, `i` isolates, `n` writes a note, `w` toggles
   needs-you, `space` plays the replay, `/` searches, `Esc` closes
@@ -646,6 +647,79 @@ Obsidian has no idea about.
 
 Because the whole graph is in git, checking out an old commit and re-rendering
 replays the research history a second way, for free.
+
+## Writing from the map
+
+```sh
+cairn serve                    # http://127.0.0.1:8787/build/graph.html
+cairn serve --port 9000 --open
+```
+
+A thought you have *while looking at the map* — a doubt about a claim, a status
+that is plainly wrong now, the experiment this one obviously implies — used to
+have to be retyped at a terminal, and a node you never file is a node that does
+not exist. `cairn serve` is a localhost writer that closes that gap:
+
+- **leave a note** — the panel's note box saves directly instead of composing a
+  command for the clipboard
+- **move a status** — a select beside it, offering only the statuses that node's
+  type actually has, with a one-line why that becomes the history note
+- **create a node** — `+ node` in the header, or `+ child node` in an open
+  node's panel, which prefills the parent and its project. Lineage recorded at
+  creation is lineage that actually gets recorded
+- **start a project** — the project select ends in `+ new project…`
+
+**The form is the one place in Cairn that insists on structure**, and only for an
+experiment: it will not submit without a claim. The whole point of `planned` is a
+claim written *before* the result — written after it, it is a story — and a
+quick-add box is otherwise the cheapest possible way to fill the graph with
+titled nodes that settle nothing. Everywhere else, capture wins and nothing is
+required. `cairn capture` is still one keystroke away for a thought with no shape
+yet.
+
+A new project key gets its own guard, because it is the first word of every id in
+that project, permanently: lowercase, digits and dashes only. And claiming a key
+is new when the graph already has it does *not* pass `--new-project` — that flag
+is what disables `check_project`, the guard that catches `photpoly` for
+`photopoly`, the one typo that validates cleanly and silently splits a project in
+two.
+
+**It is not a second store.** Every write shells out to `bin/cairn` — the same
+code path `/log` and the terminal use — so the node file stays the only copy,
+`status`/`history` still move together in `lib.Node.set_status`, and everything
+the terminal refuses is refused here too. The view may create a node, append a
+note and propose a status change. It may never hand-edit frontmatter, there is no
+endpoint that writes YAML, and the day one appears is the day the map becomes a
+second source of truth.
+
+The panel reports whatever the command said, including whether the write landed
+in git — derived by asking git about the file rather than declared, because
+`note` commits and `new_node --update` does not. An uncommitted node is invisible
+from the other machine, so it says so.
+
+**`build/graph.html` still works with the server off**, which is what makes the
+process an enhancement rather than a dependency. Open the file directly and the
+panel is the read-only page it always was, composing a command for the clipboard.
+The write controls are not hidden with CSS — they are never rendered, because
+`/api/health` did not answer.
+
+Security is three rules and no configuration, which is all a writer on the machine
+you are already sitting at should need:
+
+- it binds `127.0.0.1`, and that is not configurable — the moment this is
+  reachable from another machine it needs auth and a review surface, and that is
+  the webapp, not this
+- it sends **no CORS headers, ever**, and serves the page itself so that writes
+  are same-origin. A `file://` page has the opaque origin `null`; allowing that
+  would mean allowing every sandboxed iframe on the web that can claim the same
+- it checks the `Host:` header, because binding to loopback does not stop DNS
+  rebinding — the packets really do arrive on loopback, and the header is what
+  still names the attacker
+
+The design rationale, and what is deliberately not built yet — the review button,
+which waits on `cairn review` and on a decision about design decision 6 — is in
+`2026-08-27-cairn-living-view`. Meeting notes still arrive through
+`cairn import_note`, since they are a file rather than a node.
 
 ## Design decisions
 
@@ -671,9 +745,10 @@ for the conventions the agent follows.
 8. **Artifacts stay where they are.** Nodes reference big outputs by
    `host:/path`. The repo stays small forever, so it syncs instantly and diffs
    stay readable.
-9. **One graph, many writers, synced through git.** No server, no auth, no
-   real-time editing, no discussion threads — but multi-writer was never the
-   thing being refused. One file per node, append-only and never renamed, is
+9. **One graph, many writers, synced through git.** No auth, no real-time
+   editing, no discussion threads, and no server the graph depends on — `cairn
+   serve` is an optional localhost writer the map degrades gracefully without,
+   never a deployment. Multi-writer was never the thing being refused. One file per node, append-only and never renamed, is
    what makes two people non-colliding, and `git log --diff-filter=A` already
    answers "whose node is this?" without a field for it. Add collaborators to
    the repo; don't shard the graph per project, or you lose the cross-project

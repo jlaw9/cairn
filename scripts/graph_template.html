@@ -262,6 +262,38 @@
     background: var(--panel-2); border-radius: 5px; padding: 6px 8px;
     white-space: pre-wrap; word-break: break-all;
   }
+  /* Write controls. They exist only while `cairn serve` is answering, so
+     everything here is additive: with the server off none of it is rendered and
+     the panel is the read-only page it has always been. */
+  .wr { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .wr select, .wr input {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 7px; font: inherit; font-size: 12.5px;
+  }
+  .wr input { flex: 1; min-width: 110px; }
+  .wr button {
+    background: var(--accent); color: var(--bg); border: 0; border-radius: 6px;
+    padding: 5px 12px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  .wr button:disabled { opacity: .45; cursor: default; }
+  /* What `bin/cairn` said, verbatim. The panel reports the command's own words
+     rather than a friendlier paraphrase, because the paraphrase is where a
+     second opinion about what happened would creep in. */
+  .said {
+    display: block; margin-top: 7px; font-size: 11.5px; white-space: pre-wrap;
+    background: var(--panel-2); border-radius: 5px; padding: 6px 8px;
+    color: var(--ink-dim);
+  }
+  .said.bad { color: var(--bad); }
+  .sect input.field, .sect textarea.field {
+    width: 100%; box-sizing: border-box; background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px;
+    font: inherit; font-size: 12.5px;
+  }
+  .sect textarea.field { min-height: 58px; resize: vertical; }
+  .hint { color: var(--ink-faint); font-size: 11.5px; margin-top: 6px; line-height: 1.6; }
+  .said[hidden] { display: none; }   /* .said sets display, so [hidden] needs saying */
+
   .keys { font-size: 11px; color: var(--ink-faint); line-height: 1.9; }
   .keys kbd {
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px;
@@ -304,6 +336,7 @@
   <button id="isolateOff" hidden>show all</button>
   <span class="grow"></span>
   <button id="needs" class="hbtn" title="Only what needs attention (w)">needs you</button>
+  <button id="newNode" class="hbtn" title="Create a node — needs `cairn serve`" hidden>+ node</button>
   <label class="muted" for="colourBy">fill</label>
   <select id="colourBy" title="What the glyph colour means">
     <option value="status">status</option>
@@ -353,7 +386,7 @@
     <svg id="svg"><g id="view"></g></svg>
     <div id="empty" class="empty" hidden>
       <p>No nodes yet.</p>
-      <p>Create one with <code>scripts/new_node.py</code>, then <code>make build</code>.</p>
+      <p>Create one with <code>cairn new_node</code>, then <code>cairn build</code>.</p>
     </div>
   </div>
 
@@ -381,6 +414,8 @@ const state = {
   needs: false,
   colour: 'status',
   collapsed: new Set(),
+  creating: false,
+  draft: null,
 };
 
 /* ---------- status as of a date: this is the replay ---------- */
@@ -958,23 +993,117 @@ function refreshCounts() {
 
 /* ---------- detail panel ---------- */
 /* ---------- leaving a note ----------
-   The map is a file:// page with no server, by design decision — so it cannot
-   write to the repo, and pretending otherwise would mean a note that lives in
-   one browser's localStorage and is invisible from the other machine. That is
-   the failure mode this whole repo exists to avoid, so the page does the one
-   thing it honestly can: compose the exact command and put it on the clipboard.
+   Opened as a file://, this page cannot write to the repo, and pretending
+   otherwise would mean a note living in one browser's localStorage — invisible
+   from the other machine, which is the failure mode this whole repo exists to
+   avoid. So it does the one thing it honestly can: compose the exact command
+   and put it on the clipboard. Two keystrokes at a terminal, and the note lands
+   in the node body, in git, on both machines.
 
-   Two keystrokes at a terminal, and the note lands in the node body, in git, on
-   both machines, where `cairn standup` and the next agent session will both find
-   it. `cairn note` also works without ever opening this page. */
+   Served by `cairn serve`, it can do better — the same note posts to a
+   localhost writer that shells to the same `cairn note`. What it must never do
+   is store the note itself, which is why both paths end at the same command.
+   The clipboard path stays whether or not the server is running: it is what
+   makes the server optional. */
 function noteBox(n) {
   return `<div class="sect notebox"><div class="hd">Leave a note</div>` +
     `<textarea id="noteText" rows="2" placeholder="a doubt, a correction, the number that looks wrong…"></textarea>` +
+    (server.up
+      ? `<div class="wr"><button data-save="${esc(n.id)}">Save note</button>` +
+        `<span class="muted">writes and commits, exactly as <code>cairn note</code> does</span>` +
+        `</div><code class="said" id="noteSaid" hidden></code>`
+      : '') +
     `<div class="actions" style="margin-top:8px">` +
       `<span data-note="${esc(n.id)}">copy command</span>` +
       `<span data-noteclear="1">clear</span>` +
     `</div>` +
     `<code class="cmd" id="noteCmd">cairn note ${esc(n.id)} "…"</code>` +
+    `</div>`;
+}
+
+/* ---------- the live server, when there is one ----------
+   `cairn serve` answers /api/health from this page's own origin. On a file://
+   copy the fetch cannot succeed — an opaque origin, and the server sends no CORS
+   headers by design — so `server.up` stays false and every control below is
+   simply never rendered. That is the constraint the note above states as a rule:
+   the map must stay fully usable with the server off, which is what makes the
+   process an enhancement rather than a dependency. */
+const server = { up: false };
+
+async function probeServer() {
+  if (!location.protocol.startsWith('http')) return;
+  try {
+    const res = await fetch('/api/health', { cache: 'no-store' });
+    const info = res.ok ? await res.json() : null;
+    if (!info || info.cairn !== 'serve') return;   // some other static server
+  } catch (err) { return; }
+  server.up = true;
+  document.body.classList.add('serving');
+  $('#newNode').hidden = false;
+  if (state.selected) open(state.selected);        // re-render, now with writes
+}
+
+/** POST one write, and show what `bin/cairn` said about it.
+    The server shells out; this reports. It never edits the payload in place —
+    on success the server has regenerated build/, so the honest refresh is a
+    reload, and `#node-id` reopens the panel you were looking at. */
+async function write(body, said) {
+  said.hidden = false;
+  said.className = 'said';
+  said.textContent = 'writing…';
+  let out;
+  try {
+    const res = await fetch('/api/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    out = await res.json();
+  } catch (err) {
+    out = { error: String(err) };
+  }
+  if (!out || out.error || !out.ok) {
+    said.className = 'said bad';
+    said.textContent = (out && (out.error || out.out)) || 'the write failed';
+    return false;
+  }
+  // `committed` is derived by the server from git, not declared: `cairn note`
+  // commits and `new_node --update` does not, and an uncommitted node is
+  // invisible from the other machine — which is exactly the thing you would
+  // rather not discover tomorrow.
+  said.textContent = (out.out || 'written.') +
+    (out.committed === false
+      ? '\n\nWritten, but not committed. `cairn sync --push` sends it on — or '
+        + 'read it back first, which is what the review rule is for.'
+      : '');
+  // Long enough to read the above. The reload is what makes this a living map:
+  // the server has already regenerated build/, so the page in front of you is
+  // stale by exactly the write you just made.
+  if (out.rebuilt) setTimeout(() => location.reload(), 2600);
+  return out;
+}
+
+/* ---------- moving a status ----------
+   `status`, `updated` and `history` move together or the graph rots (node rule
+   4), so this posts an intent and never a field: the server shells to
+   `new_node --update`, which goes through `lib.Node.set_status` exactly as the
+   terminal and /log do. The panel has no opinion about frontmatter, and the day
+   it acquires one is the day the map becomes a second source of truth.
+
+   Hidden while the time slider is rewound: a control that writes *now* has no
+   business sitting under a panel describing three months ago. */
+function statusBox(n) {
+  const options = (DATA.statusesByType || {})[n.type] || DATA.statuses;
+  return `<div class="sect"><div class="hd">Move the status</div>` +
+    `<div class="wr">` +
+      `<select id="stPick">` +
+        options.map(s =>
+          `<option${s === n.status ? ' selected' : ''}>${esc(s)}</option>`).join('') +
+      `</select>` +
+      `<input id="stWhy" placeholder="why — becomes the history note">` +
+      `<button data-status="${esc(n.id)}">Apply</button>` +
+    `</div>` +
+    `<code class="said" id="stSaid" hidden></code>` +
     `</div>`;
 }
 
@@ -988,12 +1117,164 @@ function noteCommand(id) {
   return `cairn note ${id} ${text ? shq(text) : '"…"'}`;
 }
 
+/* ---------- creating a node from the map ----------
+   The affordance lives in the panel rather than on the map, because the map's
+   visual language is fully spent — shape is type, fill is status, ring is
+   needs-you, a dot is a note — and a creation UI is chrome, not graph.
+
+   It writes through `cairn new_node`, so everything the terminal refuses is
+   refused here too: an unknown project key, a status the type does not have, an
+   experiment with no claim. The draft survives a misclick because a half-typed
+   node that vanishes is a node that does not get written. */
+const BODY_LABEL = {
+  experiment: 'Claim', direction: 'What this is', seed: 'The idea',
+  milestone: 'Scope', task: 'What',
+};
+
+const NEW_PROJECT = '__new__';
+
+function projectKeys() {
+  return [...new Set(DATA.nodes.map(n => n.project))]
+    .filter(p => p && p !== '(unassigned)').sort();
+}
+
+function openCreate(parentId) {
+  state.selected = null;
+  state.creating = true;
+  state.draft = Object.assign(
+    { type: 'experiment', title: '', project: projectKeys()[0] || NEW_PROJECT,
+      newProject: '', status: '', body: '', parent: '', parentOn: false },
+    state.draft || {});
+  if (parentId && byId.has(parentId)) {
+    // Opening a node and asking for a new one almost always means a child of it,
+    // and lineage recorded at creation is lineage that actually gets recorded.
+    state.draft.parent = parentId;
+    state.draft.parentOn = true;
+    state.draft.project = byId.get(parentId).project;
+  }
+  renderCreate();
+  panel.classList.add('open');
+  panel.scrollTop = 0;
+  $('#nwTitle')?.focus();
+  draw();
+}
+
+/** DOM -> draft, so a re-render (type change, new-project toggle) keeps what
+    has been typed. Read at submit time too: nothing tracks every keystroke. */
+function syncDraft() {
+  const d = state.draft, v = id => $('#' + id)?.value;
+  for (const [key, id] of [['type','nwType'], ['title','nwTitle'], ['body','nwBody'],
+                           ['project','nwProject'], ['newProject','nwNewProject'],
+                           ['status','nwStatus']]) {
+    if (v(id) !== undefined) d[key] = v(id);
+  }
+  if ($('#nwParent')) d.parentOn = $('#nwParent').checked;
+  const valid = (DATA.statusesByType || {})[d.type] || DATA.statuses;
+  if (!valid.includes(d.status)) d.status = '';
+}
+
+function renderCreate() {
+  const d = state.draft;
+  // Lifecycle order, so the first option is the one a just-created node should
+  // have: `planned` for an experiment, `open` for a direction, `todo` for a task.
+  const statuses = (DATA.statusesByType || {})[d.type] || DATA.statuses;
+  const parent = d.parent && byId.get(d.parent);
+  const isNew = d.project === NEW_PROJECT;
+  const label = BODY_LABEL[d.type] || 'Body';
+  const opts = (list, chosen) => list.map(x =>
+    `<option${x === chosen ? ' selected' : ''}>${esc(x)}</option>`).join('');
+
+  panel.innerHTML =
+    `<button id="close" title="Close (Esc)">×</button>` +
+    `<h3>New node</h3>` +
+    `<div class="muted">Through <code>cairn new_node</code>, so this refuses ` +
+      `whatever the terminal refuses.</div>` +
+    `<div class="sect"><div class="hd">Type and status</div>` +
+      `<div class="wr">` +
+        `<select id="nwType">${opts(DATA.types, d.type)}</select>` +
+        `<select id="nwStatus">${opts(statuses, d.status || statuses[0])}</select>` +
+      `</div></div>` +
+    `<div class="sect"><div class="hd">Title</div>` +
+      `<input id="nwTitle" class="field" value="${esc(d.title)}" ` +
+        `placeholder="the question this settles, not the topic">` +
+      `<div class="hint">This becomes the id, permanently, shortened at a word ` +
+        `boundary. "Does X hold on Y?" beats "X review".</div>` +
+    `</div>` +
+    `<div class="sect"><div class="hd">${esc(label)}` +
+      (d.type === 'experiment' ? ' <span class="muted">— required</span>' : '') +
+      `</div>` +
+      `<textarea id="nwBody" class="field" rows="3" ` +
+        `placeholder="${d.type === 'experiment' ? 'what you expect, before you know' : 'one or two sentences'}"` +
+        `>${esc(d.body)}</textarea>` +
+      (d.type === 'experiment'
+        ? `<div class="hint">A claim written before the result is a ` +
+          `pre-registration; written after it, it is a story. This is the one ` +
+          `place in Cairn that insists on structure, and that is why.</div>` : '') +
+    `</div>` +
+    `<div class="sect"><div class="hd">Project</div>` +
+      `<div class="wr">` +
+        `<select id="nwProject">${opts(projectKeys(), d.project)}` +
+          `<option value="${NEW_PROJECT}"${isNew ? ' selected' : ''}>+ new project…</option>` +
+        `</select>` +
+        (isNew ? `<input id="nwNewProject" value="${esc(d.newProject)}" ` +
+                 `placeholder="key, e.g. polysol">` : '') +
+      `</div>` +
+      (isNew ? `<div class="hint">A new key is a real decision. The typo that ` +
+        `matters is the invisible one — <code>photpoly</code> validates cleanly ` +
+        `and splits a project in two, after which a missing node stops meaning ` +
+        `"not tried". Lowercase letters, digits and dashes.</div>` : '') +
+    `</div>` +
+    (parent ? `<div class="sect"><div class="hd">Lineage</div>` +
+      `<label class="muted"><input type="checkbox" id="nwParent"` +
+        `${d.parentOn ? ' checked' : ''}> child of “${esc(parent.title)}”</label>` +
+      `</div>` : '') +
+    `<div class="wr"><button data-create="1">Create</button>` +
+      `<span class="muted">then read it back and commit it</span></div>` +
+    `<code class="said" id="nwSaid" hidden></code>`;
+}
+
+function submitCreate(button) {
+  syncDraft();
+  const d = state.draft, said = $('#nwSaid');
+  const project = (d.project === NEW_PROJECT ? d.newProject : d.project).trim();
+  const complain = why => {
+    said.hidden = false;
+    said.className = 'said bad';
+    said.textContent = why;
+  };
+  // Said here as well as server-side: a round trip to be told the title is
+  // empty is a round trip that teaches nothing.
+  if (!d.title.trim()) return complain('a node needs a title');
+  if (!project) return complain('a node needs a project');
+  if (d.type === 'experiment' && !d.body.trim()) {
+    return complain('an experiment needs a claim — that is what makes it a ' +
+                    'pre-registration rather than a title');
+  }
+  button.disabled = true;
+  write({
+    action: 'create',
+    type: d.type,
+    title: d.title.trim(),
+    project,
+    status: d.status || undefined,
+    body: d.body.trim(),
+    newProject: d.project === NEW_PROJECT,
+    parents: (d.parentOn && d.parent) ? [d.parent] : [],
+  }, said).then(done => {
+    if (!done) { button.disabled = false; return; }
+    state.draft = null;
+    // Land on what was just made. The reload `write` schedules reads the hash.
+    if (done.node) location.hash = '#' + done.node;
+  });
+}
+
 function open(id) {
   const n = byId.get(id);
   if (!n) return;
   // Following a link into a folded lane has to unfold it, or the panel describes
   // a node the map is not showing.
   if (state.collapsed.has(n.project)) setFolded(n.project, false);
+  state.creating = false;
   state.selected = id;
 
   const rows = [];
@@ -1040,6 +1321,7 @@ function open(id) {
       `<a href="../nodes/${esc(n.id)}.md">source</a>` +
       `<span data-isolate="${esc(n.id)}">${state.isolate === n.id ? 'show all' : 'isolate lineage'}</span>` +
       `<span data-copy="${esc(n.id)}">copy link</span>` +
+      (server.up ? `<span data-newchild="${esc(n.id)}">+ child node</span>` : '') +
     `</div>` +
     `<div class="pillrow">` +
       `<span class="pill status" style="background:var(--${CLS[shownStatus] || 'idle'})">${esc(shownStatus)}</span>` +
@@ -1081,6 +1363,7 @@ function open(id) {
       `<div class="n"><span class="who">${esc(x.date)}${x.who ? ' · ' + esc(x.who) : ''}</span>` +
       `<div>${esc(x.text)}</div></div>`
     ).join('')) +
+    (server.up && isLive() ? statusBox(n) : '') +
     noteBox(n);
 
   panel.classList.add('open');
@@ -1091,6 +1374,7 @@ function open(id) {
 
 function close() {
   state.selected = null;
+  state.creating = false;
   panel.classList.remove('open');
   history.replaceState(null, '', location.pathname + location.search);
   draw();
@@ -1274,9 +1558,46 @@ document.addEventListener('click', e => {
     e.target.textContent = 'copied — paste in a terminal';
     setTimeout(() => { e.target.textContent = 'copy command'; }, 2000);
   }
+  if (d.newchild) return openCreate(d.newchild);
+  if (d.create) return submitCreate(e.target);
+  if (d.save) {
+    const text = ($('#noteText')?.value || '').trim();
+    const said = $('#noteSaid');
+    if (!text) {
+      said.hidden = false;
+      said.className = 'said bad';
+      said.textContent = 'an empty note is not a note';
+      return;
+    }
+    e.target.disabled = true;
+    write({ action: 'note', id: d.save, text }, said)
+      .then(done => { if (!done) e.target.disabled = false; });
+    return;
+  }
+  if (d.status) {
+    e.target.disabled = true;
+    write({
+      action: 'status',
+      id: d.status,
+      status: $('#stPick').value,
+      note: ($('#stWhy')?.value || '').trim(),
+    }, $('#stSaid')).then(done => { if (!done) e.target.disabled = false; });
+    return;
+  }
   if (d.noteclear && $('#noteText')) {
     $('#noteText').value = '';
     $('#noteCmd').textContent = noteCommand(state.selected || '<node-id>');
+  }
+});
+
+// The type decides which statuses exist and what the body section is called;
+// picking "new project" reveals a field. Both change the form, so both re-render
+// it — through syncDraft, so nothing typed is lost.
+document.addEventListener('change', e => {
+  if (!state.creating) return;
+  if (e.target.id === 'nwType' || e.target.id === 'nwProject') {
+    syncDraft();
+    renderCreate();
   }
 });
 
@@ -1288,6 +1609,9 @@ document.addEventListener('input', e => {
   }
 });
 $('#isolateOff').onclick = () => { state.isolate = null; draw(); fit(); };
+// Prefilled from the selection when there is one: a new node opened from an old
+// one is nearly always its child, and in the same project.
+$('#newNode').onclick = () => openCreate(state.selected);
 
 function setFolded(project, on) {
   if (on) state.collapsed.add(project); else state.collapsed.delete(project);
@@ -1512,6 +1836,7 @@ syncFoldButton();
 draw();
 fit();
 if (location.hash.length > 1) open(decodeURIComponent(location.hash.slice(1)));
+probeServer();
 window.addEventListener('resize', () => { if (scale <= 1) fit(); });
 </script>
 </body>
