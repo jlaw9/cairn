@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where a human argues with the record — Cairn</title>
+<meta name="description" content="The agent writes the node; you read it a week later and think the number is wrong. Until this landed there was nowhere honest to put that.">
+<link rel="stylesheet" href="../cairn.css">
+<link rel="icon" href="../img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="../index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="../index.html">Overview</a>
+    <a href="../model.html">The model</a>
+    <a href="../workflows.html">Using it</a>
+    <a href="../map.html">The map</a>
+    <a href="../design.html">Design</a>
+    <a href="index.html" aria-current="page">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+  <article class="prose" style="padding-top:clamp(40px,7vh,80px)">
+    <p class="eyebrow"><a href="index.html" style="color:inherit">Notebook</a></p>
+    <h1>Where a human argues with the record</h1>
+    <p class="postmeta">2026-08-26 &middot; commit <code>31d5484</code> &middot; node <code>2026-08-26-cairn-notes-on-nodes</code></p>
+
+    <p>The premise of this project is that the agent doing the work writes the record. The
+      consequence nobody planned for is that <strong>you become a reader of your own
+      research log</strong> — and readers have reactions. A doubt. A correction. “The
+      number here is wrong.” “This is the one that matters.”</p>
+
+    <p>Until this landed there were two places to put such a thought, and both were
+      wrong:</p>
+
+    <ul class="ticks">
+      <li><strong>A status change</strong>, which lies about what happened. Nothing about
+        the work moved; you just read it.</li>
+      <li><strong>The inbox</strong>, which detaches the thought from the node it is
+        about — and a reaction that has lost its referent is close to worthless six weeks
+        later.</li>
+    </ul>
+
+    <p>So there is a third thing:</p>
+
+    <pre>cairn note 2026-07-20-polyid-run-variance "the spread looks bimodal &mdash; seeds?"
+cairn note polyid-run-variance                 <span class="cmt"># unique suffix is enough; opens $EDITOR</span>
+cairn note --list --project polyid</pre>
+
+    <p>It appends a dated bullet under <code>## Notes</code> in the node body:</p>
+
+    <pre>- **2026-08-26** (jlaw) the spread looks bimodal &mdash; does it track the seed?</pre>
+
+    <h2>Three things about this are deliberate</h2>
+
+    <ul class="ticks">
+      <li><strong>It is a body edit, not a status change.</strong> <code>status</code>,
+        <code>updated</code> and <code>history</code> do not move, because a note is not a
+        claim about the state of the work. If it moved <code>updated</code>, the replay
+        slider would show a status change that never happened — and the replay being
+        trustworthy is worth more than the convenience.</li>
+      <li><strong>No new field</strong>, against
+        <a href="../design.html#decisions">rule 4</a>, which this is the case that most
+        wants to break. The line carries its own date, so a note stays findable by reading
+        the body — the same way <code>## Next</code> was already read. A
+        <code>notes:</code> list would be a fifth list to maintain and a sixth thing to
+        validate.</li>
+      <li><strong>“Unanswered” is derived.</strong> A note dated at or after the node's
+        last history entry is one no later work has responded to; once the thread moves,
+        the note stops being reported. <strong>That is what keeps it off a nag
+        list</strong> — and a nag list is a thing people stop reading, at which point it
+        is worse than nothing.</li>
+    </ul>
+
+    <h2>It commits by default, and that is the one exception</h2>
+
+    <p><code>capture</code> deliberately does not commit. <code>note</code> does — because
+      decision 6 refuses to commit a node <em>you have not seen</em>, and a sentence you
+      just typed is the definition of seen. The whole value is that it is visible from the
+      other machine tomorrow.</p>
+
+    <p>The note is written to the file <em>before</em> the commit is attempted, so a commit
+      that fails on unrelated schema drift costs it nothing.</p>
+
+    <h2>The direction nobody asked about</h2>
+
+    <p>This also works the other way round, which is the answer to <em>“can the agent pick
+      up on comments I left?”</em></p>
+
+    <p>Yes. Notes live in the node body, so they are in <code>standup</code>'s resume
+      packet, in the session-start context, and in the report. <strong>A note is how you
+      hand an instruction to next week's session without writing a prompt.</strong></p>
+
+    <p class="faint">One rule that is a matter of authorship rather than tooling: a note in
+      a human's voice is theirs to write. An agent recording an observation of its own
+      writes a history note on a status change, or an <code>inbox/</code> capture &mdash;
+      not a <code>## Notes</code> bullet under someone else's name.</p>
+
+  </article>
+
+  <div class="next">
+    <a href="index.html"><span class="l">back</span><span class="t">All entries &rarr;</span></a>
+    <a href="../model.html#notes"><span class="l">see also</span><span class="t">Notes, in the model &rarr;</span></a>
+  </div>
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Cairn &mdash; a research record that keeps the dead ends.</span>
+    <a href="../index.html">Overview</a>
+  </div>
+</footer>
+
+<script src="../cairn.js"></script>
+</body>
+</html>

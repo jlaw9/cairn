@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notebook — Cairn</title>
+<meta name="description" content="What changed in Cairn, what worked, and what didn't. Short entries, dated, in the order they happened.">
+<link rel="stylesheet" href="../cairn.css">
+<link rel="icon" href="../img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="../index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="../index.html">Overview</a>
+    <a href="../model.html">The model</a>
+    <a href="../workflows.html">Using it</a>
+    <a href="../map.html">The map</a>
+    <a href="../design.html">Design</a>
+    <a href="index.html" aria-current="page">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero prose" style="padding-bottom:0">
+    <p class="eyebrow">Notebook</p>
+    <h1>What changed, and what didn't work.</h1>
+    <p class="lede">Short dated entries: a feature that landed, a decision that got
+      reversed, a bug worth naming. The same bias as the graph itself — the negative
+      results are the ones worth keeping.</p>
+  </div>
+
+  <section id="posts" style="padding-top:32px">
+    <div class="prose">
+      <ul class="posts">
+
+        <li>
+          <span class="d">2026-08-27</span>
+          <h3><a href="2026-08-27-read-by-a-human.html">Deriving “a human read this” from git,
+            instead of adding a field</a></h3>
+          <p>A node nobody has read is a different thing from a node nobody has written.
+            Telling them apart took no new field — just a commit trailer, and two passes
+            over the log.</p>
+        </li>
+
+        <li>
+          <span class="d">2026-08-27</span>
+          <h3><a href="2026-08-27-splitting-tool-from-graph.html">Splitting the tool from the
+            graph</a></h3>
+          <p>One repo became two, because a tool for recording research can be shared and a
+            research record cannot. What that cost, and the one thing the conflation was
+            actually buying.</p>
+        </li>
+
+        <li>
+          <span class="d">2026-08-26</span>
+          <h3><a href="2026-08-26-notes-on-nodes.html">Where a human argues with the
+            record</a></h3>
+          <p>The agent writes the node; you read it a week later and think the number is
+            wrong. Until this landed, the only places to put that thought were a status
+            change, which lies, and the inbox, which loses the connection.</p>
+        </li>
+
+        <li>
+          <span class="d">2026-08-05</span>
+          <h3><a href="2026-08-05-the-comma.html">The comma that ate seventeen nodes</a></h3>
+          <p>An unquoted comma in a YAML flow scalar silently turned the tail of a sentence
+            into a key. It hit 17 of the first 55 nodes, and the fix that mattered was not
+            the writer.</p>
+        </li>
+
+      </ul>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="prose">
+      <h2>Adding an entry</h2>
+      <p>There is no generator and no dependency. Copy
+        <code>site/blog/_template.html</code>, rename it
+        <code>YYYY-MM-DD-slug.html</code>, write the prose, and add one
+        <code>&lt;li&gt;</code> to the list above.</p>
+      <p class="faint">That is deliberately the whole mechanism. A blog that needs a build
+        step is a blog that stops getting posts — the same argument as
+        <a href="../design.html#decisions">decision 7</a>, one layer out.</p>
+    </div>
+  </section>
+
+  <div class="next">
+    <a href="../index.html"><span class="l">back</span><span class="t">Overview →</span></a>
+    <a href="../design.html"><span class="l">see also</span><span class="t">Design decisions →</span></a>
+  </div>
+
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Entries are written after the fact and dated when the work happened.</span>
+    <a href="../index.html">Overview</a>
+  </div>
+</footer>
+
+<script src="../cairn.js"></script>
+</body>
+</html>

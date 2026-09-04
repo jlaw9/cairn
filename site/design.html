@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design decisions — Cairn</title>
+<meta name="description" content="Nine settled decisions, what Cairn deliberately isn't, how it differs from Graphify and the prior art, and the three open questions that would make its author abandon it.">
+<link rel="stylesheet" href="cairn.css">
+<link rel="icon" href="img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="model.html">The model</a>
+    <a href="workflows.html">Using it</a>
+    <a href="map.html">The map</a>
+    <a href="design.html" aria-current="page">Design</a>
+    <a href="blog/index.html">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero prose" style="padding-bottom:0">
+    <p class="eyebrow">Design</p>
+    <h1>Nine settled decisions.</h1>
+    <p class="lede">Each one is downstream of a single fact: the agent doing the work can
+      now write the record. When expressiveness and capture reliability conflict, capture
+      wins.</p>
+  </div>
+
+  <div class="withtoc">
+    <div>
+
+      <section id="decisions">
+        <div class="prose">
+          <h2>The nine <a class="anchor" href="#decisions">#</a></h2>
+        </div>
+
+        <div class="grid g2">
+          <div class="card">
+            <h3>1 · Separate repo</h3>
+            <p>One graph spans all projects; nodes carry <code>project:</code>. This is what
+              makes the laptop/HPC split tractable — and it's why cross-project edges
+              exist at all.</p>
+          </div>
+          <div class="card">
+            <h3>2 · Reference commits, never branches</h3>
+            <p>Branches get merged and deleted, and the most valuable nodes here are exactly
+              the dead ends git is designed to garbage-collect. A SHA is forever.</p>
+          </div>
+          <div class="card">
+            <h3>3 · One file per node, append-only</h3>
+            <p>Never delete a node; change its status. Files never move, <code>id</code> is
+              permanent. This is also what makes two writers non-colliding.</p>
+          </div>
+          <div class="card">
+            <h3>4 · Tiny schema</h3>
+            <p>Every optional field is a field that stops getting filled in. Adding one is a
+              real decision — it goes in <code>lib.TYPES</code> and the schema doc, or it
+              doesn't happen.</p>
+          </div>
+          <div class="card">
+            <h3>5 · Status is an event log</h3>
+            <p><code>history:</code> gives the time axis for free, which is what makes the
+              replay slider and the weekly digest work with nothing extra to
+              maintain.</p>
+          </div>
+          <div class="card">
+            <h3>6 · Nothing is committed unreviewed</h3>
+            <p>Draft the node, show it, then commit. An auto-populated graph nobody has read
+              is the failure this project exists to avoid. Unprompted capture goes to
+              <code>inbox/</code> instead.</p>
+          </div>
+          <div class="card">
+            <h3>7 · Capture ≠ structure</h3>
+            <p><code>inbox/</code> accepts unstructured junk from anywhere; a separate
+              triage pass turns junk into nodes. <strong>Never require filing at capture
+              time — that's how capture dies.</strong></p>
+          </div>
+          <div class="card">
+            <h3>8 · Artifacts stay where they are</h3>
+            <p>Nodes reference big outputs by <code>host:/path</code>. The repo stays small
+              forever, so it syncs instantly and diffs stay readable.</p>
+          </div>
+          <div class="card accent">
+            <h3>9 · One graph, many writers, synced through git</h3>
+            <p>No server, no auth, no real-time editing — but multi-writer was never the
+              thing being refused. One file per node, append-only and never renamed, is what
+              makes two people non-colliding, and
+              <code>git log --diff-filter=A</code> already answers “whose node is this?”
+              without a field for it. Add collaborators to the repo; don't shard the graph
+              per project, or you lose the cross-project edges that are the hardest part to
+              reconstruct.</p>
+          </div>
+        </div>
+
+        <div class="prose">
+          <p class="faint">Two of these have been tested by being wrong first. Rule 4 was
+            broken once, on purpose, to add <code>relates</code> — and it took a written
+            argument. Rule 6 is why <code>sync --push</code> commits only
+            <code>build/</code>, even though committing nodes would be more
+            convenient.</p>
+        </div>
+      </section>
+
+      <section id="not">
+        <div class="prose">
+          <h2>What this deliberately isn't <a class="anchor" href="#not">#</a></h2>
+          <ul class="ticks">
+            <li><strong>Not an experiment tracker.</strong> W&amp;B and MLflow own metrics
+              and curves; the graph links out to them.</li>
+            <li><strong>Not a replacement for project repos.</strong> Nothing heavy ever
+              enters: code by <code>repo</code> + <code>commit</code>, big outputs by
+              <code>host:/path</code>.</li>
+            <li><strong>Not a general task manager</strong> — only research
+              commitments.</li>
+            <li><strong>No server, no auth, no real-time editing, no discussion
+              threads.</strong> A static HTML file in a git repo.</li>
+          </ul>
+          <p class="faint">And the next step is deliberately <em>not</em> more features.
+            The failure mode for a project like this is building the whole system and then
+            not using it.</p>
+        </div>
+      </section>
+
+      <section id="prior">
+        <div class="prose">
+          <h2>Why this can exist now <a class="anchor" href="#prior">#</a></h2>
+          <p>Every prior attempt died on the same rock: <strong>capture cost</strong>.</p>
+          <p><strong>Renku</strong> does compute provenance but has no concept of a
+            hypothesis or a dead end. <strong>W&amp;B</strong>, <strong>MLflow</strong> and
+            <strong>DVC</strong> track runs and artifacts, not ideas. The HCI work —
+            Kery's <strong>Variolite</strong> and <strong>Verdant</strong>,
+            <strong>Burrito</strong>, <strong>Hindsight</strong> — attacked exactly this
+            and needed a discipline nobody sustains, because a graph at 60% coverage is
+            worse than none: you can't trust a missing node to mean “not tried.”</p>
+          <p>The agent doing the work can now write the record. Every design decision here
+            serves that one fact.</p>
+
+          <h3 id="graphify">What about Graphify?</h3>
+          <p><a href="https://github.com/Graphify-Labs/graphify">Graphify</a> turns a
+            codebase into a queryable knowledge graph — tree-sitter AST parsing, typed
+            edges (<code>calls</code>, <code>imports</code>, <code>inherits</code>), Leiden
+            community detection, an interactive force-directed <code>graph.html</code>, and
+            a generated report naming the most-connected “god nodes”. It is good, it is
+            fast, and it is <strong>orthogonal to this</strong>.</p>
+          <p>The distinction is the one its own commenters kept making: Graphify maps the
+            <strong>current state of a codebase</strong>; Cairn maps the <strong>history of
+            research decisions</strong>. Graphify does read <code>WHY:</code> and
+            <code>HACK:</code> comments and ADRs as first-class nodes, so it captures
+            rationale that <em>exists in the repo</em> — but a dead end leaves no comment,
+            because the code was deleted. <em>“We tried fitting published final Tg values
+            as Tgp and the literature refutes it”</em> is not in any AST, will never be in
+            one, and is exactly the node that stops the idea being had twice.</p>
+          <p>Practically: <strong>run both.</strong> Graphify in a project repo to orient
+            in the code, Cairn across projects to know what has been tried. Three of its
+            ideas were worth taking, and two are in here:</p>
+          <ul class="ticks">
+            <li><strong>The generated report as an entry point.</strong>
+              <code>build/report.md</code>. Its “start here” section is Graphify's
+              god-nodes idea; its “connections across projects” section is the
+              surprising-connections idea, except the definition can be exact here rather
+              than heuristic.</li>
+            <li><strong><code>EXTRACTED</code> vs <code>INFERRED</code> on every
+              edge</strong>, so you always know what was read versus guessed. The analogue
+              that matters here is <em>contemporaneity</em> — was this node written the day
+              the work happened, or reconstructed six weeks later? — and it was already
+              derivable from git, so it cost no field.</li>
+            <li><strong>A git merge driver</strong> that union-merges the generated graph on
+              parallel commits. Cairn's version of that problem is <code>build/</code>, and
+              <code>sync</code> resolves it by regenerating rather than merging.</li>
+          </ul>
+          <p><strong>Not taken:</strong> force-directed layout (research history has a real
+            time axis, and a force layout throws it away), and a vector store or MCP server
+            for search — a few hundred nodes of text parse in well under a second.</p>
+        </div>
+      </section>
+
+      <section id="pay">
+        <div class="prose">
+          <h2>Does it pay for itself? <a class="anchor" href="#pay">#</a></h2>
+          <p>Cairn tracking Cairn. Measured, not estimated: per-turn usage from 40 agent
+            transcripts — 29,797 assistant turns — over the same five weeks that produced
+            the first 61 nodes.</p>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <span class="v">0.45<small>%</small></span>
+            <span class="l">of five weeks' token spend<br>to write the first 61 nodes</span>
+          </div>
+          <div class="metric">
+            <span class="v">2.5<small> MB</small></span>
+            <span class="l">whole repo,<br>excluding git history</span>
+          </div>
+          <div class="metric">
+            <span class="v">5.1<small>k</small></span>
+            <span class="l">lines of python<br>+ one html template</span>
+          </div>
+        </div>
+
+        <div class="prose">
+          <p><strong>Which means the question was posed wrong.</strong> Node-writing cost
+            is a rounding error. The interesting quantity is <em>where in the context
+            distribution the work happens</em>: turns above 300k context are 31% of turns
+            but <strong>52% of cost</strong>.</p>
+          <p>A memory file is paid <em>per turn</em>, not per node, because it sits in the
+            context re-read on every one — a 6,000-word status doc costs about 1.8%, four
+            times what writing those 61 nodes cost. <strong>The two differ in what
+            survives, not in what they cost.</strong></p>
+        </div>
+      </section>
+
+      <section id="open">
+        <div class="prose">
+          <h2>What would make me abandon this <a class="anchor" href="#open">#</a></h2>
+          <p>All three are nodes in the graph, and none is settled.</p>
+        </div>
+
+        <div class="grid g3">
+          <div class="card pending">
+            <h3>Does the convention hold without steering?</h3>
+            <p>Two projects are now writing nodes as the work happens, rather than
+              reconstructing them afterwards.</p>
+            <p><strong>If the schema only survives when its author is in the room, it
+              doesn't survive.</strong></p>
+          </div>
+          <div class="card pending">
+            <h3>Does it work for someone who isn't a computational scientist?</h3>
+            <p>The model is domain-neutral — a bench experiment validates today with no
+              repo, no commit and no host.</p>
+            <p><strong>The interface isn't neutral, and
+              <code>artifacts: host:/path</code> is the first thing that will
+              break.</strong></p>
+          </div>
+          <div class="card pending">
+            <h3>Is it better than keeping a memory file current?</h3>
+            <p>Not on cost — the two are the same order of magnitude.</p>
+            <p><strong>The difference is that a memory file gets overwritten, and
+              current-state representations garbage-collect dead ends.</strong> That needs
+              a real test, not an argument.</p>
+          </div>
+        </div>
+
+        <div class="prose">
+          <p class="faint">What <em>isn't</em> in question is whether the code is valuable:
+            a few thousand lines, rebuildable in a week by anyone who has read the schema.
+            If something durable is here, it's the empirical claim about capture cost.</p>
+        </div>
+      </section>
+
+      <section id="learned">
+        <div class="prose">
+          <h2>Three things the first backfill found <a class="anchor" href="#learned">#</a></h2>
+          <p>The backfill was the first real test of the tooling, and using the result was
+            the second. Between them:</p>
+          <ol>
+            <li><strong>The pre-commit hook probed for the wrong thing.</strong> It looked
+              for “a <code>python3</code> that can <code>import yaml</code>”, which on the
+              cluster is satisfied by a 3.6.8 too old to parse <code>lib.py</code> — so
+              every commit was blocked with a SyntaxError reported as schema drift. Hence
+              <code>scripts/find_python.sh</code>.</li>
+            <li><strong>Frontmatter did not round-trip.</strong> An unquoted comma inside a
+              flow-style history note split the value and turned its tail into a key:
+              <code>note: past 1,000 systems</code> silently became
+              <code>note: past 1</code> plus a junk key <code>000 systems</code>. 17 of the
+              55 backfilled nodes were affected. The writer now quotes flow scalars
+              properly, and the validator rejects unexpected keys in a history entry so the
+              same class of corruption can't return quietly.</li>
+            <li><strong>Untyped edges lost information.</strong> Three findings could only
+              be connected in prose. Hence <code>relates</code> — the one schema
+              addition.</li>
+          </ol>
+          <p class="faint">Two node types that wanted extra fields — milestones reaching
+            for <code>repo</code> and <code>artifacts</code> — were made to use their
+            bodies instead.</p>
+        </div>
+      </section>
+
+      <div class="next">
+        <a href="blog/index.html"><span class="l">next</span><span class="t">Notebook →</span></a>
+        <a href="index.html"><span class="l">back</span><span class="t">Overview →</span></a>
+      </div>
+
+    </div>
+
+    <aside class="toc">
+      <p>On this page</p>
+      <a href="#decisions">The nine</a>
+      <a href="#not">What it isn't</a>
+      <a href="#prior">Why this can exist now</a>
+      <a href="#pay">Does it pay for itself?</a>
+      <a href="#open">Open questions</a>
+      <a href="#learned">What the backfill found</a>
+    </aside>
+  </div>
+
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>These are settled. The open ones are on the notebook.</span>
+    <a href="model.html">The model</a>
+    <a href="workflows.html">Using it</a>
+  </div>
+</footer>
+
+<script src="cairn.js"></script>
+</body>
+</html>

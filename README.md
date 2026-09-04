@@ -17,9 +17,17 @@ The point isn't visualization. The point is that six months from now, *"did we
 already try this, and what happened?"* has an answer, and *"what should I do
 next?"* has a defensible one.
 
+**Documentation.** The long-form docs — the model, the two kinds of edge, the
+four workflows, the map, and the design rationale — live in [`site/`](site/) and
+publish to <https://jlaw9.github.io/cairn/>. **That URL is not live yet:**
+publishing is gated on `2026-08-05-cairn-release-review`, since Cairn was written
+on lab time and a public Pages site is a release. Preview it locally with
+`make site-serve`, and see [`site/README.md`](site/README.md) for how it is put
+together.
+
 ## Contents
 
-- [Why this can exist now](#why-this-can-exist-now) · [What about Graphify?](#what-about-graphify)
+- [Why this can exist now](#why-this-can-exist-now) — long version [on the site][site-why]
 - [Install — once per machine](#install--once-per-machine) · [The one dependency](#the-one-dependency)
 - [Then pick your path](#then-pick-your-path)
   - [A. Work that already happened → backfill first](#a-you-have-work-that-already-happened--backfill-first)
@@ -36,6 +44,14 @@ next?"* has a defensible one.
 - [Design decisions](#design-decisions)
 - [Two machines, or two people](#two-machines-or-two-people) — `sync`
 - [Status](#status)
+- The site: [overview] · [the model] · [using it] · [the map] · [design] · [notebook]
+
+[overview]: https://jlaw9.github.io/cairn/
+[the model]: https://jlaw9.github.io/cairn/model.html
+[using it]: https://jlaw9.github.io/cairn/workflows.html
+[the map]: https://jlaw9.github.io/cairn/map.html
+[design]: https://jlaw9.github.io/cairn/design.html
+[notebook]: https://jlaw9.github.io/cairn/blog/
 
 ## Why this can exist now
 
@@ -50,44 +66,12 @@ The agent doing the work can now write the record. Every design decision here
 serves that one fact, so **when expressiveness and capture reliability
 conflict, capture wins.**
 
-### What about Graphify?
+The long version — the prior art, and why [Graphify][gfy] is orthogonal to this
+rather than a competitor — is on the site: **[why this can exist now][site-why]**.
+Three of Graphify's ideas were worth taking and two are in here.
 
-[Graphify](https://github.com/Graphify-Labs/graphify) turns a codebase into a
-queryable knowledge graph — tree-sitter AST parsing, typed edges (`calls`,
-`imports`, `inherits`), Leiden community detection, an interactive
-force-directed `graph.html`, and a generated `GRAPH_REPORT.md` naming the
-most-connected "god nodes". It is good, it is fast, and it is **orthogonal to
-this**.
-
-The distinction is the one its own commenters kept making: Graphify maps the
-**current state of a codebase**; Cairn maps the **history of research
-decisions**. Graphify does read `# WHY:` and `# HACK:` comments and ADRs as
-first-class nodes, so it captures rationale that *exists in the repo* — but a
-dead end leaves no comment, because the code was deleted. "We tried fitting
-published final Tg values as Tgp and the literature refutes it" is not in any
-AST, will never be in one, and is exactly the node that stops the idea being had
-twice. Same for *when* a decision was made, which Cairn gets free from `history`
-being an event log and Graphify has no axis for.
-
-Practically: run both. Graphify in a project repo to orient in the code, Cairn
-across projects to know what has been tried. Three of its ideas were worth
-taking, and two of them are in here:
-
-- **The generated report as an entry point.** `build/report.md` — see below. Its
-  "start here" section is Graphify's god-nodes idea; its "connections across
-  projects" section is the surprising-connections idea, except the definition can
-  be exact here rather than heuristic.
-- **`EXTRACTED` vs `INFERRED` on every edge**, so you always know what was read
-  versus guessed. The analogue that matters here is *contemporaneity* — was this
-  node written the day the work happened, or reconstructed six weeks later? — and
-  it was already derivable from git, so it cost no field.
-- **A git merge driver** that union-merges the generated graph on parallel
-  commits. Cairn's version of that problem is `build/`, and `cairn sync` now
-  resolves it by regenerating rather than merging.
-
-Not taken: force-directed layout (research history has a real time axis, and a
-force layout throws it away), and a vector store or MCP server for search (110
-nodes of text parse in well under a second).
+[gfy]: https://github.com/Graphify-Labs/graphify
+[site-why]: https://jlaw9.github.io/cairn/design.html#prior
 
 ## Install — once per machine
 
@@ -354,10 +338,11 @@ scripts/     lib.py, validate.py, build_graph.py, new_node.py, add_paper.py,
              install_context.py
 skills/      path-addressed skills, so agents in *other* repos can use the graph
 docs/        install.md, schema.md, backfill.md, worked examples
+site/        the documentation site — hand-written HTML, no build step
 ```
 
 `make doctor` · `make validate` · `make build` · `make digest` · `make standup` ·
-`make sync` · `make push` · `make test`
+`make sync` · `make push` · `make test` · `make site-check` · `make site-serve`
 
 In a node body, `[[2026-07-01-polyid-network-ablation]]` refers to another node
 and renders as a link to it, labelled with that node's title. `make validate`
@@ -738,34 +723,21 @@ which is the correct behaviour, if a startling way to find out.
 
 ## Status
 
-Phase 0 and Phase 1 tooling are built, and the graph is backfilled: **55 nodes
-across 8 projects**, reconstructed from five weeks of Claude sessions on kestrel
-(2026-06-24 to 2026-08-02) plus the project repos' own reports and git history.
+**142 nodes across 12 projects**, 18 of them refutations, with 45 typed
+relations — zero validation errors. The first 61 were backfilled from five weeks
+of Claude sessions; the rest were written as the work happened.
 
-**Next step is two weeks of living with it** — before `/weekly`, `/capture`,
-`/triage`, the papers registry, or `/review`. The failure mode for this project
-is building the whole system and then not using it.
+The next step is deliberately *not* more features. The failure mode for a
+project like this is building the whole system and then not using it.
 
-The backfill was also the first real test of the tooling, and using the result
-was the second. Between them they found three things:
+What the first backfill found — the silent YAML corruption, the interpreter
+probe that tested the wrong thing, and the argument that produced `relates` —
+is written up on the site: **[what the backfill found][site-learned]** and
+**[the comma that ate seventeen nodes][site-comma]**.
 
-1. The pre-commit hook probed for "a `python3` that can `import yaml`", which is
-   satisfied on Kestrel by a 3.6.8 too old to parse `lib.py` — so every commit
-   was blocked with a SyntaxError reported as schema drift. Fixed by
-   `scripts/find_python.sh`.
-2. **Frontmatter did not round-trip.** An unquoted comma inside a flow-style
-   history note split the value and turned its tail into a key: `note: past
-   1,000 systems` silently became `note: past 1` plus a junk key `000 systems`.
-   17 of the 55 backfilled nodes were affected. The writer now quotes flow
-   scalars properly, and the validator rejects unexpected keys in a history
-   entry so the same class of corruption can't return quietly.
-3. **Untyped edges lost information.** Three findings could only be connected in
-   prose. Hence `relates` — the one schema addition, argued for in
-   `docs/schema.md`.
+`refs:` is deliberately thin. The sessions cite plenty of papers, but a DOI
+recalled rather than resolved is worse than no DOI — populate the papers
+registry with verified metadata rather than backfilling it from memory.
 
-Two node types that wanted extra fields (milestones reaching for
-`repo`/`artifacts`) were made to use their bodies instead.
-
-`refs:` is deliberately empty everywhere. The sessions cite plenty of papers,
-but a DOI recalled rather than resolved is worse than no DOI — populate the
-papers registry with verified metadata rather than backfilling it from memory.
+[site-learned]: https://jlaw9.github.io/cairn/design.html#learned
+[site-comma]: https://jlaw9.github.io/cairn/blog/2026-08-05-the-comma.html

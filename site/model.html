@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The model — Cairn</title>
+<meta name="description" content="Five node types, two kinds of edge, four typed relations. Cairn's whole schema, and the argument for why it is this small.">
+<link rel="stylesheet" href="cairn.css">
+<link rel="icon" href="img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="model.html" aria-current="page">The model</a>
+    <a href="workflows.html">Using it</a>
+    <a href="map.html">The map</a>
+    <a href="design.html">Design</a>
+    <a href="blog/index.html">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero prose" style="padding-bottom:0">
+    <p class="eyebrow">The model</p>
+    <h1>Five types. Two kinds of edge.</h1>
+    <p class="lede">That's the whole schema, and its smallness is the point: every
+      optional field is a field that stops getting filled in.</p>
+  </div>
+
+  <div class="withtoc">
+    <div>
+
+      <section id="node">
+        <div class="prose">
+          <h2>Anatomy of a node <a class="anchor" href="#node">#</a></h2>
+          <p>One file per node, in <code>nodes/&lt;id&gt;.md</code>: YAML frontmatter, then
+            markdown prose. Never deleted, never renamed, never moved.</p>
+        </div>
+
+        <div class="grid g-wide-left">
+          <pre class="tight"><span class="cmt">nodes/2026-07-05-mplastic-cheap-rung-falsified.md</span>
+---
+<span class="k">id</span>: 2026-07-05-mplastic-cheap-rung-falsified          <span class="cmt">1</span>
+<span class="k">type</span>: experiment
+<span class="k">title</span>: "Cheap scoring rungs: MM/GBSA, short-MD, RFD3, …"
+<span class="k">project</span>: mplastic                                     <span class="cmt">2</span>
+<span class="k">status</span>: <span class="s-dead">dead</span>                                            <span class="cmt">3</span>
+<span class="k">created</span>: 2026-07-05
+<span class="k">updated</span>: 2026-07-28
+<span class="k">repo</span>: git@github.example/binders.git
+<span class="k">commit</span>: 4b3ee22                                       <span class="cmt">4</span>
+<span class="k">host</span>: hpc-cluster
+<span class="k">parents</span>: [2026-06-24-mplastic-eabf-verifier]           <span class="cmt">5</span>
+<span class="k">history</span>:                                               <span class="cmt">6</span>
+  - {date: 2026-07-05, status: <span class="s-running">running</span>, note: four candidate cheap filters}
+  - {date: 2026-07-28, status: <span class="s-dead">dead</span>, note: all four falsified …}
+---
+
+<span class="note">## Claim</span>
+Some cheap score can pre-filter candidates before the
+expensive eABF verifier.
+
+<span class="note">## Result</span>
+All four falsified. Recorded here so they are not         <span class="cmt">7</span>
+re-attempted.
+- <span class="note">**Single-shot MM/GBSA.**</span> Anti-correlated with
+  pull-off force …</pre>
+
+          <ul class="ticks faint">
+            <li><span class="mono">1</span> &nbsp;<strong>The id is permanent</strong> and equals
+              the filename stem. Never renamed, never reused, never deleted.</li>
+            <li><span class="mono">2</span> &nbsp;<strong>One graph spans all projects.</strong>
+              Cross-project edges are the hardest thing to reconstruct later, so they're
+              never sharded away.</li>
+            <li><span class="mono">3</span> &nbsp;<strong><code>status</code> is a cache</strong> of
+              <code>history[-1]</code>. Hand-editing it is the single most likely way this
+              graph rots, so the validator rejects the mismatch.</li>
+            <li><span class="mono">4</span> &nbsp;<strong>A SHA, never a branch.</strong> Branches
+              get merged and deleted; the validator refuses anything that isn't a SHA.</li>
+            <li><span class="mono">5</span> &nbsp;<strong>Lineage</strong>, not a folder. A
+              cycle-checked DAG.</li>
+            <li><span class="mono">6</span> &nbsp;<strong><code>history</code> is an event
+              log</strong> — which buys the time axis, the replay slider and the weekly
+              digest for free, with no second thing to maintain.</li>
+            <li><span class="mono">7</span> &nbsp;<strong>The body is prose.</strong> Claim / What
+              I did / Result / Next is a convention, not a requirement.</li>
+          </ul>
+        </div>
+
+        <div class="prose">
+          <p>Seven fields are required — <code>id</code>, <code>type</code>,
+            <code>title</code>, <code>project</code>, <code>status</code>,
+            <code>created</code>, <code>updated</code> — plus at least one
+            <code>history</code> entry. Everything else is optional, and an experiment
+            with no <code>repo</code>, <code>commit</code> or <code>host</code> is not a
+            second-class node: that's what makes a bench experiment or a literature
+            finding validate unchanged.</p>
+        </div>
+      </section>
+
+      <section id="types">
+        <div class="prose">
+          <h2>The five node types <a class="anchor" href="#types">#</a></h2>
+          <p>Shape means type, on the map and everywhere else. It never means anything
+            else — colour is already carrying status, and a third visual axis would make
+            the map undecodable.</p>
+        </div>
+
+        <figure class="cartoon">
+          <svg viewBox="0 0 880 96" role="img"
+               aria-label="The five node glyphs: a circle for experiment, a wide rounded rectangle for direction, a diamond for seed, a hexagon for milestone, and a square for task.">
+            <g transform="translate(56,38)">
+              <circle class="glyph f-active" r="13"/>
+              <text x="0" y="38" font-size="12.5" text-anchor="middle" font-weight="600">experiment</text>
+              <text class="c-faint" x="0" y="55" font-size="10.5" text-anchor="middle">a claim</text>
+            </g>
+            <g transform="translate(232,38)">
+              <rect class="glyph f-pending" x="-22" y="-9" width="44" height="18" rx="4"/>
+              <text x="0" y="38" font-size="12.5" text-anchor="middle" font-weight="600">direction</text>
+              <text class="c-faint" x="0" y="55" font-size="10.5" text-anchor="middle">a question that holds experiments</text>
+            </g>
+            <g transform="translate(440,38)">
+              <path class="glyph f-pending" d="M0,-15 L15,0 L0,15 L-15,0 Z"/>
+              <text x="0" y="38" font-size="12.5" text-anchor="middle" font-weight="600">seed</text>
+              <text class="c-faint" x="0" y="55" font-size="10.5" text-anchor="middle">a corridor idea, with contacts</text>
+            </g>
+            <g transform="translate(626,38)">
+              <polygon class="glyph f-good" points="13,0 6.5,11.3 -6.5,11.3 -13,0 -6.5,-11.3 6.5,-11.3"/>
+              <text x="0" y="38" font-size="12.5" text-anchor="middle" font-weight="600">milestone</text>
+              <text class="c-faint" x="0" y="55" font-size="10.5" text-anchor="middle">a paper or deliverable</text>
+            </g>
+            <g transform="translate(806,38)">
+              <rect class="glyph f-pending" x="-11" y="-11" width="22" height="22" rx="2"/>
+              <text x="0" y="38" font-size="12.5" text-anchor="middle" font-weight="600">task</text>
+              <text class="c-faint" x="0" y="55" font-size="10.5" text-anchor="middle">a commitment with a due date</text>
+            </g>
+          </svg>
+        </figure>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>type</th><th>statuses</th><th>terminal</th><th>extra fields</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="mono">experiment</td>
+                <td class="mono"><span class="dot d-pending"></span> planned
+                  <span class="dot d-active"></span> running
+                  <span class="dot d-good"></span> worked
+                  <span class="dot d-bad"></span> dead
+                  <span class="dot d-idle"></span> parked</td>
+                <td class="mono">worked, dead</td>
+                <td class="mono">repo commit host artifacts[]</td>
+              </tr>
+              <tr>
+                <td class="mono">direction</td>
+                <td class="mono"><span class="dot d-pending"></span> open
+                  <span class="dot d-idle"></span> parked
+                  <span class="dot d-bad"></span> closed</td>
+                <td class="mono">closed</td>
+                <td class="faint">—</td>
+              </tr>
+              <tr>
+                <td class="mono">seed</td>
+                <td class="mono"><span class="dot d-pending"></span> seed
+                  <span class="dot d-good"></span> promoted
+                  <span class="dot d-bad"></span> killed</td>
+                <td class="mono">promoted, killed</td>
+                <td class="mono">origin contacts[]</td>
+              </tr>
+              <tr>
+                <td class="mono">milestone</td>
+                <td class="mono"><span class="dot d-pending"></span> planned
+                  <span class="dot d-active"></span> submitted
+                  <span class="dot d-good"></span> accepted
+                  <span class="dot d-good"></span> done</td>
+                <td class="mono">accepted, done</td>
+                <td class="mono">venue date url</td>
+              </tr>
+              <tr>
+                <td class="mono">task</td>
+                <td class="mono"><span class="dot d-pending"></span> todo
+                  <span class="dot d-active"></span> doing
+                  <span class="dot d-good"></span> done
+                  <span class="dot d-bad"></span> dropped</td>
+                <td class="mono">done, dropped</td>
+                <td class="mono">due source</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid g2" style="max-width: var(--measure)">
+          <div class="card bad">
+            <h3><code>dead</code> is not <code>closed</code></h3>
+            <p>An issue tracker has two states and throws away the distinction that
+              matters here. <code>dead</code> means <em>refuted</em> — and it stays in the
+              graph, findable, with the reason attached.</p>
+          </div>
+          <div class="card">
+            <h3>Two node types wanted extra fields</h3>
+            <p>Milestones reached for <code>repo</code> and <code>artifacts</code>. They
+              were made to use their bodies instead. One field has been added in the
+              project's life — <code>relates</code>, below — and it took a written
+              argument.</p>
+          </div>
+        </div>
+
+        <div class="prose">
+          <h3>A literature finding is an experiment</h3>
+          <p>There is no separate type for one, and reaching for a new type here is a
+            mistake. A literature finding has a claim, a method and a result — the corpus
+            is the instrument. <code>status: dead</code> on a claim the literature refuted
+            means the same thing downstream as a job that failed.</p>
+          <p>Write the claim the finding settles, not a summary of what you read.
+            <em>“Can a reported final Tg be fitted as Tgp?”</em> with
+            <code>status: dead</code> is a node someone finds by asking that question.
+            <em>“Tg literature review”</em> is not. See
+            <a href="workflows.html#literature">starting from a literature review</a>.</p>
+        </div>
+      </section>
+
+      <section id="status">
+        <div class="prose">
+          <h2>Status is an event log <a class="anchor" href="#status">#</a></h2>
+          <p><code>status</code> and <code>history</code> are the same fact, and storing a
+            fact twice invites drift — so one is derived from the other.
+            <strong><code>history</code> is the source of truth</strong>;
+            <code>status</code> is a cache of <code>history[-1].status</code>, kept
+            because it's what you actually grep for and what reads well in a diff.</p>
+          <p>The validator enforces that they agree. Use
+            <code>cairn new_node --update</code>, which moves <code>status</code>,
+            <code>updated</code> and <code>history</code> atomically.</p>
+        </div>
+
+        <figure class="cartoon">
+          <svg viewBox="0 0 880 210" role="img"
+               aria-label="The experiment lifecycle. Planned leads to running. Running leads to worked or to dead, both terminal and marked with a ring. Running and parked point at each other, because parking is a pause rather than a decision.">
+            <defs>
+              <marker id="m-grey" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--ink-faint)"/>
+              </marker>
+            </defs>
+
+            <!-- parked, above running -->
+            <g transform="translate(300,36)">
+              <circle class="glyph f-idle" r="12"/>
+              <text x="22" y="4" font-size="12.5" font-weight="600">parked</text>
+              <text class="c-faint" x="22" y="21" font-size="10.5">a pause — not terminal</text>
+            </g>
+
+            <!-- planned -> running -->
+            <g transform="translate(70,132)">
+              <circle class="glyph f-pending" r="12"/>
+              <text x="0" y="34" font-size="12.5" text-anchor="middle" font-weight="600">planned</text>
+              <text class="c-faint" x="0" y="51" font-size="10.5" text-anchor="middle">pre-registered</text>
+            </g>
+            <path class="c-edge" stroke-width="1.8" d="M88 132 H282" marker-end="url(#m-grey)"/>
+
+            <g transform="translate(300,132)">
+              <circle class="glyph f-active" r="12"/>
+              <text x="0" y="34" font-size="12.5" text-anchor="middle" font-weight="600">running</text>
+              <text class="c-faint" x="0" y="51" font-size="10.5" text-anchor="middle">actually queued</text>
+            </g>
+
+            <!-- running <-> parked -->
+            <path class="c-edge" stroke-width="1.8" d="M288 116 C 276 96, 276 68, 288 52"
+                  marker-end="url(#m-grey)"/>
+            <path class="c-edge" stroke-width="1.8" d="M314 52 C 326 68, 326 96, 314 116"
+                  marker-end="url(#m-grey)"/>
+
+            <!-- running -> worked / dead -->
+            <path class="c-edge" stroke-width="1.8" d="M318 122 C 400 100, 430 84, 508 78"
+                  marker-end="url(#m-grey)"/>
+            <path class="c-edge" stroke-width="1.8" d="M318 142 C 400 164, 430 178, 508 184"
+                  marker-end="url(#m-grey)"/>
+
+            <g transform="translate(530,76)">
+              <circle class="ring" r="18" fill="none" style="stroke: var(--good)" stroke-width="1.6" opacity=".55"/>
+              <circle class="glyph f-good" r="12"/>
+              <text x="30" y="-2" font-size="12.5" font-weight="600">worked</text>
+              <text class="c-faint" x="30" y="15" font-size="10.5">terminal</text>
+            </g>
+            <g transform="translate(530,186)">
+              <circle class="ring" r="18" fill="none" style="stroke: var(--bad)" stroke-width="1.6" opacity=".55"/>
+              <circle class="glyph f-bad" r="12"/>
+              <text x="30" y="-2" font-size="12.5" font-weight="600">dead</text>
+              <text class="c-faint" x="30" y="15" font-size="10.5">terminal — and the most valuable node here</text>
+            </g>
+
+            <line class="c-line" x1="686" y1="40" x2="686" y2="196" stroke-dasharray="4 4"/>
+            <text class="c-dim" x="700" y="112" font-size="11">terminal means the thread is</text>
+            <text class="c-dim" x="700" y="128" font-size="11">finished, so the digest stops</text>
+            <text class="c-dim" x="700" y="144" font-size="11">nagging about it.</text>
+          </svg>
+          <figcaption><code>planned</code> is not terminal either — it exists so a
+            pre-registration can be truthful. An experiment created with no status is
+            <code>running</code>, which is what you want when logging work that already
+            happened.</figcaption>
+        </figure>
+
+        <div class="callout">
+          <p><strong>A claim written before the result is a pre-registration; written
+            after, it's a story.</strong> That difference is what makes a dead end
+            publishable — and it's the only reason <code>planned</code> is a status
+            instead of a convention.</p>
+        </div>
+      </section>
+
+      <section id="edges">
+        <div class="prose">
+          <h2>Two kinds of edge <a class="anchor" href="#edges">#</a></h2>
+          <p>Cairn has two edge sets, doing two different jobs, and keeping them separate
+            is the single most load-bearing decision in the schema.</p>
+          <p><strong><code>parents</code> is lineage</strong>: what this work grew out of.
+            It is a DAG, it is cycle-checked, it drives the layout and the “isolate
+            lineage” view, and it carries no meaning beyond descent — every arrow looks
+            the same.</p>
+          <p><strong><code>relates</code> is meaning</strong>: typed, backlinked, and
+            deliberately <em>not</em> cycle-checked.</p>
+        </div>
+
+        <figure class="cartoon">
+          <svg viewBox="0 0 900 330" role="img"
+               aria-label="The same five nodes drawn twice. On the left, only lineage: every arrow is an identical grey arrow pointing forward in time from a direction, through two experiments, to a milestone. On the right, the same lineage drawn faintly, with two typed relations on top: a magenta dashed arc labelled contradicts pointing backwards in time from the later experiment to the earlier one, and a teal dashed arc labelled resolves from a task to the milestone.">
+            <defs>
+              <marker id="e-grey" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--ink-faint)"/>
+              </marker>
+              <marker id="e-grey-faint" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--ink-faint)" opacity=".4"/>
+              </marker>
+              <marker id="e-contra" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--contradicts)"/>
+              </marker>
+              <marker id="e-resolve" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--resolves)"/>
+              </marker>
+            </defs>
+
+            <!-- ================= left: lineage only ================= -->
+            <g transform="translate(0,0)">
+              <text x="0" y="14" font-size="13" font-weight="600" style="fill: var(--ink)"><tspan>parents</tspan> — lineage</text>
+              <text class="c-faint" x="0" y="32" font-size="11">a cycle-checked DAG. every arrow identical, and always forward in time</text>
+
+              <path class="c-edge" stroke-width="1.8" d="M56 150 C 86 150, 96 110, 128 110" marker-end="url(#e-grey)"/>
+              <path class="c-edge" stroke-width="1.8" d="M56 162 C 86 162, 96 208, 128 208" marker-end="url(#e-grey)"/>
+              <path class="c-edge" stroke-width="1.8" d="M162 110 H 246" marker-end="url(#e-grey)"/>
+              <path class="c-edge" stroke-width="1.8" d="M292 118 C 320 130, 322 140, 348 148" marker-end="url(#e-grey)"/>
+              <path class="c-edge" stroke-width="1.8" d="M172 205 C 250 198, 300 172, 348 160" marker-end="url(#e-grey)"/>
+
+              <g transform="translate(30,156)">
+                <rect class="glyph f-pending" x="-22" y="-9" width="44" height="18" rx="4"/>
+                <text class="c-dim" x="0" y="-18" font-size="10.5" text-anchor="middle">direction</text>
+              </g>
+              <g transform="translate(145,110)">
+                <circle class="glyph f-bad" r="12"/>
+                <text class="c-dim" x="0" y="-20" font-size="10.5" text-anchor="middle">experiment</text>
+              </g>
+              <g transform="translate(145,208)">
+                <circle class="glyph f-good" r="12"/>
+              </g>
+              <g transform="translate(264,110)">
+                <circle class="glyph f-good" r="12"/>
+              </g>
+              <g transform="translate(370,154)">
+                <polygon class="glyph f-active" points="14,0 7,12.1 -7,12.1 -14,0 -7,-12.1 7,-12.1"/>
+                <text class="c-dim" x="0" y="-22" font-size="10.5" text-anchor="middle">milestone</text>
+              </g>
+
+              <path class="c-line" d="M14 262 H 400" stroke-dasharray="3 4"/>
+              <text class="c-faint" x="14" y="282" font-size="10.5">time →</text>
+              <text class="c-dim" x="14" y="306" font-size="11">“what did this grow out of?”</text>
+            </g>
+
+            <!-- ================= right: the meaning layer ================= -->
+            <g transform="translate(478,0)">
+              <text x="0" y="14" font-size="13" font-weight="600" style="fill: var(--ink)"><tspan>relates</tspan> — meaning</text>
+              <text class="c-faint" x="0" y="32" font-size="11">typed, backlinked, may point <tspan font-style="italic">backwards</tspan> in time, not cycle-checked</text>
+
+              <!-- the same lineage, faded to the background -->
+              <g opacity=".3">
+                <path class="c-edge" stroke-width="1.8" d="M56 150 C 86 150, 96 110, 128 110" marker-end="url(#e-grey-faint)"/>
+                <path class="c-edge" stroke-width="1.8" d="M56 162 C 86 162, 96 208, 128 208" marker-end="url(#e-grey-faint)"/>
+                <path class="c-edge" stroke-width="1.8" d="M162 110 H 246" marker-end="url(#e-grey-faint)"/>
+                <path class="c-edge" stroke-width="1.8" d="M292 118 C 320 130, 322 140, 348 148" marker-end="url(#e-grey-faint)"/>
+                <path class="c-edge" stroke-width="1.8" d="M172 205 C 250 198, 300 172, 348 160" marker-end="url(#e-grey-faint)"/>
+              </g>
+
+              <!-- contradicts: backwards in time -->
+              <path fill="none" style="stroke: var(--contradicts)" stroke-width="2" stroke-dasharray="6 4"
+                    d="M258 126 C 236 176, 196 204, 162 210" marker-end="url(#e-contra)"/>
+              <text x="188" y="158" font-size="11.5" font-weight="600" style="fill: var(--contradicts)"
+                   >contradicts</text>
+
+              <!-- resolves -->
+              <path fill="none" style="stroke: var(--resolves)" stroke-width="2" stroke-dasharray="6 4"
+                    d="M290 250 C 330 244, 350 196, 362 172" marker-end="url(#e-resolve)"/>
+              <text x="296" y="266" font-size="11.5" font-weight="600" style="fill: var(--resolves)"
+                   >resolves</text>
+
+              <g transform="translate(30,156)">
+                <rect class="glyph f-pending" x="-22" y="-9" width="44" height="18" rx="4"/>
+              </g>
+              <g transform="translate(145,110)">
+                <circle class="glyph f-bad" r="12"/>
+              </g>
+              <g transform="translate(145,208)">
+                <circle class="glyph f-good" r="12"/>
+                <text class="c-dim" x="-4" y="34" font-size="10.5" text-anchor="middle">the June panel</text>
+              </g>
+              <g transform="translate(264,110)">
+                <circle class="glyph f-good" r="12"/>
+                <text class="c-dim" x="20" y="-16" font-size="10.5" text-anchor="middle">the July panel</text>
+              </g>
+              <g transform="translate(370,154)">
+                <polygon class="glyph f-active" points="14,0 7,12.1 -7,12.1 -14,0 -7,-12.1 7,-12.1"/>
+              </g>
+              <g transform="translate(268,254)">
+                <rect class="glyph f-pending" x="-10" y="-10" width="20" height="20" rx="2"/>
+                <text class="c-dim" x="-2" y="26" font-size="10.5" text-anchor="middle">task</text>
+              </g>
+
+              <path class="c-line" d="M14 292 H 420" stroke-dasharray="3 4"/>
+              <text class="c-dim" x="14" y="316" font-size="11">“which of these two do I believe?”</text>
+            </g>
+          </svg>
+          <figcaption>Same five nodes, two edge sets. Before <code>relates</code> existed,
+            the July panel contradicting the June one was two identical grey arrows and a
+            sentence of prose that only read correctly from one of the two nodes.</figcaption>
+        </figure>
+
+        <div class="prose">
+          <h3 id="relations">The four relation types</h3>
+          <p>Four, and the bar for a fifth is a real node that needs it. An edge vocabulary
+            nobody can keep in their head is one that gets used inconsistently, and an
+            inconsistently-typed edge is worse than an untyped one.</p>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item" style="color:var(--supports)"><b>supports</b>
+            <span>strengthens that result, ideally by an independent route.
+              <em>Reads back as:</em> supported by.</span></div>
+          <div class="legend-item" style="color:var(--contradicts)"><b>contradicts</b>
+            <span>these two are in tension; a reader must see both.
+              <em>Reads back as:</em> contradicted by.</span></div>
+          <div class="legend-item" style="color:var(--supersedes)"><b>supersedes</b>
+            <span>this replaces that as the approach or answer to use.
+              <em>Reads back as:</em> superseded by.</span></div>
+          <div class="legend-item" style="color:var(--resolves)"><b>resolves</b>
+            <span>this closes that open question, threat or gap.
+              <em>Reads back as:</em> resolved by.</span></div>
+        </div>
+
+        <div class="prose">
+          <p class="faint">The relation hues sit deliberately off the status palette
+            (green / red / blue / amber), so a typed edge never reads as a status.</p>
+
+          <h3>Why it had to exist</h3>
+          <p>Two scramble panels, same control, opposite verdict:</p>
+        </div>
+
+        <pre class="tight"><span class="cmt">nodes/2026-07-31-mplastic-r1-scramble-panel.md</span>
+<span class="k">relates</span>:
+  - {to: 2026-06-25-mplastic-scramble-control,
+     type: <span class="hl">contradicts</span>,
+     note: "same control, opposite verdict: 3.1 sigma for order on
+       crystalline PET, composition-only on the amorphous film.
+       Surface disorder is the likely variable"}</pre>
+
+        <div class="prose">
+          <h3>Rules that differ from <code>parents</code></h3>
+          <ul class="ticks">
+            <li><strong>Not cycle-checked.</strong> Two results really can contradict each
+              other, and that is a fact about the research rather than a defect.</li>
+            <li><strong>May point backwards in time.</strong> A result from August can
+              contradict one from June.</li>
+            <li><strong>Backlinked.</strong> The renderer shows the inverse phrasing on the
+              target, so a contradiction is equally findable from either node — otherwise
+              you only find it from whichever node happened to be written second, which is
+              the node the reader hasn't got to yet.</li>
+            <li><strong>A pair joined by both lineage and a relation draws one
+              arrow</strong>, styled by the relation. The typed edge is the more specific
+              claim.</li>
+            <li><strong><code>note</code> is optional but warned about.</strong> A typed
+              edge with no reason is an arrow nobody can act on.</li>
+          </ul>
+          <p>Adding an edge is not a state transition, so it appends no history entry and
+            needs no status change:</p>
+        </div>
+
+        <pre>cairn new_node --update 2026-07-31-mplastic-r1-scramble-panel \
+  --relate "contradicts:2026-06-25-mplastic-scramble-control:composition, not order"</pre>
+
+        <div class="prose">
+          <h3 id="wikilinks">And a third, softer kind: <code>[[wikilinks]]</code></h3>
+          <p>In a node body, <code>[[2026-07-01-polyid-network-ablation]]</code> refers to
+            another node and renders as a link titled with that node's title.
+            <code>validate</code> warns if the target doesn't exist.</p>
+          <p>Use it for the connections that aren't lineage and aren't one of the four
+            relation types — “this builds on the wD-MPNN core”, “see the schema task
+            first”. <strong>A cross-project dependency goes here</strong>, in the body,
+            rather than in <code>parents</code>.</p>
+          <p>It is also Obsidian's own syntax, which is why <code>nodes/</code> is already
+            an Obsidian vault with backlinks and full-text search over the same files, with
+            no export step. See <a href="map.html#obsidian">the map</a>.</p>
+        </div>
+      </section>
+
+      <section id="notes">
+        <div class="prose">
+          <h2>Where a human reacts <a class="anchor" href="#notes">#</a></h2>
+          <p>The agent writes the record; you read it later and have a reaction — a doubt,
+            a correction, “the number here is wrong”, “this is the one that matters”. That
+            goes under a <code>## Notes</code> heading in the body, one dated bullet per
+            note:</p>
+        </div>
+
+        <pre>## Notes
+
+- **2026-08-26** (jlaw) the spread looks bimodal — does it track the seed?</pre>
+
+        <div class="prose">
+          <p>Written by <code>cairn note &lt;id&gt; "…"</code>; read back by
+            <code>standup</code>, <code>digest</code>, <code>build/report.md</code> and the
+            map. Three things about it are deliberate:</p>
+          <ul class="ticks">
+            <li><strong>It is a body edit, not a status change.</strong> <code>status</code>,
+              <code>updated</code> and <code>history</code> don't move, because a note isn't
+              a claim about the state of the work. If it moved <code>updated</code>, the
+              replay slider would show a change that never happened.</li>
+            <li><strong>No new field</strong>, against the resist-new-fields rule. The line
+              carries its own date, so it stays findable by reading the body — exactly how
+              <code>## Next</code> is already read.</li>
+            <li><strong>“Unanswered” is derived.</strong> A note dated at or after the
+              node's last history entry is one no later work has responded to; once the
+              thread moves, it stops being reported. That's what keeps it off a nag
+              list.</li>
+          </ul>
+          <p>It works in the other direction too, which is the answer to <em>“can the agent
+            pick up on comments I left?”</em> Yes — notes are in the node body, so they're
+            in <code>standup</code>'s resume packet and in the session-start context.
+            <strong>A note is how you hand an instruction to next week's session without
+            writing a prompt.</strong></p>
+        </div>
+      </section>
+
+      <section id="papers">
+        <div class="prose">
+          <h2>Papers, and the DOI as the join key <a class="anchor" href="#papers">#</a></h2>
+          <p>Any node may cite papers by bare DOI in <code>refs:</code>. Each cited paper
+            gets a page in <code>papers/</code> with CrossRef-verified metadata:</p>
+        </div>
+
+        <pre class="tight"><span class="k">doi</span>: 10.1021/acs.jced.3c00123
+<span class="k">title</span>: Solvent effects on nucleophilic substitution rate constants
+<span class="k">authors</span>: [R. Okonkwo, M. Feld]
+<span class="k">year</span>: 2023
+<span class="k">venue</span>: J. Chem. Eng. Data
+<span class="k">bibkey</span>: okonkwo2023solvent          <span class="cmt"># what references.bib calls it</span>
+<span class="k">md</span>: hpc-cluster:/projects/…/refs/10.1021__acs.jced.3c00123.md</pre>
+
+        <div class="prose">
+          <p><strong>The DOI is the only identifier common to Zotero, the
+            <code>references.bib</code> Overleaf compiles, the converted full text on the
+            compute host, and a node's <code>refs:</code>.</strong> <code>bibkey</code> and
+            <code>md</code> are what make that join usable: one records what the citation
+            is called, the other where the readable text lives. Full text never enters the
+            repo.</p>
+          <p>Don't hand-write these — <code>cairn add_paper &lt;doi&gt;</code> fetches
+            CrossRef and refuses to write a page it couldn't verify. <strong>A DOI recalled
+            rather than resolved is worse than no DOI.</strong></p>
+          <p>Paper pages are validated only for having a <code>doi:</code> — they're a
+            lookup table, not part of the DAG. The renderer builds backlinks both ways, so
+            a paper shows every node citing it, and a node shows what else cites the same
+            paper.</p>
+        </div>
+      </section>
+
+      <section id="validator">
+        <div class="prose">
+          <h2>What the validator checks <a class="anchor" href="#validator">#</a></h2>
+          <p>It runs on every commit via a pre-commit hook. Silent schema drift is how this
+            rots, so errors block the commit.</p>
+
+          <h3>Errors</h3>
+          <ul class="ticks">
+            <li><code>id</code> matches the filename stem and the
+              <code>YYYY-MM-DD-slug</code> format; no duplicates</li>
+            <li><code>type</code> is known; <code>status</code> is valid for that type</li>
+            <li>required fields present; dates parse; <code>updated &gt;= created</code></li>
+            <li><code>history</code> non-empty, chronological, and its last entry agrees
+              with <code>status</code></li>
+            <li><code>parents</code> all resolve, nothing is its own parent,
+              <strong>no cycles</strong></li>
+            <li><code>relates</code> entries have a known <code>type</code> and a resolving,
+              non-self <code>to</code> — cycles are legal here</li>
+            <li>history entries carry only <code>date</code> / <code>status</code> /
+              <code>note</code> — an extra key means an unquoted comma split the note and
+              turned its tail into a bogus key</li>
+            <li><code>refs</code> are bare DOIs; <code>commit</code> is a SHA;
+              <code>artifacts</code> are <code>host:/path</code></li>
+          </ul>
+
+          <p class="faint">That comma check exists because it actually happened:
+            <code>note: past 1,000 systems</code> silently became <code>note: past 1</code>
+            plus a junk key <code>000 systems</code>, across 17 of the first 55 backfilled
+            nodes.</p>
+
+          <h3>Warnings — worth reading, but they don't block</h3>
+          <ul class="ticks">
+            <li>an unknown frontmatter field — schema drift; add it properly or drop it</li>
+            <li>a <code>relates</code> entry with no <code>note</code> explaining why</li>
+            <li>a <code>ref</code> with no page in <code>papers/</code></li>
+            <li>an open task with no <code>due</code> — it will never surface in a digest,
+              which makes it invisible rather than pending</li>
+            <li>an <code>id</code> date prefix disagreeing with <code>created</code></li>
+          </ul>
+        </div>
+      </section>
+
+      <div class="next">
+        <a href="workflows.html"><span class="l">next</span><span class="t">Using it →</span></a>
+        <a href="design.html"><span class="l">or</span><span class="t">Why the schema is this small →</span></a>
+      </div>
+
+    </div>
+
+    <aside class="toc">
+      <p>On this page</p>
+      <a href="#node">Anatomy of a node</a>
+      <a href="#types">The five types</a>
+      <a href="#status">Status is an event log</a>
+      <a href="#edges">Two kinds of edge</a>
+      <a href="#notes">Where a human reacts</a>
+      <a href="#papers">Papers</a>
+      <a href="#validator">The validator</a>
+    </aside>
+  </div>
+
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>The authoritative copy of the type table is <code>lib.TYPES</code>.</span>
+    <a href="index.html">Overview</a>
+    <a href="workflows.html">Using it</a>
+  </div>
+</footer>
+
+<script src="cairn.js"></script>
+</body>
+</html>

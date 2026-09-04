@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cairn — a research record that keeps the dead ends</title>
+<meta name="description" content="A git-backed graph of research activity across projects — experiments, dead ends, open threads, deadlines — written by the agent doing the work, and rendered as a map you can walk backwards.">
+<link rel="stylesheet" href="cairn.css">
+<link rel="icon" href="img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="index.html" aria-current="page">Overview</a>
+    <a href="model.html">The model</a>
+    <a href="workflows.html">Using it</a>
+    <a href="map.html">The map</a>
+    <a href="design.html">Design</a>
+    <a href="blog/index.html">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero prose">
+    <svg class="mark" viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    <h1>The record that keeps the dead ends.</h1>
+    <p class="lede">Cairn is a git-backed graph of research activity across projects —
+      experiments, dead ends, open threads, deadlines — written by the agent doing
+      the work, and rendered as a map you can walk backwards.</p>
+    <div class="byline">
+      <span><span class="num">142</span> nodes</span>
+      <span><span class="num">12</span> projects</span>
+      <span><span class="num">18</span> refutations</span>
+      <span>one HTML file, no server</span>
+    </div>
+  </div>
+
+  <section id="question">
+    <div class="prose">
+      <p class="eyebrow">The question this exists to answer</p>
+      <h2>“Did we already try this, and what happened?”</h2>
+      <p>Today that question is answered from memory, a Slack thread, and a scratch
+        directory whose <code>README</code> is three months stale. The half-life is about
+        six months — after which the honest answer is <em>“I think someone looked at
+        that.”</em></p>
+      <p>The second question is worse, because a wrong answer costs real compute:
+        <strong>“what should I do next, and why not the other thing?”</strong></p>
+    </div>
+
+    <div class="grid g2" style="max-width: var(--measure)">
+      <div class="card">
+        <h3>What actually gets lost</h3>
+        <p>Not the results — those end up in papers and dashboards. What gets lost is
+          <strong>everything that didn't work</strong>, which is most of the work, and the
+          only record of why the current approach is the current approach.</p>
+      </div>
+      <div class="card">
+        <h3>Who pays</h3>
+        <p>The next person to have the same good idea. Frequently that person is you,
+          in November, with the same cluster allocation.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="mechanisms">
+    <div class="prose">
+      <p class="eyebrow">Why the record disappears — three mechanisms, none of them laziness</p>
+      <h2>Every tool we already use garbage-collects the negative result.</h2>
+    </div>
+
+    <figure class="cartoon">
+      <svg viewBox="0 0 900 250" role="img"
+           aria-label="Three panels. First, a git history where a branch carrying the failed attempt is dashed and ends in a cross, deleted without being merged. Second, a run tracker's table of runs and metrics with an empty greyed row where a hypothesis would go. Third, a stack of status documents where each new version covers the one beneath it.">
+
+        <!-- ============ panel 1: git deletes the unmerged branch ============ -->
+        <g transform="translate(0,0)">
+          <text x="0" y="14" font-size="13" font-weight="600">git — by design</text>
+          <text class="c-faint" x="0" y="32" font-size="11.5">the failed branch is deleted <tspan font-style="italic">without</tspan> being merged</text>
+
+          <!-- trunk -->
+          <path class="c-edge" stroke-width="2" d="M14 120 H260"/>
+          <circle class="glyph f-good" cx="30" cy="120" r="7"/>
+          <circle class="glyph f-good" cx="95" cy="120" r="7"/>
+          <circle class="glyph f-good" cx="185" cy="120" r="7"/>
+          <circle class="glyph f-good" cx="250" cy="120" r="7"/>
+          <text class="c-faint" x="14" y="146" font-size="10.5">main — what survives</text>
+
+          <!-- the dead branch -->
+          <path class="c-edge" stroke-width="2" stroke-dasharray="5 4" opacity=".65"
+                d="M95 120 C 125 120, 125 74, 155 74 H 205"/>
+          <circle class="glyph f-bad" cx="155" cy="74" r="7" opacity=".55"/>
+          <circle class="glyph f-bad" cx="205" cy="74" r="7" opacity=".55"/>
+          <g style="stroke: var(--bad)" stroke-width="2.4" stroke-linecap="round">
+            <path d="M234 65 L 252 83"/><path d="M252 65 L 234 83"/>
+          </g>
+          <text class="c-dim" x="118" y="56" font-size="10.5">the four things you tried</text>
+        </g>
+
+        <!-- ============ panel 2: trackers have no row for an idea ============ -->
+        <g transform="translate(310,0)">
+          <text x="0" y="14" font-size="13" font-weight="600">W&amp;B · MLflow · DVC</text>
+          <text class="c-faint" x="0" y="32" font-size="11.5">a falsified <tspan font-style="italic">idea</tspan> leaves no row</text>
+
+          <rect class="c-panel" x="0" y="48" width="264" height="106" rx="3"/>
+          <line class="c-line" x1="0" y1="70" x2="264" y2="70"/>
+          <text class="c-faint" x="12" y="64" font-size="9.5" letter-spacing="1.1">RUN</text>
+          <text class="c-faint" x="150" y="64" font-size="9.5" letter-spacing="1.1">MAE</text>
+          <text class="c-faint" x="210" y="64" font-size="9.5" letter-spacing="1.1">STEP</text>
+          <g font-size="11" class="c-dim">
+            <text x="12" y="88">run-0141</text><text x="150" y="88">0.42</text><text x="210" y="88">18k</text>
+            <text x="12" y="110">run-0142</text><text x="150" y="110">0.38</text><text x="210" y="110">18k</text>
+            <text x="12" y="132">run-0143</text><text x="150" y="132">0.41</text><text x="210" y="132">18k</text>
+          </g>
+          <line class="c-line" x1="0" y1="96" x2="264" y2="96"/>
+          <line class="c-line" x1="0" y1="118" x2="264" y2="118"/>
+
+          <!-- the row that cannot exist -->
+          <rect x="0" y="160" width="264" height="30" rx="3" fill="none"
+                style="stroke: var(--ink-faint)" stroke-width="1.4" stroke-dasharray="5 4" opacity=".7"/>
+          <text class="c-faint" x="12" y="180" font-size="11" font-style="italic">“cheap scores can pre-filter this” — refuted</text>
+          <text class="c-dim" x="0" y="212" font-size="10.5">no metric, no artifact, no row.</text>
+          <text class="c-dim" x="0" y="228" font-size="10.5">so: link out to them, don't replace them.</text>
+        </g>
+
+        <!-- ============ panel 3: current-state docs overwrite ============ -->
+        <g transform="translate(636,0)">
+          <text x="0" y="14" font-size="13" font-weight="600">a status doc or CLAUDE.md</text>
+          <text class="c-faint" x="0" y="32" font-size="11.5">overwritten, so it converges on “where am I now”</text>
+
+          <rect class="c-panel" x="46" y="52" width="150" height="82" rx="3" opacity=".38"/>
+          <rect class="c-panel" x="30" y="66" width="150" height="82" rx="3" opacity=".62"/>
+          <rect class="c-panel" x="14" y="80" width="150" height="82" rx="3"/>
+          <g class="c-line" stroke-width="1.4">
+            <path d="M28 100 H142"/><path d="M28 114 H150"/><path d="M28 128 H120"/><path d="M28 142 H138"/>
+          </g>
+          <path class="c-edge" stroke-width="1.6" d="M210 78 C 234 100, 234 118, 210 140" marker-end="url(#a-plain)"/>
+          <text class="c-faint" x="196" y="70" font-size="10.5">each save</text>
+          <text class="c-faint" x="196" y="158" font-size="10.5">covers the last</text>
+          <text class="c-dim" x="0" y="196" font-size="10.5">same trap as the git log, by a</text>
+          <text class="c-dim" x="0" y="212" font-size="10.5">different route.</text>
+          <text class="c-dim" x="0" y="228" font-size="10.5">so: append-only, never delete a node.</text>
+        </g>
+
+        <defs>
+          <marker id="a-plain" viewBox="0 0 10 10" refX="8" refY="5"
+                  markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--ink-faint)"/>
+          </marker>
+        </defs>
+      </svg>
+      <figcaption>Three different tools, one shared behaviour: the thing they discard is
+        the thing you most need in November.</figcaption>
+    </figure>
+  </section>
+
+  <section id="rock">
+    <div class="prose">
+      <p class="eyebrow">The rock every previous attempt died on</p>
+      <blockquote>A graph at 60% coverage is worse than no graph — because you can't
+        trust a missing node to mean “not tried.”
+        <cite>why discipline-based capture fails closed</cite></blockquote>
+      <p>This has been tried, repeatedly, by people who knew what they were doing.
+        <strong>Renku</strong> does real compute provenance but has no concept of a
+        hypothesis or a dead end. <strong>Variolite</strong> and <strong>Verdant</strong>
+        attacked exactly this problem inside the notebook. <strong>Burrito</strong> and
+        <strong>Hindsight</strong> instrumented the whole session.</p>
+      <p>Each needed a discipline nobody sustains past week three. The failure was never
+        the schema. It was <strong>capture cost</strong> — the record is written at the
+        moment you least want to write it: when the job just failed and you already know
+        why.</p>
+    </div>
+  </section>
+
+  <section id="changed">
+    <div class="prose">
+      <p class="eyebrow">What changed</p>
+      <h2>The agent doing the work can write the record.</h2>
+      <p>It already has the git log, the commit, the host, the failed command and the
+        reason it failed. The one thing it can't infer is <strong>what the result
+        means</strong> — so that's the only thing it asks you for.</p>
+    </div>
+
+    <div class="grid g2" style="max-width: var(--measure)">
+      <div class="card accent">
+        <h3>Capture wins</h3>
+        <p>When expressiveness and capture reliability conflict, capture wins. A node with
+          a messy body beats a missing node, every time. Structure is suggested, never
+          enforced — prompting for structure at capture time is how capture dies.</p>
+      </div>
+      <div class="card">
+        <h3>But nothing enters unreviewed</h3>
+        <p>The agent drafts the node and shows it; you approve. An auto-populated graph
+          nobody has read is the exact failure this project exists to avoid. Anything
+          written unprompted goes to <code>inbox/</code> — a junk drawer with no schema,
+          which is what makes it safe to write to without asking.</p>
+      </div>
+    </div>
+
+    <div class="prose">
+      <p class="faint">Those two rules pull against each other, and that tension is the
+        whole design. <a href="design.html">Design decisions</a> works through where each
+        one wins.</p>
+    </div>
+  </section>
+
+  <section id="looks">
+    <div class="prose">
+      <p class="eyebrow">What you get</p>
+      <h2>One self-contained HTML file, opened from disk.</h2>
+      <p>No server, no CDN, no build step beyond <code>make build</code>. Layout is
+        time-ordered rather than force-directed: <strong>x is the creation date, y is a
+        project lane</strong>. Colour is status, shape is type — so the green/red ratio in
+        a lane is the honest picture of a project, readable from across the room.</p>
+    </div>
+
+    <figure>
+      <a href="map.html"><img src="img/graph-now.png" width="2868" height="2064" loading="lazy"
+        alt="The Cairn map: nodes in twelve horizontal project lanes, positioned left to right by creation date, coloured green for worked and red for dead, with coloured dashed arcs for typed relations across lanes."></a>
+      <figcaption>build/graph.html — twelve project lanes, five months, grey arrows for
+        lineage and coloured arcs for typed relations.
+        <a href="map.html">Walk through the map →</a></figcaption>
+    </figure>
+  </section>
+
+  <section id="start">
+    <div class="prose">
+      <p class="eyebrow">Where to go next</p>
+      <h2>Start here.</h2>
+    </div>
+    <div class="grid g3">
+      <div class="card">
+        <h3><a href="model.html">The model</a></h3>
+        <p>Five node types, two kinds of edge, and the four typed relations. The whole
+          schema fits on one page — that's deliberate.</p>
+      </div>
+      <div class="card">
+        <h3><a href="workflows.html">Using it</a></h3>
+        <p>Install, the session loop, and the four ways work actually starts: backfill,
+          a new experiment, a literature review, or a bench.</p>
+      </div>
+      <div class="card">
+        <h3><a href="map.html">The map</a></h3>
+        <p>Lineage isolation, the replay slider, and the live demo you can click
+          through.</p>
+      </div>
+      <div class="card">
+        <h3><a href="design.html">Design decisions</a></h3>
+        <p>Nine settled calls, what Cairn deliberately isn't, and the three open
+          questions that would make its author abandon it.</p>
+      </div>
+      <div class="card">
+        <h3><a href="blog/index.html">Notebook</a></h3>
+        <p>What's working, what isn't, and what got refuted since the last entry.</p>
+      </div>
+      <div class="card">
+        <h3>The one dependency</h3>
+        <p>Python ≥ 3.7 with PyYAML. Nothing else, ever — see
+          <a href="workflows.html#install">install</a>.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Cairn — a research record that keeps the dead ends.</span>
+    <span>Figures current as of 2026-09-02.</span>
+    <a href="design.html#not">What this deliberately isn't</a>
+  </div>
+</footer>
+
+<script src="cairn.js"></script>
+</body>
+</html>

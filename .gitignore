@@ -3,3 +3,16 @@ __pycache__/
 .DS_Store
 .venv/
 build/.last-sync
+
+# Pending the release review in 2026-08-05-cairn-release-review.
+#
+# Both of these are a *publication* of the cairn subgraph — real node bodies,
+# scrubbed but not cleared. They are ignored so that `git add -A` cannot sweep
+# them in before NLR tech transfer has given a release determination.
+#
+# To publish: clear the review, re-run
+#   cairn export_example --project cairn --exclude 2026-08-21-cairn-hero-artifacts \
+#     --acknowledge-review
+# then delete these two lines and commit example/ and site/demo/.
+/example/
+/site/demo/

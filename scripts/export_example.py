@@ -86,6 +86,17 @@ one there, there wins — this directory is a projection, like `build/`.
 Exported {when}. Internal hostnames and git hosts were rewritten; `[[links]]`
 pointing outside the exported project are shown as redacted stubs, because a
 missing edge and a hidden edge must not look the same.
+{withheld}"""
+
+#: Named rather than merely absent, for the same reason links become stubs.
+WITHHELD = """
+{count} node(s) of the {project} subgraph are **withheld** from this export and
+are named here rather than silently dropped:
+
+{ids}
+No kept node depends on them — the exporter refuses an exclusion that would leave
+a dangling `parents` edge or drop a typed relation. Prose references to them read
+as redacted stubs.
 """
 
 STUB = "*(a node in a project not published here)*"
@@ -122,6 +133,9 @@ def main() -> int:
     ap.add_argument("--dest", default="", help="default: <tool>/example")
     ap.add_argument("--acknowledge-review", action="store_true",
                     help="you have read the flagged lines and they are safe to publish")
+    ap.add_argument("--exclude", action="append", default=[], metavar="ID",
+                    help="hold one node back from the export; repeatable. Refused if a "
+                         "kept node depends on it, and named in the export's README")
     args = ap.parse_args()
 
     nodes, errors = lib.load_nodes()
@@ -137,6 +151,40 @@ def main() -> int:
         keys = sorted({n.project for n in nodes.values() if n.project})
         print(f"cairn export_example: no nodes with project '{args.project}'.\n"
               f"  known: {', '.join(keys)}", file=sys.stderr)
+        return 2
+
+    # Holding a node back is a publication decision, so it is explicit, checked,
+    # and recorded. Two guards, because a silent exclusion would reintroduce
+    # exactly the failure the link redaction exists to prevent — a missing edge
+    # and a hidden edge looking identical.
+    excluded: dict[str, lib.Node] = {}
+    for eid in args.exclude:
+        if eid not in selected:
+            where = "not in the graph" if eid not in nodes else \
+                    f"in project '{nodes[eid].project}', not '{args.project}'"
+            print(f"cairn export_example: --exclude {eid}: {where}", file=sys.stderr)
+            return 2
+        excluded[eid] = selected.pop(eid)
+
+    # A dangling `parents` edge is a validation error, and a dropped `relates`
+    # edge is a lost claim. Either way the export would be a graph that lies, so
+    # refuse rather than emit one. Prose `[[links]]` are fine — those already
+    # become visible stubs.
+    depends: list[str] = []
+    for nid, node in sorted(selected.items()):
+        for pid in (node.parents or []):
+            if pid in excluded:
+                depends.append(f"{nid} lists excluded {pid} as a parent")
+        for rel in (node.relates or []):
+            target = rel.get("to") if isinstance(rel, dict) else None
+            if target in excluded:
+                depends.append(f"{nid} {rel.get('type', 'relates')} excluded {target}")
+    if depends:
+        print("cairn export_example: cannot exclude a node a kept node depends on:",
+              file=sys.stderr)
+        for d in depends:
+            print(f"    {d}", file=sys.stderr)
+        print("  exclude those nodes too, or publish this one.", file=sys.stderr)
         return 2
 
     dest = Path(args.dest).expanduser() if args.dest else lib.TOOL_ROOT / "example"
@@ -170,6 +218,11 @@ def main() -> int:
 
     print(f"cairn export_example — project '{args.project}', "
           f"{len(selected)} node(s) -> {dest}")
+
+    if excluded:
+        print(f"\n  {len(excluded)} node(s) withheld, and named in the export README:")
+        for eid, node in sorted(excluded.items()):
+            print(f"    {eid} — {node.title}")
 
     if all_dropped:
         print(f"\n  {len(all_dropped)} link(s) outside the export, shown as stubs:")
@@ -207,6 +260,10 @@ def main() -> int:
         first=dates[0] if dates else "?",
         last=dates[-1] if dates else "?",
         when=dt.date.today().isoformat(),
+        withheld=WITHHELD.format(
+            count=len(excluded), project=args.project,
+            ids="".join(f"- `{i}` — {n.title}\n" for i, n in sorted(excluded.items())),
+        ) if excluded else "",
     ), encoding="utf-8")
 
     print(f"\n  wrote {len(outputs)} node(s) and README.md")

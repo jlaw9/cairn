@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Using it — Cairn</title>
+<meta name="description" content="Install once per machine, then the session loop and the four ways research actually starts: backfill, a new experiment, a literature review, or work that isn't computational.">
+<link rel="stylesheet" href="cairn.css">
+<link rel="icon" href="img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="model.html">The model</a>
+    <a href="workflows.html" aria-current="page">Using it</a>
+    <a href="map.html">The map</a>
+    <a href="design.html">Design</a>
+    <a href="blog/index.html">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero prose" style="padding-bottom:0">
+    <p class="eyebrow">Using it</p>
+    <h1>Install once. Then four ways in.</h1>
+    <p class="lede">Research doesn't start the same way twice. Cairn handles four
+      openings, and picking the wrong one is the most common way a graph starts out
+      untrustworthy.</p>
+  </div>
+
+  <div class="withtoc">
+    <div>
+
+      <section id="two-repos">
+        <div class="prose">
+          <h2>First: two repos, two variables <a class="anchor" href="#two-repos">#</a></h2>
+          <p>Confusing these is the first thing that goes wrong.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>variable</th><th>means</th><th>holds</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">$CAIRN_PATH</td><td>the tool</td>
+                <td class="mono">bin/ scripts/ skills/ docs/ site/</td></tr>
+              <tr><td class="mono">$CAIRN_ROOT</td><td>a graph — yours</td>
+                <td class="mono">nodes/ papers/ meetings/ inbox/ build/</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="prose">
+          <p>The tool can be shared without shipping anyone's research record, and one
+            tool can serve several graphs. A clone from before the split — with
+            <code>nodes/</code> sitting beside <code>scripts/</code> — still works
+            unchanged, because <code>CAIRN_ROOT</code> falls back to the tool repo when
+            unset.</p>
+        </div>
+      </section>
+
+      <section id="install">
+        <div class="prose">
+          <h2>Install — once per machine <a class="anchor" href="#install">#</a></h2>
+        </div>
+
+        <pre>git clone &lt;the tool repo&gt; ~/cairn &amp;&amp; cd ~/cairn
+cairn init ~/research-graph                 <span class="cmt"># your graph: dirs, git, hook</span>
+export CAIRN_PATH=$HOME/cairn               <span class="cmt"># the tool — add both to your profile</span>
+export CAIRN_ROOT=$HOME/research-graph      <span class="cmt"># the graph</span>
+make setup                                  <span class="cmt"># hook + slash commands + checks</span>
+export PATH=$CAIRN_PATH/bin:$PATH           <span class="cmt"># optional: plain `cairn` anywhere</span>
+make doctor                                 <span class="cmt"># confirm every step took</span></pre>
+
+        <div class="prose">
+          <p>Then wire the machine up once, so every session sees the graph without a
+            per-project step:</p>
+        </div>
+
+        <pre>cairn install_context            <span class="cmt"># dry run: says what it would change</span>
+cairn install_context --apply</pre>
+
+        <div class="prose">
+          <p>That does three things, none of them per-project:</p>
+          <ol>
+            <li>Writes a marked block into <code>~/.claude/CLAUDE.md</code> — user-level
+              memory, loaded in every session in every directory — naming the graph and
+              the four verbs.</li>
+            <li>Installs a <code>SessionStart</code> hook that pulls (throttled) and
+              returns the graph's current state as the session's context, plus a
+              <code>SessionEnd</code> hook that says what is unpushed.</li>
+            <li>Symlinks the slash commands, so <code>/log</code>, <code>/standup</code>,
+              <code>/capture</code>, <code>/triage</code> and <code>/digest</code> resolve
+              from any repo.</li>
+          </ol>
+
+          <div class="callout">
+            <p><strong>The hook is the part a pointer can't do.</strong> A line in a
+              <code>CLAUDE.md</code> has to be <em>followed</em>, and an agent in the
+              middle of a task does not go looking. State already in the context window
+              gets used.</p>
+          </div>
+
+          <p><strong>Clone the tool outside every project repo.</strong> One graph spans
+            all projects, and a clone nested inside a project shows up as an untracked
+            directory in that project's <code>git status</code>, makes <code>/log</code>'s
+            <code>repo</code> field ambiguous, and quietly implies the graph belongs to
+            one project. <code>make doctor</code> warns if it's nested.</p>
+
+          <h3>The one dependency</h3>
+          <p>Python ≥ 3.7 with PyYAML, and nothing else, ever.
+            <code>scripts/find_python.sh</code> finds a suitable interpreter rather than
+            assuming <code>python3</code> is one — on an HPC login node the default
+            <code>python3</code> is routinely a 3.6 <em>with</em> PyYAML while
+            <code>python3.9</code> has none, and picking either blindly fails.</p>
+          <p><strong>That's why every command is <code>cairn &lt;something&gt;</code>
+            rather than <code>scripts/&lt;something&gt;.py</code>.</strong> The dispatcher
+            is a <code>/bin/sh</code> script, so it has no Python version of its own to
+            trip over. Running a script directly hands that choice to whatever
+            <code>#!/usr/bin/env python3</code> resolves to — and a shim inside the script
+            can't correct it, because Python compiles the whole file before running a line
+            of it, so on a 3.6 interpreter the SyntaxError arrives first.</p>
+          <p class="faint">When something is off, <code>make doctor</code> before debugging
+            anything else. It reports which install step is missing — interpreter, hook,
+            slash commands, <code>CAIRN_PATH</code>, <code>CAIRN_ROOT</code> — and it runs
+            without a working Python, because the interpreter is the most common thing to
+            be wrong.</p>
+        </div>
+      </section>
+
+      <section id="loop">
+        <div class="prose">
+          <h2>The session loop <a class="anchor" href="#loop">#</a></h2>
+          <p><code>cairn sync</code> at the start, <code>cairn sync --push</code> at the
+            end. That's <code>git pull --rebase --autostash</code>, then
+            regenerate-commit-<code>build/</code>-and-push, plus a report of what still
+            needs a human.</p>
+          <p><strong><code>sync</code> never commits a node</strong>, and never will.
+            Nothing enters the graph unreviewed, so <code>--push</code> commits only
+            <code>build/</code>, which is generated. Nodes stay exactly where they are,
+            uncommitted, and <code>sync</code> <em>names</em> them — a node file that has
+            never been committed is almost always a draft an agent wrote and nobody has
+            read.</p>
+        </div>
+
+        <div class="prose">
+          <h3>Two ways a thing gets written, and only one of them reaches the graph</h3>
+        </div>
+
+        <figure class="cartoon">
+          <svg viewBox="0 0 900 290" role="img"
+               aria-label="Two write paths. The upper path: work you did goes through the slash-log command to a drafted node, then through a review gate you control, then is committed into the nodes directory. The lower path: a passing thought goes through cairn capture straight into the inbox with no schema and no validation, and later triage either promotes it through the same review gate or discards it.">
+            <defs>
+              <marker id="w-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--ink-faint)"/>
+              </marker>
+              <marker id="w-arrow-good" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--good)"/>
+              </marker>
+            </defs>
+
+            <!-- the review gate -->
+            <rect x="556" y="16" width="118" height="240" rx="4"
+                  style="fill: var(--pending); stroke: var(--pending)" fill-opacity=".07" stroke-width="1.4"
+                  stroke-dasharray="6 4"/>
+            <text x="615" y="40" font-size="12" font-weight="600" text-anchor="middle"
+                  style="fill: var(--pending)">you read it</text>
+            <text class="c-faint" x="615" y="240" font-size="10" text-anchor="middle">the gate</text>
+
+            <!-- ========== upper path: /log ========== -->
+            <text class="c-faint" x="0" y="70" font-size="10.5" letter-spacing="1.2">REVIEWED PATH</text>
+
+            <rect class="c-panel" x="0" y="80" width="120" height="42" rx="4"/>
+            <text x="60" y="100" font-size="11.5" text-anchor="middle">work you did</text>
+            <text class="c-faint" x="60" y="114" font-size="10" text-anchor="middle">a run, a commit, a result</text>
+
+            <path class="c-edge" stroke-width="1.8" d="M126 101 H 186" marker-end="url(#w-arrow)"/>
+
+            <rect x="192" y="80" width="104" height="42" rx="4"
+                  style="fill: var(--code-bg); stroke: var(--accent)" stroke-width="1.4"/>
+            <text x="244" y="100" font-size="12" text-anchor="middle" font-weight="600"
+                  style="fill: var(--accent)">/log</text>
+            <text class="c-faint" x="244" y="114" font-size="10" text-anchor="middle">reads the git log</text>
+
+            <path class="c-edge" stroke-width="1.8" d="M302 101 H 362" marker-end="url(#w-arrow)"/>
+
+            <rect class="c-panel" x="368" y="80" width="120" height="42" rx="4"/>
+            <text x="428" y="100" font-size="11.5" text-anchor="middle">drafted node</text>
+            <text class="c-faint" x="428" y="114" font-size="10" text-anchor="middle">uncommitted</text>
+
+            <path class="c-edge" stroke-width="1.8" d="M494 101 H 550" marker-end="url(#w-arrow)"/>
+            <path stroke-width="1.8" style="stroke: var(--good)" fill="none"
+                  d="M680 101 H 742" marker-end="url(#w-arrow-good)"/>
+
+            <rect x="748" y="76" width="140" height="50" rx="4"
+                  style="fill: var(--panel); stroke: var(--good)" stroke-width="1.5"/>
+            <text x="818" y="97" font-size="12" text-anchor="middle" font-weight="600">nodes/</text>
+            <text class="c-faint" x="818" y="113" font-size="10" text-anchor="middle">committed, validated</text>
+
+            <!-- ========== lower path: capture ========== -->
+            <text class="c-faint" x="0" y="176" font-size="10.5" letter-spacing="1.2">UNPROMPTED PATH</text>
+
+            <rect class="c-panel" x="0" y="186" width="120" height="42" rx="4"/>
+            <text x="60" y="206" font-size="11.5" text-anchor="middle">a passing thought</text>
+            <text class="c-faint" x="60" y="220" font-size="10" text-anchor="middle">mid-task, any machine</text>
+
+            <path class="c-edge" stroke-width="1.8" d="M126 207 H 186" marker-end="url(#w-arrow)"/>
+
+            <rect x="192" y="186" width="104" height="42" rx="4"
+                  style="fill: var(--code-bg); stroke: var(--accent)" stroke-width="1.4"/>
+            <text x="244" y="206" font-size="12" text-anchor="middle" font-weight="600"
+                  style="fill: var(--accent)">capture</text>
+            <text class="c-faint" x="244" y="220" font-size="10" text-anchor="middle">never refuses</text>
+
+            <path class="c-edge" stroke-width="1.8" d="M302 207 H 362" marker-end="url(#w-arrow)"/>
+
+            <rect x="368" y="186" width="120" height="42" rx="4"
+                  style="fill: var(--panel); stroke: var(--idle)" stroke-width="1.4" stroke-dasharray="5 4"/>
+            <text x="428" y="206" font-size="11.5" text-anchor="middle">inbox/</text>
+            <text class="c-faint" x="428" y="220" font-size="10" text-anchor="middle">no schema, no validation</text>
+
+            <!-- triage: up into the gate, or discarded -->
+            <path class="c-edge" stroke-width="1.8" d="M494 200 C 524 194, 526 150, 550 128"
+                  marker-end="url(#w-arrow)"/>
+            <text class="c-dim" x="500" y="164" font-size="10.5">/triage</text>
+
+            <path class="c-edge" stroke-width="1.8" stroke-dasharray="4 4" d="M428 234 V 262"
+                  marker-end="url(#w-arrow)"/>
+            <g style="stroke: var(--bad)" stroke-width="2.2" stroke-linecap="round">
+              <path d="M448 262 L 462 276"/><path d="M462 262 L 448 276"/>
+            </g>
+            <text class="c-faint" x="474" y="274" font-size="10.5">discarded — also a correct outcome</text>
+          </svg>
+          <figcaption><code>inbox/</code> is explicitly a junk drawer, and that's what makes
+            it safe to write to without asking. <code>capture</code> doesn't even commit,
+            because committing runs the validation hook — and a capture that can fail
+            because of schema drift somewhere else is not a capture.</figcaption>
+        </figure>
+      </section>
+
+      <section id="paths">
+        <div class="prose">
+          <h2>Four ways in <a class="anchor" href="#paths">#</a></h2>
+        </div>
+
+        <div class="prose">
+          <h3 id="backfill">A. Work that already happened → backfill first</h3>
+          <p>Do not skip this because it sounds like homework. <strong>An empty graph means
+            nothing for months</strong>, and during those months a missing node doesn't
+            mean “not tried”, it means “we hadn't started yet” — the exact ambiguity that
+            makes a graph untrustworthy.</p>
+        </div>
+
+        <pre>cairn mine_sessions --since 2026-01-01        <span class="cmt"># what work exists?</span>
+cairn mine_sessions --project &lt;slug&gt; --summaries</pre>
+
+        <div class="prose">
+          <p>If the work went through an agent, the transcripts are the best source — and
+            better than the repo for the part that matters, because <strong>they contain
+            the dead ends</strong>. If it didn't, there's an interview-based version,
+            including why it will be biased toward what worked and what to ask to counter
+            that.</p>
+          <p>Backfill to the depth that answers <em>“did we already try this?”</em> — not
+            exhaustively.</p>
+        </div>
+
+        <div class="prose">
+          <h3 id="new">B. Starting something new → open the node before you run it</h3>
+        </div>
+
+        <pre>cairn new_node direction "Does X predict Y?" --project &lt;key&gt; --new-project
+
+<span class="cmt"># then, before the first job goes to the queue</span>
+cairn new_node experiment "X predicts Y from Z alone" \
+  --project &lt;key&gt; --parent &lt;direction-id&gt; --status <span class="s-planned">planned</span> \
+  --note "pre-registered, not yet queued"
+
+<span class="cmt"># then when it actually starts</span>
+cairn new_node --update &lt;id&gt; --status <span class="s-running">running</span> \
+  --repo $(git remote get-url origin) --commit $(git rev-parse HEAD) \
+  --host $(hostname -s)</pre>
+
+        <div class="prose">
+          <p>Write a <code>## Claim</code> that says what you expect <strong>and what
+            result would prove it wrong</strong>. At the end of a session,
+            <code>/log</code> from inside the project repo does the rest: reads the git
+            log, drafts the node, asks only for the interpretation it can't infer, and
+            commits.</p>
+          <div class="callout warn">
+            <p><code>--project</code> is checked against the keys already in the graph, and
+              an unrecognised one is refused with the near-matches listed.
+              <strong>It's the only field whose typo validates cleanly</strong> —
+              <code>photpoly</code> for <code>photopoly</code> passes every check and
+              silently splits one project into two lanes. Starting a genuinely new project
+              takes <code>--new-project</code>.</p>
+          </div>
+        </div>
+
+        <div class="prose">
+          <h3 id="literature">C. Starting from a literature review</h3>
+          <p>Most new projects start here, before there is a repo or a run.
+            <strong>A literature finding is an <code>experiment</code></strong> — it has a
+            claim, a method and a result, and the corpus is the instrument.</p>
+        </div>
+
+        <pre>cairn new_node experiment 'Can a reported "final Tg" be fitted as Tgp?' \
+  --project photopoly --parent &lt;direction-id&gt; --status <span class="s-dead">dead</span> \
+  --ref 10.1021/ma101296j \
+  --note "vitrification-limited; the bias is formulation-dependent"</pre>
+
+        <div class="prose">
+          <p><code>status: dead</code> because the claim was refuted — by the literature
+            rather than by a job that failed, which makes no difference to what it means
+            downstream. Six months on, <em>“can we just fit published final Tg
+            values?”</em> has an answer with a reason attached.</p>
+          <ul class="ticks">
+            <li><strong>One claim per node.</strong> A review touching eight things is
+              eight nodes, or one <code>direction</code> with eight open questions — not
+              one node called “lit review”, which is unsearchable by the question you'll
+              actually ask.</li>
+            <li><strong><code>--ref</code> the DOI and register the paper</strong>, so the
+              evidence is resolvable rather than remembered.</li>
+            <li><strong><code>## What I did</code> is the corpus and the filter</strong> —
+              how many papers, from where, what was excluded. That's this node's methods
+              section, and it's what tells a reader how much weight the result
+              carries.</li>
+            <li><strong>A constraint that shapes later work belongs in the graph</strong>,
+              not only in the synthesis document. The document is read once; the node is
+              what the graph shows you when you touch that part of the problem again.</li>
+          </ul>
+          <p class="faint">At corpus scale — hundreds or thousands of PDFs — those papers
+            can't each get a node, and the answer isn't one node per cluster either: the
+            map is an artifact, one node describes the mapping run, and a cluster becomes a
+            node only once someone has read it.</p>
+        </div>
+
+        <div class="prose">
+          <h3 id="bench">D. Your work isn't computational</h3>
+          <p>The <em>model</em> is domain-neutral — claims, results, dead ends, directions,
+            deadlines. <code>repo</code>, <code>commit</code>, <code>host</code> and
+            <code>artifacts</code> are all optional on an experiment, so
+            <strong>a bench experiment node validates today with none of them</strong>, and
+            a node with no SHA is not a second-class node.</p>
+          <p>The <em>interface</em> is not neutral, but it was never meant to be the
+            interface: the design assumes an agent writes the record while you work, and
+            you read the map and answer one question — what the result means.</p>
+          <p>Work that happened somewhere Cairn can't see — a web session, a conversation,
+            a whiteboard — goes to <code>inbox/</code> as unstructured text and gets
+            triaged later. <strong>Capture always beats filing.</strong></p>
+        </div>
+      </section>
+
+      <section id="reading">
+        <div class="prose">
+          <h2>Reading the graph before you add to it <a class="anchor" href="#reading">#</a></h2>
+          <p>Three views, and they answer different questions. Don't substitute one for
+            another. None of them writes anything.</p>
+        </div>
+
+        <div class="grid g3">
+          <div class="card">
+            <h3><code>standup</code></h3>
+            <p><em>What should I pick up today?</em> Ordered by what needs you rather than
+              when it happened, so a project whose live threads have gone quiet ranks above
+              one that moved yesterday — the quiet one is the one whose context you've
+              lost.</p>
+          </div>
+          <div class="card">
+            <h3><code>digest</code></h3>
+            <p><em>What changed?</em> Chronological. The right question when you've been
+              present all week, and the wrong one after two weeks away.</p>
+          </div>
+          <div class="card">
+            <h3><code>build/report.md</code></h3>
+            <p><em>How much do I trust a gap?</em> Where to start, cross-project edges, and
+              the coverage table.</p>
+          </div>
+        </div>
+
+        <pre>cairn standup                         <span class="cmt"># every project, most-needs-you first</span>
+cairn standup --project polyid        <span class="cmt"># the resume packet for one project</span></pre>
+
+        <div class="prose">
+          <p><code>--project</code> adds the part that stops repeated work: <strong>what
+            this project already settled</strong>, most recent first, each with the note
+            saying why. A <code>dead</code> node there is a claim someone refuted, and
+            rereading it is how the same dead end doesn't get tried twice.</p>
+          <p>It also <strong>reads <code>## Next</code> back out of the node bodies</strong>,
+            which is the cheapest resume there is: the sentence you wrote when the whole
+            problem was still in your head.</p>
+
+          <h3 id="coverage">Trusting a gap</h3>
+          <p>The coverage table in <code>build/report.md</code> gives the two numbers that
+            make “a missing node means not tried” usable at all: how many nodes a project
+            has, and <strong>what share were committed within a week of the work they
+            describe</strong>.</p>
+          <div class="callout warn">
+            <p><strong>A project at 0% is a reconstruction, and a reconstruction is biased
+              toward what worked.</strong> So a gap there means the graph doesn't know —
+              not that nobody tried. Treat a missing node as “not tried” only where the
+              project is well covered; in a thin project, saying “the graph doesn't know
+              yet” is the honest answer.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="reacting">
+        <div class="prose">
+          <h2>Reacting, and who has read what <a class="anchor" href="#reacting">#</a></h2>
+        </div>
+
+        <pre>cairn note 2026-07-20-polyid-run-variance "the spread looks bimodal — seeds?"
+cairn note polyid-run-variance                 <span class="cmt"># unique suffix is enough; opens $EDITOR</span>
+cairn note --list --project polyid
+
+cairn review --list                            <span class="cmt"># what nobody has read</span>
+cairn review polyid-run-variance "the seeds explain it"
+cairn review polyid-run-variance               <span class="cmt"># read it, nothing to add</span></pre>
+
+        <div class="prose">
+          <p><code>note</code> <strong>commits by default</strong>, which is the one place
+            this differs from <code>capture</code>: the rule refuses to commit a node
+            <em>you haven't seen</em>, and a sentence you just typed is the definition of
+            seen. The whole value is that it's visible from the other machine tomorrow.</p>
+          <p><code>reviewed</code> is <strong>derived from git, never a field</strong>. A
+            commit carrying a <code>Cairn-Review: &lt;who&gt; &lt;node-id&gt;</code> trailer
+            says a human read that node; a node whose last write came after its last stamp
+            is one nobody has read since.</p>
+          <ul class="ticks">
+            <li><strong>A note is a review.</strong> <code>cairn note</code> stamps the
+              trailer itself — reading a node and reacting to it is the thing being
+              measured, so it shouldn't take two commands.</li>
+            <li><strong>Reviewing an uncommitted draft admits it.</strong> The file and the
+              stamp land in the same commit. That's the review queue draining.</li>
+            <li><strong>What predates the convention stays unclassified.</strong> The epoch
+              is derived — the oldest commit carrying a stamp — so nothing has to be
+              stored.</li>
+          </ul>
+          <p class="faint">What this is <em>not</em> is proof a human did the reading.
+            Agents run as whoever owns the clone, so nothing in git can tell them apart.
+            The hook only checks that a stamp is well-formed and aimed at a node that
+            exists, because that failure — a mistyped id that marks nothing — is otherwise
+            silent.</p>
+        </div>
+      </section>
+
+      <section id="issues">
+        <div class="prose">
+          <h2>Tasks as GitHub issues <a class="anchor" href="#issues">#</a></h2>
+        </div>
+
+        <pre>cairn sync_issues              <span class="cmt"># dry run — prints, writes nothing</span>
+cairn sync_issues -v           <span class="cmt"># ...including the exact body it would post</span>
+cairn sync_issues --apply</pre>
+
+        <div class="prose">
+          <p><strong>Only <code>task</code> nodes, and only outward.</strong> A task has a
+            <code>due</code>, an owner and no scientific claim, so an issue holds it
+            faithfully. An <code>experiment</code> is open or closed to GitHub — while the
+            point of this graph is that <code>dead</code> is not <code>closed</code>,
+            <code>parked</code> is neither, and the status event log is what makes replay
+            work. Mirroring an experiment would discard the part worth keeping.</p>
+          <p>What issues buy that a markdown file cannot: assignment, notification, and a
+            phone. The graph stays authoritative and each issue says so in its own body.
+            The target repo is <strong>derived</strong> from the project's other nodes, not
+            stored per task; projects with no remote are reported and skipped, never
+            guessed at.</p>
+        </div>
+      </section>
+
+      <section id="machines">
+        <div class="prose">
+          <h2>Two machines, or two people <a class="anchor" href="#machines">#</a></h2>
+          <p>They are the same problem to this repo, so a collaborator is a collaborator on
+            the git remote and nothing more.</p>
+        </div>
+
+        <figure class="cartoon">
+          <svg viewBox="0 0 880 250" role="img"
+               aria-label="A laptop and an HPC cluster each push and pull from one shared git remote in the middle. A direct arrow between the two machines is crossed out and labelled never needed, because nodes reference code by repo and commit and heavy outputs by host and path.">
+            <defs>
+              <marker id="s-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--ink-faint)"/>
+              </marker>
+            </defs>
+
+            <!-- laptop -->
+            <rect class="c-panel" x="0" y="58" width="180" height="76" rx="4"/>
+            <text x="90" y="86" font-size="13" text-anchor="middle" font-weight="600">laptop</text>
+            <text class="c-faint" x="90" y="105" font-size="10.5" text-anchor="middle">clone of the graph</text>
+            <text class="c-faint" x="90" y="121" font-size="10.5" text-anchor="middle">Obsidian, the map</text>
+
+            <!-- remote -->
+            <g transform="translate(350,44)">
+              <ellipse class="c-panel" cx="90" cy="12" rx="90" ry="13"/>
+              <path class="c-panel" d="M0 12 V 92 A 90 13 0 0 0 180 92 V 12"/>
+              <ellipse class="c-panel" cx="90" cy="12" rx="90" ry="13"/>
+              <text x="90" y="52" font-size="13" text-anchor="middle" font-weight="600">one git remote</text>
+              <text class="c-faint" x="90" y="70" font-size="10.5" text-anchor="middle">one file per node,</text>
+              <text class="c-faint" x="90" y="85" font-size="10.5" text-anchor="middle">append-only, never renamed</text>
+            </g>
+
+            <!-- cluster -->
+            <rect class="c-panel" x="700" y="58" width="180" height="76" rx="4"/>
+            <text x="790" y="86" font-size="13" text-anchor="middle" font-weight="600">the cluster</text>
+            <text class="c-faint" x="790" y="105" font-size="10.5" text-anchor="middle">clone of the graph</text>
+            <text class="c-faint" x="790" y="121" font-size="10.5" text-anchor="middle">where the jobs run</text>
+
+            <!-- push/pull arrows -->
+            <path class="c-edge" stroke-width="1.8" d="M186 84 H 344" marker-end="url(#s-arrow)"/>
+            <path class="c-edge" stroke-width="1.8" d="M344 110 H 186" marker-end="url(#s-arrow)"/>
+            <path class="c-edge" stroke-width="1.8" d="M694 84 H 536" marker-end="url(#s-arrow)"/>
+            <path class="c-edge" stroke-width="1.8" d="M536 110 H 694" marker-end="url(#s-arrow)"/>
+            <text class="c-faint" x="230" y="76" font-size="10">push</text>
+            <text class="c-faint" x="230" y="126" font-size="10">pull</text>
+
+            <!-- the link that is never needed -->
+            <path class="c-edge" stroke-width="1.6" stroke-dasharray="5 4" opacity=".5"
+                  d="M90 176 C 300 216, 580 216, 790 176"/>
+            <g style="stroke: var(--bad)" stroke-width="2.2" stroke-linecap="round">
+              <path d="M430 196 L 450 216"/><path d="M450 196 L 430 216"/>
+            </g>
+            <text class="c-dim" x="440" y="242" font-size="11" text-anchor="middle">neither machine ever needs to reach the other</text>
+            <text class="c-faint" x="90" y="170" font-size="10" text-anchor="middle">code by repo + commit</text>
+            <text class="c-faint" x="790" y="170" font-size="10" text-anchor="middle">outputs by host:/path</text>
+          </svg>
+        </figure>
+
+        <pre>cairn sync                     <span class="cmt"># pull, then say what still needs you</span>
+cairn sync --push              <span class="cmt"># regenerate build/, commit build/, push</span>
+cairn sync --check             <span class="cmt"># no network; local state only</span></pre>
+
+        <div class="prose">
+          <p>The friction here was never storage. It's a <strong>habit gap at two
+            moments</strong>: forgetting to pull before working, and forgetting to push
+            after. The second is the expensive one, because the work is written down and
+            simply invisible from the other machine. So <code>sync</code> automates the
+            half that is safe to automate and <em>reports</em> the half that isn't.</p>
+          <p><strong>Conflicts are near-impossible by design.</strong> Nodes are separate
+            append-only files. The only shared-file contention is generated output under
+            <code>build/</code>, and when a rebase stops <em>only</em> on that,
+            <code>sync</code> regenerates rather than merging, and continues. A conflict
+            anywhere else is left for a human, because anywhere else it means something
+            interesting happened.</p>
+          <p>The one genuine collision is two people creating the same id on the same day —
+            same project, same date, similar enough title to slug identically. Git catches
+            that as a real conflict rather than losing one of them, which is the correct
+            behaviour, if a startling way to find out.</p>
+        </div>
+      </section>
+
+      <div class="next">
+        <a href="map.html"><span class="l">next</span><span class="t">The map →</span></a>
+        <a href="model.html"><span class="l">back</span><span class="t">The model →</span></a>
+      </div>
+
+    </div>
+
+    <aside class="toc">
+      <p>On this page</p>
+      <a href="#two-repos">Two repos</a>
+      <a href="#install">Install</a>
+      <a href="#loop">The session loop</a>
+      <a href="#paths">Four ways in</a>
+      <a href="#reading">Reading the graph</a>
+      <a href="#reacting">Notes &amp; review</a>
+      <a href="#issues">Tasks as issues</a>
+      <a href="#machines">Two machines</a>
+    </aside>
+  </div>
+
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Run everything through <code>bin/cairn</code>, never <code>scripts/*.py</code>.</span>
+    <a href="index.html">Overview</a>
+    <a href="design.html">Design</a>
+  </div>
+</footer>
+
+<script src="cairn.js"></script>
+</body>
+</html>

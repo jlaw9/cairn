@@ -7,7 +7,7 @@
 PY ?= $(shell scripts/find_python.sh)
 
 .PHONY: help setup init doctor install-commands validate build test clean python _python \
-        digest standup sync push install-context
+        digest standup sync push install-context site-check site-demo site-serve
 
 # The graph is a separate repo now. Every data command reads it through
 # CAIRN_ROOT, which the scripts resolve themselves — this variable exists so
@@ -32,6 +32,10 @@ help:
 	@echo "make push              regenerate build/, commit it, and push"
 	@echo "make test              run the test suite against the fixture graph"
 	@echo "make python            show which interpreter Cairn will use"
+	@echo ""
+	@echo "make site-check       check every internal link in site/"
+	@echo "make site-serve       preview site/ at http://localhost:8000"
+	@echo "make site-demo ACK=1  regenerate the map demo embedded in site/"
 
 # Deliberately not dependent on _python: the most common thing to be wrong is
 # the Python, and a check that can't run on a broken install is no use.
@@ -111,3 +115,41 @@ test: _python
 
 clean:
 	@rm -f build/graph.html build/graph.md build/report.md
+
+# ---------------------------------------------------------------------------
+# The site (site/ -> GitHub Pages). Hand-written HTML, no generator.
+# ---------------------------------------------------------------------------
+
+site-check: _python
+	@$(PY) scripts/check_site_links.py site
+
+site-serve:
+	@echo "cairn: serving site/ at http://localhost:8000  (ctrl-c to stop)"
+	@cd site && $(PY) -m http.server 8000
+
+# The demo embedded in site/map.html is a *publication* of the cairn subgraph:
+# real node bodies, scrubbed but not thereby cleared. `export_example` refuses
+# to write without --acknowledge-review, and this target refuses to pass that
+# flag on your behalf — ACK=1 is you saying you read the review pass. Run it
+# without ACK first; that prints the lines a human has to clear.
+#
+# CAIRN_EXAMPLE_EXCLUDE holds back nodes that must not be published at all.
+CAIRN_EXAMPLE_EXCLUDE ?= 2026-08-21-cairn-hero-artifacts
+
+site-demo: _python
+	@test -n "$(ACK)" || { \
+	  echo "cairn: this publishes real node bodies. Read the review pass first:" >&2; \
+	  echo "" >&2; \
+	  echo "    bin/cairn export_example --project cairn \\" >&2; \
+	  echo "      $(foreach id,$(CAIRN_EXAMPLE_EXCLUDE),--exclude $(id)) " >&2; \
+	  echo "" >&2; \
+	  echo "  then re-run as: make site-demo ACK=1" >&2; \
+	  exit 2; }
+	@bin/cairn export_example --project cairn \
+	  $(foreach id,$(CAIRN_EXAMPLE_EXCLUDE),--exclude $(id)) \
+	  --dest example --acknowledge-review
+	@CAIRN_ROOT=$(CURDIR)/example $(PY) scripts/build_graph.py >/dev/null
+	@mkdir -p site/demo
+	@cp example/build/graph.html site/demo/graph.html
+	@echo "cairn: site/demo/graph.html regenerated ($$(wc -c < site/demo/graph.html) bytes)"
+	@echo "  note: example/ and site/demo/ are gitignored pending the release review."

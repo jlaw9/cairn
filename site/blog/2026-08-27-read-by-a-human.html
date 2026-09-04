@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deriving “a human read this” from git, instead of adding a field — Cairn</title>
+<meta name="description" content="A commit trailer, two passes over the log, and no new field: how Cairn tells a node nobody has read from a node nobody has written.">
+<link rel="stylesheet" href="../cairn.css">
+<link rel="icon" href="../img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="../index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="../index.html">Overview</a>
+    <a href="../model.html">The model</a>
+    <a href="../workflows.html">Using it</a>
+    <a href="../map.html">The map</a>
+    <a href="../design.html">Design</a>
+    <a href="index.html" aria-current="page">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+  <article class="prose" style="padding-top:clamp(40px,7vh,80px)">
+    <p class="eyebrow"><a href="index.html" style="color:inherit">Notebook</a></p>
+    <h1>Deriving “a human read this” from git, instead of adding a field</h1>
+    <p class="postmeta">2026-08-27 &middot; commit <code>a68dff5</code> &middot; node <code>2026-08-27-cairn-review-policy</code></p>
+
+    <p><a href="../design.html#decisions">Decision 6</a> says nothing enters the graph
+      unreviewed. That is the right rule and it has a side effect nobody designed: it
+      creates a <em>queue</em>. Drafts pile up as uncommitted files, and
+      <code>sync</code> names them, because a node file that has never been committed is
+      almost always something an agent wrote and nobody has read.</p>
+
+    <p>But <em>read</em> was not representable. A node committed six weeks ago and a node
+      committed six weeks ago <strong>and since checked by a person</strong> looked
+      identical, and the difference is the whole point of the rule.</p>
+
+    <h2>The obvious fix, and why it was wrong</h2>
+
+    <p>The obvious fix is a field: <code>reviewed_by: jlaw</code>. It was refused, under
+      <a href="../design.html#decisions">rule 4</a> — every optional field is a field that
+      stops getting filled in — and because the information was already in git twice
+      over.</p>
+
+    <p>So <code>reviewed</code> is <strong>derived, never stored</strong>. A commit
+      carrying a trailer</p>
+
+    <pre>Cairn-Review: jlaw 2026-07-20-polyid-run-variance</pre>
+
+    <p>says a human read that node. A node whose last write came <em>after</em> its last
+      stamp is one nobody has read since.</p>
+
+    <h2>Both halves of “a message trailer, not an identity” are load-bearing</h2>
+
+    <ul class="ticks">
+      <li><strong>Committer identity is erased by <code>sync</code>.</strong>
+        <code>git rebase</code> rewrites the committer, and the session protocol rebases
+        twice a day. Anything keyed on who committed would quietly decay.</li>
+      <li><strong>Author identity is already spoken for.</strong>
+        <code>git log --diff-filter=A</code> is how authorship is derived — that is
+        <a href="../design.html#decisions">decision 9</a>, and it is why there is no
+        <code>author:</code> field. An agent committing under its own name would make
+        itself the author of work it only typed up.</li>
+    </ul>
+
+    <p>A trailer survives rebase and answers a different question, so it collides with
+      neither.</p>
+
+    <h2>Why the trailer carries the node id</h2>
+
+    <p>Because a review with nothing to add is an <strong>empty commit</strong>, and
+      <code>git log -- nodes/&lt;id&gt;.md</code> never shows one. Relying on the diff
+      would have silently dropped exactly the case the feature exists to record: “I read
+      it and I have no changes.”</p>
+
+    <p>So the derivation is two passes: <strong>stamps from the whole log, writes from the
+      path.</strong></p>
+
+    <h2>Three consequences worth knowing</h2>
+
+    <ul class="ticks">
+      <li><strong>A note is a review.</strong> <code>cairn note</code> stamps the trailer
+        itself. Reading a node and reacting to it is the thing being measured, so it
+        should not take two commands. <code>cairn review</code> with no text exists for
+        “I read it and had nothing to add”, which is a real outcome.</li>
+      <li><strong>Reviewing an uncommitted draft admits it.</strong> The file and the
+        stamp land in the same commit — which is the queue decision 6 creates,
+        draining.</li>
+      <li><strong>What predates the convention stays <code>unclassified</code>.</strong>
+        The epoch is derived from the oldest commit carrying a stamp, so nothing has to be
+        stored. Those nodes are left out of the report column rather than counted as
+        unread, because git has nothing to say about them either way.</li>
+    </ul>
+
+    <h2>What it is not</h2>
+
+    <p>It is <strong>not proof a human did the reading</strong>. Agents run as whoever
+      owns the clone, so nothing in git can tell them apart. The <code>commit-msg</code>
+      hook only checks that a stamp is well-formed and aimed at a node that exists —
+      because the failure it prevents, a mistyped id that marks nothing and reports
+      nothing, is otherwise completely silent.</p>
+
+    <p class="faint">That limit is worth stating rather than engineering around. A number
+      that claims more than it can support is worse than a number with a caveat.</p>
+
+  </article>
+
+  <div class="next">
+    <a href="index.html"><span class="l">back</span><span class="t">All entries &rarr;</span></a>
+    <a href="../workflows.html#reacting"><span class="l">see also</span><span class="t">Notes &amp; review &rarr;</span></a>
+  </div>
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Cairn &mdash; a research record that keeps the dead ends.</span>
+    <a href="../index.html">Overview</a>
+  </div>
+</footer>
+
+<script src="../cairn.js"></script>
+</body>
+</html>

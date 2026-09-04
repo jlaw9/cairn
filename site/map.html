@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The map — Cairn</title>
+<meta name="description" content="One self-contained HTML file, opened from disk: time-ordered layout, lineage isolation, a replay slider driven by the status event log, and a live demo you can click through.">
+<link rel="stylesheet" href="cairn.css">
+<link rel="icon" href="img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="index.html">Overview</a>
+    <a href="model.html">The model</a>
+    <a href="workflows.html">Using it</a>
+    <a href="map.html" aria-current="page">The map</a>
+    <a href="design.html">Design</a>
+    <a href="blog/index.html">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero prose" style="padding-bottom:0">
+    <p class="eyebrow">The map</p>
+    <h1>One file. No server.</h1>
+    <p class="lede"><code>build/graph.html</code> is a single self-contained file — no
+      server, no CDN, no build step beyond <code>make build</code>. You open it from
+      disk, and it is a full interactive app.</p>
+  </div>
+
+  <div class="withtoc">
+    <div>
+
+      <section id="layout">
+        <div class="prose">
+          <h2>Time-ordered, not force-directed <a class="anchor" href="#layout">#</a></h2>
+          <p><strong>x is the creation date, y is a project lane.</strong> Research history
+            has a real time axis and a force layout throws it away. It also means node
+            positions are stable between builds, so the map becomes <em>memorable</em> —
+            you learn where things are.</p>
+        </div>
+
+        <figure class="cartoon">
+          <svg viewBox="0 0 880 280" role="img"
+               aria-label="A decoder for the map. Three horizontal project lanes run left to right along a time axis marked by month. Node glyphs vary in shape by type and in fill colour by status. One node carries a ring meaning it needs attention and another a small dot meaning it carries an unanswered note. A grey arrow shows lineage and a magenta dashed arc crossing two lanes shows a typed relation.">
+            <defs>
+              <marker id="mp-grey" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--ink-faint)"/>
+              </marker>
+              <marker id="mp-contra" viewBox="0 0 10 10" refX="9" refY="5"
+                      markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" style="fill: var(--contradicts)"/>
+              </marker>
+            </defs>
+
+            <!-- lanes -->
+            <rect class="c-lane" x="96" y="52" width="700" height="46"/>
+            <rect class="c-lane" x="96" y="144" width="700" height="46"/>
+            <g class="c-faint" font-size="10.5">
+              <text x="88" y="80" text-anchor="end">polyid</text>
+              <text x="88" y="126" text-anchor="end">mplastic</text>
+              <text x="88" y="172" text-anchor="end">photopoly</text>
+            </g>
+
+            <!-- time axis -->
+            <line class="c-line" x1="96" y1="212" x2="796" y2="212"/>
+            <g class="c-faint" font-size="10">
+              <text x="140" y="228" text-anchor="middle">May</text>
+              <text x="280" y="228" text-anchor="middle">Jun</text>
+              <text x="420" y="228" text-anchor="middle">Jul</text>
+              <text x="560" y="228" text-anchor="middle">Aug</text>
+              <text x="700" y="228" text-anchor="middle">Sep</text>
+            </g>
+            <g class="c-line">
+              <path d="M140 208 V216"/><path d="M280 208 V216"/><path d="M420 208 V216"/>
+              <path d="M560 208 V216"/><path d="M700 208 V216"/>
+            </g>
+            <text class="c-faint" x="796" y="244" font-size="10" text-anchor="end">x = created →</text>
+
+            <!-- lineage edges -->
+            <path class="c-edge" stroke-width="1.6" d="M156 75 H 254" marker-end="url(#mp-grey)"/>
+            <path class="c-edge" stroke-width="1.6" d="M296 75 H 402" marker-end="url(#mp-grey)"/>
+            <path class="c-edge" stroke-width="1.6" d="M170 121 C 240 121, 260 121, 330 121" marker-end="url(#mp-grey)"/>
+            <path class="c-edge" stroke-width="1.6" d="M446 82 C 500 98, 520 150, 556 166" marker-end="url(#mp-grey)"/>
+
+            <!-- a typed relation crossing lanes, backwards in time -->
+            <path fill="none" stroke-width="2" stroke-dasharray="6 4"
+                  style="stroke: var(--contradicts)"
+                  d="M636 158 C 600 130, 420 104, 352 118" marker-end="url(#mp-contra)"/>
+
+            <!-- glyphs -->
+            <rect class="glyph f-pending" x="122" y="66" width="34" height="17" rx="4"/>
+            <circle class="glyph f-good" cx="275" cy="75" r="10"/>
+            <circle class="glyph f-bad" cx="424" cy="75" r="10"/>
+            <circle class="glyph f-good" cx="145" cy="121" r="10"/>
+            <circle class="glyph f-good" cx="345" cy="121" r="10"/>
+            <polygon class="glyph f-active" points="11,0 5.5,9.5 -5.5,9.5 -11,0 -5.5,-9.5 5.5,-9.5"
+                     transform="translate(578,167)"/>
+
+            <!-- a node that needs you: ring on top of the glyph -->
+            <circle r="15" fill="none" style="stroke: var(--pending)" stroke-width="1.6" opacity=".9"
+                    cx="650" cy="167"/>
+            <circle class="glyph f-active" cx="650" cy="167" r="10"/>
+
+            <!-- a node carrying a note: a dot on the corner -->
+            <circle class="glyph f-good" cx="712" cy="75" r="10"/>
+            <circle cx="719" cy="68" r="3.2" style="fill: var(--pending); stroke: var(--bg)" stroke-width="1"/>
+
+            <!-- annotations -->
+            <g class="c-dim" font-size="10.5">
+              <path class="c-line" d="M139 60 V 34 H 210"/>
+              <text x="216" y="38">shape = type</text>
+              <path class="c-line" d="M424 63 V 34 H 340" />
+              <text x="336" y="38" text-anchor="end">fill = status</text>
+              <path class="c-line" d="M650 184 V 200 H 604"/>
+              <text x="598" y="204" text-anchor="end">ring = needs you</text>
+              <path class="c-line" d="M726 64 V 34"/>
+              <text x="732" y="38">dot = an unanswered note</text>
+              <text style="fill: var(--contradicts)" x="470" y="140" font-size="10.5">coloured arc = typed relation</text>
+              <text x="196" y="106" font-size="10.5">grey arrow = lineage</text>
+            </g>
+          </svg>
+          <figcaption>Marks sit <em>on top of</em> the glyph, never as changes to it — shape
+            already means type and fill already means status, so a third axis has to be a
+            decoration or the map stops being decodable.</figcaption>
+        </figure>
+
+        <div class="prose">
+          <p>The green/red ratio in a lane is the honest picture of a project, readable
+            from across the room.</p>
+        </div>
+      </section>
+
+      <section id="whole">
+        <div class="prose">
+          <h2>The whole graph <a class="anchor" href="#whole">#</a></h2>
+        </div>
+        <figure>
+          <img src="img/graph-now.png" width="2868" height="2064" loading="lazy"
+            alt="The full Cairn map: nodes in twelve horizontal project lanes positioned left to right by creation date, mostly green for worked with red dead ends scattered through, and long coloured dashed arcs connecting nodes in different lanes.">
+          <figcaption>Twelve project lanes. The long coloured curves are the cross-project
+            edges — the part no single project repo can know about, and the hardest thing
+            to reconstruct later.</figcaption>
+        </figure>
+      </section>
+
+      <section id="panel">
+        <div class="prose">
+          <h2>Click a node <a class="anchor" href="#panel">#</a></h2>
+          <p>The panel renders the body, resolves the commit to a clickable link, lists
+            parents and children you can navigate, and links the markdown source.
+            <code>author</code> is derived from <code>git log --diff-filter=A</code>, never
+            stored in a field.</p>
+        </div>
+
+        <div class="grid g-wide-left">
+          <figure style="margin:0">
+            <img src="img/graph-panel.png" width="840" height="1140" loading="lazy"
+              alt="The node side panel for a dead experiment, showing a red status pill reading dead, the node id, its dates, derived author, repo, a clickable commit, host, and the rendered Claim, What I did and Result sections.">
+            <figcaption>graph.html#2026-07-05-mplastic-cheap-rung-falsified</figcaption>
+          </figure>
+          <div>
+            <h3 style="margin-top:0">The dead end, six months later, still saying why</h3>
+            <ul class="ticks">
+              <li>Four cheap scoring rungs, each falsified, <strong>each with the number
+                that falsified it</strong> — including a correlation of 0.80 against the
+                reference implementation, so the implementation was right and the idea was
+                wrong.</li>
+              <li>That distinction is the whole value. It's the difference between “try
+                MM/GBSA again” and “MM/GBSA is anti-correlated here; don't.”</li>
+              <li>This node is why the funnel has two rungs instead of three — and it's
+                where a fifth attempt at that rung got recorded too, so the rung stays
+                closed.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="lineage">
+        <div class="prose">
+          <h2>Isolate lineage <a class="anchor" href="#lineage">#</a></h2>
+        </div>
+
+        <div class="grid g-wide-left">
+          <figure style="margin:0">
+            <img src="img/graph-lineage.png" width="1500" height="877" loading="lazy"
+              alt="The map collapsed to the eight nodes in one paper's lineage, with the milestone's panel open showing its scope, the contributing work, and the two nodes blocking it.">
+            <figcaption>“8 in lineage of ‘PreKd paper: partition coefficient predic…’”</figcaption>
+          </figure>
+          <div>
+            <h3 style="margin-top:0">The view that makes a methods section writable</h3>
+            <p>Click a milestone and the graph collapses to its full ancestry and descent:
+              every experiment that fed the paper, <strong>dead ends included</strong>. No
+              special edge type is involved — a milestone is just a node with high
+              fan-in.</p>
+            <p>This one does something better than documentation. The panel names what
+              <em>blocks</em> it: a simple descriptor baseline that beats the model on the
+              compound split, which breaks the paper's central claim as currently written,
+              and a pooling run that hasn't been scored on the split that would settle
+              it.</p>
+            <p class="faint">That threat was found by an external review pass and would
+              otherwise live in a chat log. Here it's a typed edge pointing at a paper, and
+              it will still be pointing at it next month. Same mechanism, second use:
+              annual reviews.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="replay">
+        <div class="prose">
+          <h2>Replay the history <a class="anchor" href="#replay">#</a></h2>
+          <p>Because <code>history</code> is an event log, replay is free: drag the “as of”
+            slider back and nodes disappear, statuses revert, and the panel follows. No
+            snapshots, no bookkeeping.</p>
+          <p><strong><code>▶</code> plays it</strong>, which is the difference between a
+            control and an animation: nobody drags a slider to watch a shape change, and
+            the animation is what makes five months legible at once.</p>
+        </div>
+
+        <div class="grid g-wide-left">
+          <figure style="margin:0">
+            <img src="img/graph-asof.png" width="1425" height="1841" loading="lazy"
+              alt="The same map replayed as of an earlier date: far fewer nodes, most of them blue for running, with only one red dead node.">
+            <figcaption>graph.html?since=2026-07-05 — the graph as it stood, with the
+              statuses of that date</figcaption>
+          </figure>
+          <div>
+            <h3 style="margin-top:0">The graph knows what was known when</h3>
+            <p>Today's status next to a three-months-ago graph is how you misread history,
+              so the panel shows the status <em>of the slider's date</em> — not the current
+              one.</p>
+            <p>Second replay for free: because the whole graph is in git, checking out an
+              old commit and re-rendering replays the research history a different way,
+              with no feature required.</p>
+            <p><strong>“Needs you” is evaluated against the slider's date too</strong>, so
+              “needs you as of June” means what it meant in June.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="demo">
+        <div class="prose">
+          <h2>The live demo <a class="anchor" href="#demo">#</a></h2>
+          <p>This is Cairn's own design record — the real subgraph of the project that
+            built it, with real dead ends, which no synthetic example can be. Click a node,
+            drag the slider, press <code>/</code> to search.</p>
+        </div>
+
+        <figure>
+          <iframe class="demoframe" src="demo/graph.html" loading="lazy"
+                  title="The Cairn map, rendered from the cairn project's own subgraph"></iframe>
+          <figcaption>23 nodes, one project, 191 KB, entirely self-contained ·
+            <a href="demo/graph.html" target="_blank" rel="noopener">open full screen →</a><br>
+            Generated by <code>make site-demo</code> from a scrubbed, derived export. The
+            authoritative copies live in a private graph; if a claim here disagrees with
+            one there, there wins.</figcaption>
+        </figure>
+      </section>
+
+      <section id="interactions">
+        <div class="prose">
+          <h2>Everything it does <a class="anchor" href="#interactions">#</a></h2>
+          <ul class="ticks">
+            <li><strong>hover</strong> a node → a card with its status, date and latest
+              history note</li>
+            <li><strong>click</strong> → side panel: rendered body, clickable commit link,
+              DOI links, parent/child links you can navigate, and a link to the node's
+              markdown source</li>
+            <li><strong>isolate lineage</strong> → collapse to one node's full ancestry and
+              descent</li>
+            <li><strong>typed relations</strong> → grey arrows are lineage; coloured dashed
+              ones carry meaning, each with a one-line reason, backlinked so a
+              contradiction is findable from both ends</li>
+            <li><strong>copy link</strong> → deep link to a node
+              (<code>graph.html#&lt;node-id&gt;</code>)</li>
+            <li><strong>needs you</strong> → collapse to what is actually waiting: a thread
+              whose status asserts activity but which has gone quiet, or a node carrying a
+              note nobody has answered. Same rule as <code>cairn standup</code></li>
+            <li><strong>leave a note</strong> → type it in the panel and copy the exact
+              <code>cairn note</code> command to your clipboard</li>
+            <li>filter by project / type / status / author, search, pan, wheel-zoom</li>
+            <li>URL params: <code>?since=YYYY-MM-DD</code>, <code>?project=&lt;key&gt;</code>,
+              <code>#&lt;node-id&gt;</code></li>
+          </ul>
+
+          <h3>Keyboard</h3>
+          <div class="table-wrap">
+            <table>
+              <tbody>
+                <tr><td class="mono">← ↑ → ↓</td><td>walk the layout — x is time, y is a project lane</td></tr>
+                <tr><td class="mono">p / c</td><td>walk the edges — parents, children</td></tr>
+                <tr><td class="mono">i</td><td>isolate lineage</td></tr>
+                <tr><td class="mono">n</td><td>write a note</td></tr>
+                <tr><td class="mono">w</td><td>toggle needs-you</td></tr>
+                <tr><td class="mono">space</td><td>play the replay</td></tr>
+                <tr><td class="mono">/</td><td>search</td></tr>
+                <tr><td class="mono">Esc</td><td>close</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout">
+            <p><strong>Why the note button copies a command instead of saving.</strong> The
+              page is <code>file://</code> with no server by design, so it cannot write to
+              the repo — and a comment living in one browser's
+              <code>localStorage</code>, invisible from the other machine, is the exact
+              failure this whole project exists to avoid. Two keystrokes at a terminal and
+              the note is in the node body, in git, on both machines, where
+              <code>standup</code> and the next agent session both find it.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="obsidian">
+        <div class="prose">
+          <h2>Two other ways to read it <a class="anchor" href="#obsidian">#</a></h2>
+          <p><strong><code>nodes/</code> is already an Obsidian vault</strong>, and nothing
+            had to be built for that. Node bodies refer to each other as
+            <code>[[&lt;node-id&gt;]]</code>, which is Obsidian's own wikilink syntax — so
+            pointing Obsidian at the graph gives you backlinks, a local graph view,
+            full-text search and a mobile app, over the same files, in the same git remote,
+            with no export step.</p>
+          <p>Use Obsidian when you want to <em>write</em>; use the map when you want the
+            time axis, the replay and the lineage view, which Obsidian knows nothing
+            about.</p>
+          <p><code>build/graph.md</code> is a Mermaid fallback that renders in GitHub, an
+            editor, or a terminal.</p>
+        </div>
+      </section>
+
+      <div class="next">
+        <a href="design.html"><span class="l">next</span><span class="t">Design decisions →</span></a>
+        <a href="workflows.html"><span class="l">back</span><span class="t">Using it →</span></a>
+      </div>
+
+    </div>
+
+    <aside class="toc">
+      <p>On this page</p>
+      <a href="#layout">Time-ordered layout</a>
+      <a href="#whole">The whole graph</a>
+      <a href="#panel">Click a node</a>
+      <a href="#lineage">Isolate lineage</a>
+      <a href="#replay">Replay the history</a>
+      <a href="#demo">The live demo</a>
+      <a href="#interactions">Everything it does</a>
+      <a href="#obsidian">Obsidian</a>
+    </aside>
+  </div>
+
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Screenshots shot against the live graph; the demo is generated.</span>
+    <a href="index.html">Overview</a>
+    <a href="model.html">The model</a>
+  </div>
+</footer>
+
+<script src="cairn.js"></script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entry title — Cairn</title>
+<meta name="description" content="One sentence for search results and the card on the index.">
+<link rel="stylesheet" href="../cairn.css">
+<link rel="icon" href="../img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="../index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="../index.html">Overview</a>
+    <a href="../model.html">The model</a>
+    <a href="../workflows.html">Using it</a>
+    <a href="../map.html">The map</a>
+    <a href="../design.html">Design</a>
+    <a href="index.html" aria-current="page">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+  <article class="prose" style="padding-top:clamp(40px,7vh,80px)">
+    <p class="eyebrow"><a href="index.html" style="color:inherit">Notebook</a></p>
+    <h1>Entry title</h1>
+    <p class="postmeta">YYYY-MM-DD</p>
+
+    <p>Lede paragraph: what changed, in one or two sentences.</p>
+
+    <h2>A section</h2>
+
+    <p>Prose. Inline code as <code>cairn note</code>. Blocks like this:</p>
+
+    <pre>cairn digest --days 14</pre>
+
+    <ul class="ticks">
+      <li><strong>A point.</strong> With the reason attached.</li>
+    </ul>
+
+    <p class="faint">A closing caveat, if there is one worth stating.</p>
+
+    <!-- To publish: rename to YYYY-MM-DD-slug.html, fill in the <title>, the
+         <h1>, the meta description and the postmeta line above, then add one
+         <li> to the list in index.html. No build step. -->
+
+  </article>
+
+  <div class="next">
+    <a href="index.html"><span class="l">back</span><span class="t">All entries &rarr;</span></a>
+    <a href="../index.html"><span class="l">see also</span><span class="t">Overview &rarr;</span></a>
+  </div>
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Cairn &mdash; a research record that keeps the dead ends.</span>
+    <a href="../index.html">Overview</a>
+  </div>
+</footer>
+
+<script src="../cairn.js"></script>
+</body>
+</html>

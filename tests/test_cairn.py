@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import lib  # noqa: E402
 import build_graph  # noqa: E402
 import export  # noqa: E402
+import export_example  # noqa: E402
 import new_node  # noqa: E402
 
 
@@ -2048,6 +2049,102 @@ class Export(unittest.TestCase):
             self.assertEqual(export.main(), 2)
         finally:
             sys.argv = argv
+
+
+
+class ExportExampleExclude(unittest.TestCase):
+    """cairn export_example --exclude — holding a node back from publication.
+
+    The behaviour worth protecting is the pair of refusals. Excluding a node is
+    a publication decision, and the two ways to get it silently wrong are a
+    typo (which would publish the node you meant to hold back) and excluding a
+    node something else depends on (which would emit a graph that lies).
+    """
+
+    def setUp(self):
+        clear()
+        self.dest = Path(tempfile.mkdtemp(prefix="cairn-exex-"))
+        self.addCleanup(shutil.rmtree, self.dest, ignore_errors=True)
+
+    def run_export(self, *args):
+        argv = sys.argv
+        sys.argv = ["cairn export_example", "--project", "alpha",
+                    "--dest", str(self.dest)] + list(args)
+        try:
+            return export_example.main()
+        finally:
+            sys.argv = argv
+
+    def test_a_mistyped_exclusion_is_refused_rather_than_ignored(self):
+        """The dangerous failure: a typo that silently excludes nothing, so the
+        node you meant to hold back gets published."""
+        write("2026-08-02-alpha-one.md", node_text(
+            "2026-08-02-alpha-one", project="alpha", created="2026-08-02"))
+        self.assertEqual(self.run_export("--exclude", "2026-08-02-alpha-typo"), 2)
+
+    def test_excluding_a_node_from_another_project_is_refused(self):
+        write("2026-08-02-alpha-one.md", node_text(
+            "2026-08-02-alpha-one", project="alpha", created="2026-08-02"))
+        write("2026-08-02-beta-one.md", node_text(
+            "2026-08-02-beta-one", project="beta", created="2026-08-02"))
+        self.assertEqual(self.run_export("--exclude", "2026-08-02-beta-one"), 2)
+
+    def test_cannot_exclude_a_node_a_kept_node_calls_parent(self):
+        """A dangling `parents` edge is a validation error, so the export would
+        be a graph that cannot even load."""
+        write("2026-08-02-alpha-root.md", node_text(
+            "2026-08-02-alpha-root", project="alpha", created="2026-08-02"))
+        write("2026-08-03-alpha-child.md", node_text(
+            "2026-08-03-alpha-child", project="alpha", created="2026-08-03",
+            parents="[2026-08-02-alpha-root]"))
+        self.assertEqual(
+            self.run_export("--exclude", "2026-08-02-alpha-root",
+                            "--acknowledge-review"), 2)
+        self.assertFalse((self.dest / "nodes").exists())
+
+    def test_cannot_exclude_the_target_of_a_typed_relation(self):
+        """Dropping a typed edge drops a claim — the reason `relates` exists."""
+        write("2026-08-02-alpha-root.md", node_text(
+            "2026-08-02-alpha-root", project="alpha", created="2026-08-02"))
+        write("2026-08-03-alpha-child.md", node_text(
+            "2026-08-03-alpha-child", project="alpha", created="2026-08-03"
+            ).replace("parents: []",
+                      "parents: []\nrelates:\n  - {to: 2026-08-02-alpha-root, "
+                      "type: contradicts, note: opposite sign}"))
+        self.assertEqual(
+            self.run_export("--exclude", "2026-08-02-alpha-root",
+                            "--acknowledge-review"), 2)
+
+    def test_an_excluded_node_is_named_in_the_readme_not_silently_dropped(self):
+        """A missing node and a hidden node must not look the same — the same
+        rule the `[[link]]` stubs exist for."""
+        write("2026-08-02-alpha-one.md", node_text(
+            "2026-08-02-alpha-one", project="alpha", created="2026-08-02"))
+        write("2026-08-03-alpha-secret.md", node_text(
+            "2026-08-03-alpha-secret", project="alpha", created="2026-08-03"))
+        self.assertEqual(
+            self.run_export("--exclude", "2026-08-03-alpha-secret",
+                            "--acknowledge-review"), 0)
+
+        self.assertTrue((self.dest / "nodes" / "2026-08-02-alpha-one.md").exists())
+        self.assertFalse((self.dest / "nodes" / "2026-08-03-alpha-secret.md").exists())
+
+        readme = (self.dest / "README.md").read_text()
+        self.assertIn("withheld", readme)
+        self.assertIn("2026-08-03-alpha-secret", readme)
+
+    def test_a_prose_link_to_an_excluded_node_becomes_a_visible_stub(self):
+        write("2026-08-02-alpha-secret.md", node_text(
+            "2026-08-02-alpha-secret", project="alpha", created="2026-08-02"))
+        write("2026-08-03-alpha-one.md", node_text(
+            "2026-08-03-alpha-one", project="alpha", created="2026-08-03")
+            + "\nSee [[2026-08-02-alpha-secret]] for why.\n")
+        self.assertEqual(
+            self.run_export("--exclude", "2026-08-02-alpha-secret",
+                            "--acknowledge-review"), 0)
+        body = (self.dest / "nodes" / "2026-08-03-alpha-one.md").read_text()
+        self.assertNotIn("[[2026-08-02-alpha-secret]]", body)
+        self.assertIn("not published here", body)
 
 
 if __name__ == "__main__":

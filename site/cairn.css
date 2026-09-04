@@ -1,0 +1,336 @@
+/* Cairn — site styles.
+ *
+ * The palette, the type pairing and the status/relation hues are lifted
+ * verbatim from scripts/graph_template.html, so the mark, the map, the deck and
+ * this site stay one visual system. If you change a colour here, change it
+ * there — the map is the authority.
+ *
+ * No build step, no CDN, no framework. One stylesheet, hand-written, the same
+ * way build/graph.html is one file you open from disk.
+ */
+
+:root {
+  --bg: #f7f8fa; --panel: #ffffff; --panel-2: #eef0f4; --line: #d8dce3;
+  --ink: #1a1d22; --ink-dim: #5b6270; --ink-faint: #8a91a0;
+  --accent: #275e9c;
+  --good: #35a06a; --bad: #c0504a; --active: #3d86cc; --pending: #c99a2e; --idle: #6b7280;
+  --supports: #157f77; --contradicts: #a83a70; --supersedes: #6b4dbd; --resolves: #1f7f8f;
+  --code-bg: #eef0f4; --lane: #f1f3f7;
+  --shadow: 0 1px 2px rgba(26,29,34,.06), 0 8px 24px rgba(26,29,34,.06);
+
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", Charter, Georgia, "Times New Roman", serif;
+
+  --measure: 68ch;
+  --gutter: clamp(20px, 5vw, 64px);
+}
+
+/* Three theme states, and all three are defined on purpose. The default
+   (no data-theme) follows the OS; an explicit choice wins in both directions. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14161a; --panel: #1c1f25; --panel-2: #23272f; --line: #2f343d;
+    --ink: #e6e8ec; --ink-dim: #9aa1ad; --ink-faint: #6b7280;
+    --accent: #7aa7d9;
+    --supports: #2aa198; --contradicts: #cc5490; --supersedes: #8f6fd6; --resolves: #3fb0bf;
+    --code-bg: #23272f; --lane: #17191e;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14161a; --panel: #1c1f25; --panel-2: #23272f; --line: #2f343d;
+  --ink: #e6e8ec; --ink-dim: #9aa1ad; --ink-faint: #6b7280;
+  --accent: #7aa7d9;
+  --supports: #2aa198; --contradicts: #cc5490; --supersedes: #8f6fd6; --resolves: #3fb0bf;
+  --code-bg: #23272f; --lane: #17191e;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ---------------------------------------------------------------- masthead */
+
+.masthead {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 18px;
+  padding: 12px var(--gutter);
+  /* Solid first: a browser without color-mix() would otherwise drop the
+     declaration entirely and render a transparent bar over scrolling text. */
+  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+@supports not (backdrop-filter: blur(8px)) { .masthead { background: var(--bg); } }
+
+.brand {
+  display: flex; align-items: center; gap: 9px;
+  font-family: var(--mono); font-weight: 600; font-size: 16px;
+  letter-spacing: -.01em; color: var(--ink); text-decoration: none;
+}
+.brand svg { display: block; width: 15px; height: auto; }
+.brand .stone { fill: var(--ink); }
+.brand .stone.a { fill: var(--accent); }
+
+.masthead nav { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
+.masthead nav a {
+  font-family: var(--mono); font-size: 12.5px; letter-spacing: .02em;
+  color: var(--ink-dim); text-decoration: none;
+  padding: 5px 9px; border-radius: 3px;
+}
+.masthead nav a:hover { color: var(--ink); background: var(--panel-2); }
+.masthead nav a[aria-current="page"] { color: var(--ink); background: var(--panel-2); }
+
+.masthead .tools { display: flex; gap: 6px; align-items: center; }
+button.ghost {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--ink-dim); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 3px;
+  padding: 5px 9px; cursor: pointer;
+}
+button.ghost:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+/* --------------------------------------------------------------- structure */
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 var(--gutter); }
+
+/* Long reference pages get a sticky table of contents on wide screens; it
+   collapses out of the way rather than reflowing the prose. */
+.withtoc { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 56px; align-items: start; }
+.toc { position: sticky; top: 76px; font-family: var(--mono); font-size: 12.5px; padding: 8px 0; }
+.toc p { margin: 0 0 8px; color: var(--ink-faint); letter-spacing: .12em; text-transform: uppercase; font-size: 10.5px; }
+.toc a {
+  display: block; padding: 3.5px 0 3.5px 11px; color: var(--ink-dim);
+  text-decoration: none; border-left: 2px solid var(--line); line-height: 1.35;
+}
+.toc a:hover { color: var(--ink); border-left-color: var(--ink-faint); }
+.toc a.active { color: var(--accent); border-left-color: var(--accent); }
+@media (max-width: 1000px) { .withtoc { grid-template-columns: minmax(0, 1fr); } .toc { display: none; } }
+
+main { padding-bottom: 96px; }
+section { padding-top: 52px; }
+.prose { max-width: var(--measure); }
+
+/* ------------------------------------------------------------------- type */
+
+h1, h2, h3, h4 {
+  font-family: var(--mono); font-weight: 600; letter-spacing: -.02em;
+  line-height: 1.15; text-wrap: balance; margin: 0;
+}
+h1 { font-size: clamp(34px, 5.6vw, 54px); letter-spacing: -.03em; }
+h2 { font-size: clamp(23px, 2.7vw, 30px); margin-bottom: 14px; }
+h3 { font-size: 17.5px; letter-spacing: -.005em; margin: 30px 0 8px; }
+h4 { font-size: 15px; margin: 22px 0 6px; }
+
+p, li { margin: 0 0 14px; }
+.lede { font-size: clamp(19px, 2.1vw, 22px); line-height: 1.45; color: var(--ink-dim); max-width: 54ch; }
+.dim { color: var(--ink-dim); }
+.faint { color: var(--ink-faint); font-size: 15px; }
+.eyebrow {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  letter-spacing: .17em; text-transform: uppercase; color: var(--ink-faint);
+  margin: 0 0 12px;
+}
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 700; }
+code, .mono { font-family: var(--mono); font-size: .88em; }
+:not(pre) > code {
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px;
+  padding: .08em .34em; overflow-wrap: break-word;
+}
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+ul, ol { padding-left: 22px; }
+ul.ticks { list-style: none; padding-left: 0; }
+ul.ticks > li { padding-left: 22px; position: relative; }
+ul.ticks > li::before {
+  content: ""; position: absolute; left: 0; top: .72em;
+  width: 13px; height: 0; border-top: 2px solid var(--line);
+}
+
+/* An anchor you can actually grab, without a permanent # in the margin. */
+.anchor { color: var(--ink-faint); text-decoration: none; opacity: 0; margin-left: .4em; font-weight: 400; }
+h2:hover .anchor, h3:hover .anchor, .anchor:focus { opacity: 1; }
+
+blockquote {
+  margin: 26px 0; padding: 2px 0 2px 20px;
+  border-left: 3px solid var(--contradicts);
+  font-size: clamp(19px, 2.2vw, 24px); line-height: 1.32; text-wrap: balance;
+  max-width: 40ch;
+}
+blockquote cite {
+  display: block; margin-top: 12px; font-style: normal;
+  font-family: var(--mono); font-size: 12px; color: var(--ink-faint); letter-spacing: .04em;
+}
+
+/* ------------------------------------------------------------------- code */
+
+pre {
+  font-family: var(--mono); font-size: 13px; line-height: 1.62;
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px;
+  padding: 16px 18px; overflow-x: auto; white-space: pre; tab-size: 2;
+  color: var(--ink); margin: 18px 0;
+}
+pre.tight { font-size: 12px; line-height: 1.55; }
+.k { color: var(--accent); }
+.cmt, .prompt { color: var(--ink-faint); }
+.note { color: var(--ink-dim); }
+.hl { color: var(--contradicts); }
+.s-dead { color: var(--bad); font-weight: 700; }
+.s-worked { color: var(--good); font-weight: 700; }
+.s-running { color: var(--active); font-weight: 700; }
+.s-planned { color: var(--pending); font-weight: 700; }
+
+/* ------------------------------------------------------------- components */
+
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+  padding: 18px 20px; box-shadow: var(--shadow);
+}
+.card > :last-child { margin-bottom: 0; }
+.card h3 { margin-top: 0; }
+.card p, .card li { font-size: 15.5px; color: var(--ink-dim); }
+.card.accent { border-color: var(--accent); }
+.card.accent h3 { color: var(--accent); }
+.card.bad { border-color: var(--bad); }
+.card.bad h3 { color: var(--bad); }
+.card.pending { border-color: var(--pending); }
+.card.pending h3 { color: var(--pending); }
+
+.grid { display: grid; gap: 20px; margin: 22px 0; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.g-wide-left { grid-template-columns: 1.3fr 1fr; align-items: start; }
+@media (max-width: 860px) { .g2, .g3, .g4, .g-wide-left { grid-template-columns: minmax(0, 1fr); } }
+
+.dot { display: inline-block; width: .62em; height: .62em; border-radius: 50%; vertical-align: .04em; }
+.d-good { background: var(--good); } .d-bad { background: var(--bad); }
+.d-active { background: var(--active); } .d-pending { background: var(--pending); }
+.d-idle { background: var(--idle); }
+
+.chip {
+  display: inline-block; font-family: var(--mono); font-size: 12px; letter-spacing: .02em;
+  border: 1px solid var(--line); border-radius: 999px; padding: .18em .68em;
+  color: var(--ink-dim); background: var(--panel); white-space: nowrap;
+}
+
+.legend { display: grid; gap: 16px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 26px 0; }
+@media (max-width: 860px) { .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.legend-item { border-top: 2px solid currentColor; padding-top: 9px; }
+.legend-item b { font-family: var(--mono); font-weight: 600; font-size: 14px; }
+.legend-item span { display: block; color: var(--ink-dim); font-size: 14px; line-height: 1.4; font-family: var(--serif); }
+
+table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+.table-wrap { overflow-x: auto; margin: 20px 0; }
+.table-wrap table { margin: 0; }
+th, td {
+  text-align: left; padding: 9px 12px 9px 0;
+  border-bottom: 1px solid var(--line); font-size: 15px; vertical-align: baseline;
+}
+th {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .11em; color: var(--ink-faint);
+}
+td.mono, td .mono { font-family: var(--mono); font-size: 13px; }
+
+.metrics { display: flex; gap: 40px; flex-wrap: wrap; margin: 26px 0; }
+.metric .v {
+  display: block; font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 42px; font-weight: 600; letter-spacing: -.03em; line-height: 1;
+}
+.metric .v small { font-size: .5em; font-weight: 600; }
+.metric .l {
+  display: block; margin-top: 7px; font-family: var(--mono); font-size: 11px;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); line-height: 1.5;
+}
+
+figure { margin: 26px 0; }
+figure img, figure svg.shot {
+  display: block; max-width: 100%; height: auto;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); box-shadow: var(--shadow);
+}
+figcaption { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); margin-top: 10px; line-height: 1.5; }
+
+/* Cartoons are inline SVG so they inherit the theme and stay crisp. They are
+   diagrams, not pictures — no border, no shadow, they sit in the prose. */
+figure.cartoon svg { display: block; width: 100%; height: auto; max-width: 100%; }
+.cartoon text { font-family: var(--mono); fill: var(--ink); }
+.cartoon .c-dim { fill: var(--ink-dim); }
+.cartoon .c-faint { fill: var(--ink-faint); }
+.cartoon .c-line { stroke: var(--line); fill: none; }
+.cartoon .c-edge { stroke: var(--ink-faint); fill: none; }
+.cartoon .c-panel { fill: var(--panel); stroke: var(--line); }
+.cartoon .c-lane { fill: var(--lane); }
+.cartoon .glyph { stroke: var(--bg); stroke-width: 1.4; }
+.cartoon .f-good { fill: var(--good); } .cartoon .f-bad { fill: var(--bad); }
+.cartoon .f-active { fill: var(--active); } .cartoon .f-pending { fill: var(--pending); }
+.cartoon .f-idle { fill: var(--idle); }
+
+.callout {
+  border-left: 3px solid var(--accent); background: var(--panel-2);
+  padding: 14px 18px; margin: 22px 0; border-radius: 0 4px 4px 0;
+}
+.callout > :last-child { margin-bottom: 0; }
+.callout.warn { border-left-color: var(--pending); }
+.callout p, .callout li { font-size: 15.5px; }
+
+/* Next/prev at the foot of a page — the site should always say where to go. */
+.next { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 60px; padding-top: 28px; border-top: 1px solid var(--line); }
+@media (max-width: 700px) { .next { grid-template-columns: minmax(0, 1fr); } }
+.next a {
+  display: block; text-decoration: none; border: 1px solid var(--line);
+  border-radius: 4px; padding: 14px 16px; background: var(--panel);
+}
+.next a:hover { border-color: var(--accent); }
+.next a .l { display: block; font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); }
+.next a .t { display: block; font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--ink); margin-top: 4px; }
+
+.pagefoot {
+  border-top: 1px solid var(--line); padding: 26px var(--gutter) 60px;
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint);
+}
+.pagefoot .wrap { padding: 0; display: flex; gap: 20px; flex-wrap: wrap; align-items: baseline; }
+.pagefoot a { color: var(--ink-dim); }
+
+/* Post list on the blog index. */
+.posts { list-style: none; padding: 0; margin: 30px 0 0; }
+.posts li { padding: 20px 0; border-bottom: 1px solid var(--line); margin: 0; }
+.posts .d { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); letter-spacing: .04em; }
+.posts h3 { margin: 5px 0 6px; font-size: 19px; }
+.posts h3 a { text-decoration: none; color: var(--ink); }
+.posts h3 a:hover { color: var(--accent); }
+.posts p { margin: 0; color: var(--ink-dim); font-size: 15.5px; max-width: var(--measure); }
+
+.postmeta { font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); letter-spacing: .04em; margin: 0 0 26px; }
+
+/* The live demo needs to be tall to be worth embedding at all. */
+.demoframe {
+  width: 100%; height: min(78vh, 760px); border: 1px solid var(--line);
+  border-radius: 4px; background: var(--panel); box-shadow: var(--shadow); display: block;
+}
+
+.hero { padding: clamp(48px, 9vh, 104px) 0 8px; }
+.hero .mark { display: block; width: 44px; height: auto; margin-bottom: 26px; }
+.hero .mark .stone { fill: var(--ink); }
+.hero .mark .stone.a { fill: var(--accent); }
+.byline { font-family: var(--mono); font-size: 13px; letter-spacing: .05em; color: var(--ink-faint); display: flex; gap: 14px; flex-wrap: wrap; margin-top: 26px; }
+
+@media print {
+  .masthead, .toc, .next, button.ghost { display: none; }
+  body { font-size: 11pt; }
+  .withtoc { grid-template-columns: 1fr; }
+}

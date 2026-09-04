@@ -1,0 +1,71 @@
+# Publish site/ to GitHub Pages.
+#
+# ---------------------------------------------------------------------------
+# THIS IS DELIBERATELY MANUAL. Read before changing the trigger.
+#
+# `2026-08-05-cairn-release-review` is still `todo`: Cairn was written on lab
+# time, so NLR — not the author — holds the release disposition, and that node
+# says it plainly. "A public GitHub push is a release. Not a draft, not a
+# staging step." A Pages site is at least as much a release as a repo push: it
+# is served to anyone with the URL and indexed by search engines.
+#
+# So there is no `on: push` here. Merging this file publishes nothing; someone
+# has to go to the Actions tab and run it. Add the push trigger once tech
+# transfer has given a determination and the repo is cleared to be public:
+#
+#   on:
+#     push:
+#       branches: [main]
+#       paths: ['site/**', '.github/workflows/pages.yml']
+#     workflow_dispatch:
+#
+# Enabling Pages in repo Settings is also a separate manual step, and on a
+# private repo Pages needs a plan that supports it.
+# ---------------------------------------------------------------------------
+
+name: Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a half-finished deploy; a partially published site is worse
+# than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The live demo is a generated export of a real subgraph, gitignored
+      # until the same release review clears it. Say so rather than shipping a
+      # broken iframe silently.
+      - name: Note whether the live demo is present
+        run: |
+          if [ -f site/demo/graph.html ]; then
+            echo "::notice::live demo present ($(wc -c < site/demo/graph.html) bytes)"
+          else
+            echo "::warning::site/demo/graph.html absent — the map page's embedded demo will 404. Generate with 'make site-demo' and un-ignore site/demo/ once the release review clears."
+          fi
+
+      # Catch a broken internal link before it is published, not after.
+      - name: Check internal links
+        run: python3 scripts/check_site_links.py site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

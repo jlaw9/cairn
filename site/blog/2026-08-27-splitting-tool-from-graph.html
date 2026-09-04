@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Splitting the tool from the graph — Cairn</title>
+<meta name="description" content="One repo became two, because a tool for recording research can be shared and a research record cannot. What it cost, and what the conflation was actually buying.">
+<link rel="stylesheet" href="../cairn.css">
+<link rel="icon" href="../img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="../index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="../index.html">Overview</a>
+    <a href="../model.html">The model</a>
+    <a href="../workflows.html">Using it</a>
+    <a href="../map.html">The map</a>
+    <a href="../design.html">Design</a>
+    <a href="index.html" aria-current="page">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+  <article class="prose" style="padding-top:clamp(40px,7vh,80px)">
+    <p class="eyebrow"><a href="index.html" style="color:inherit">Notebook</a></p>
+    <h1>Splitting the tool from the graph</h1>
+    <p class="postmeta">2026-08-27 &middot; commit <code>eb540e2</code> &middot; node <code>2026-08-27-cairn-repo-topology</code></p>
+
+    <p>For most of its life Cairn was one repo: <code>scripts/</code> and
+      <code>nodes/</code> side by side. That is the right shape for a tool with exactly
+      one user, and the wrong shape the moment anyone else wants it — because
+      <strong>a tool for recording research decisions can be shared, and a research record
+      cannot.</strong></p>
+
+    <p>So there are two now, and two variables:</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>variable</th><th>means</th><th>holds</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">$CAIRN_PATH</td><td>the tool</td>
+            <td class="mono">bin/ scripts/ skills/ docs/ site/</td></tr>
+          <tr><td class="mono">$CAIRN_ROOT</td><td>a graph &mdash; yours</td>
+            <td class="mono">nodes/ papers/ meetings/ inbox/ build/</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Confusing them is now the first thing that goes wrong, which is a real cost. In
+      exchange, one tool can serve several graphs, and a pre-split clone keeps working
+      unchanged, because <code>CAIRN_ROOT</code> falls back to the tool repo when it is
+      unset.</p>
+
+    <h2>The cost, named before it was discovered</h2>
+
+    <p>One thing the conflation was genuinely buying: <code>git log</code> attributed tool
+      commits and node commits in <em>one</em> history, so <em>“what changed in Cairn the
+      week I wrote that node?”</em> was one command. After the split it is two.</p>
+
+    <p>That is worth writing down rather than finding out later and calling it a
+      regression. The graph repo kept its full history — 61 commits — and the tool repo
+      was filtered to the 28 that touch the tool, which is why the contemporaneity numbers
+      in <code>build/report.md</code> are still computed from the graph's own log.</p>
+
+    <h2>What the split forced into existence</h2>
+
+    <p>Two things, and both were overdue:</p>
+
+    <ul class="ticks">
+      <li><strong><code>cairn init</code> had to exist.</strong> If the answer to “what
+        does a collaborator clone?” is “the tool, then their own graph”, then creating a
+        graph has to be one command rather than a directory layout you copy by hand.</li>
+      <li><strong>The install docs had to be rewritten around two paths.</strong> Which
+        made it the first time Cairn was installed by someone who did not write it — the
+        only honest test an install doc gets.</li>
+    </ul>
+
+    <h2>And one question it opened</h2>
+
+    <p>Where does Cairn's own design record live? Those nodes are the tool's rationale
+      <em>and</em> the best possible demonstration of what the tool is for — a real graph
+      with real dead ends, which no synthetic example can be. Carrying them in the tool
+      repo is far more attractive than leaving the public repo with no example graph.</p>
+
+    <p>It is also <strong>not free</strong>. Those bodies name internal hosts, an internal
+      GitHub, a dozen project keys, per-project token figures, and one internal platform's
+      architecture. <strong>Publishing them is a content review, not a copy.</strong></p>
+
+    <p>Hence <code>cairn export_example</code>, which does two things a <code>cp</code>
+      would not: it rewrites internal hostnames through an explicit table, so what leaves
+      is deliberate rather than whatever happened to be in a <code>host:</code> field; and
+      it <em>refuses</em> — grepping the selected bodies for things a human has to clear,
+      printing them with file and line, and writing nothing until the review is
+      acknowledged.</p>
+
+    <p class="faint">A flag in a script is not a review. The flag exists to make the
+      human's pass explicit, not to replace it — publication is not recoverable by
+      apologising afterwards.</p>
+
+  </article>
+
+  <div class="next">
+    <a href="index.html"><span class="l">back</span><span class="t">All entries &rarr;</span></a>
+    <a href="../workflows.html#two-repos"><span class="l">see also</span><span class="t">Two repos, two variables &rarr;</span></a>
+  </div>
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Cairn &mdash; a research record that keeps the dead ends.</span>
+    <a href="../index.html">Overview</a>
+  </div>
+</footer>
+
+<script src="../cairn.js"></script>
+</body>
+</html>

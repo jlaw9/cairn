@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The comma that ate seventeen nodes — Cairn</title>
+<meta name="description" content="An unquoted comma in a YAML flow scalar silently turned the tail of a sentence into a key. It hit 17 of the first 55 nodes, and the fix that mattered was not the writer.">
+<link rel="stylesheet" href="../cairn.css">
+<link rel="icon" href="../img/cairn.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="../index.html">
+    <svg viewBox="0 0 64 82" aria-hidden="true">
+      <ellipse class="stone a" cx="33" cy="13" rx="14" ry="7.5" transform="rotate(-7 33 13)"/>
+      <ellipse class="stone" cx="31" cy="31" rx="20" ry="9" transform="rotate(4 31 31)"/>
+      <ellipse class="stone" cx="33" cy="51" rx="26" ry="10" transform="rotate(-3 33 51)"/>
+      <ellipse class="stone" cx="32" cy="71" rx="20" ry="8" transform="rotate(2 32 71)"/>
+    </svg>
+    Cairn
+  </a>
+  <nav>
+    <a href="../index.html">Overview</a>
+    <a href="../model.html">The model</a>
+    <a href="../workflows.html">Using it</a>
+    <a href="../map.html">The map</a>
+    <a href="../design.html">Design</a>
+    <a href="index.html" aria-current="page">Notebook</a>
+  </nav>
+  <div class="tools"><button class="ghost" id="theme" type="button">dark</button></div>
+</header>
+
+<main class="wrap">
+  <article class="prose" style="padding-top:clamp(40px,7vh,80px)">
+    <p class="eyebrow"><a href="index.html" style="color:inherit">Notebook</a></p>
+    <h1>The comma that ate seventeen nodes</h1>
+    <p class="postmeta">2026-08-05 &middot; found during the first backfill</p>
+
+    <p>The first backfill produced 55 nodes from five weeks of agent sessions. It was also
+      the first real test of the tooling, and it found three things. This is the one worth
+      telling, because the bug was <em>silent</em>.</p>
+
+    <p>History entries are written as YAML flow mappings, which are compact and read well
+      in a diff:</p>
+
+    <pre>- {date: 2026-08-02, status: running, note: kicked off on the cluster}</pre>
+
+    <p>Now put a comma in the note:</p>
+
+    <pre><span class="cmt"># what was written</span>
+- {date: 2026-08-02, status: running, note: scaled past 1,000 systems}
+
+<span class="cmt"># what YAML read</span>
+- {date: 2026-08-02, status: running, note: scaled past 1, 000 systems: null}</pre>
+
+    <p>The comma ended the scalar. <code>note</code> became <code>scaled past 1</code>,
+      and the tail of the sentence became <strong>a key</strong>. No error, no warning —
+      the file parsed, the node validated, the map rendered. <strong>17 of the 55 nodes
+      were affected</strong> before anyone noticed.</p>
+
+    <h2>The fix that mattered was not the writer</h2>
+
+    <p>Making the writer quote flow scalars properly was ten minutes and is obviously
+      necessary. It is also not the fix, because it only closes the path that happened to
+      be found. These files are markdown that people edit by hand; the next unquoted comma
+      will arrive by a different route.</p>
+
+    <p>The fix that mattered was in the <a href="../model.html#validator">validator</a>:
+      <strong>a history entry may carry only <code>date</code>, <code>status</code> and
+      <code>note</code>.</strong> An extra key is now an error that blocks the commit,
+      with the message saying what it almost certainly means — an unquoted comma split a
+      note and turned its tail into a bogus key.</p>
+
+    <p>That converts a whole <em>class</em> of silent corruption into a loud failure, and
+      it does so without knowing anything about commas.</p>
+
+    <h2>Why this is the scariest bug this project has had</h2>
+
+    <p>Cairn exists so that “did we already try this, and what happened?” has an answer.
+      A crash is annoying. <strong>A record that quietly drops the second half of the
+      sentence explaining why something failed is an attack on the only thing the project
+      is for</strong> — and it is undetectable by reading the map, because the map shows
+      you the truncated note and nothing indicates it is truncated.</p>
+
+    <p>Hence the general rule this settled: in a record you intend to trust, prefer a
+      validator that rejects <em>shapes it does not recognise</em> over one that checks
+      the specific mistakes you have already made.</p>
+
+    <h2>The other two things the backfill found</h2>
+
+    <ul class="ticks">
+      <li><strong>The pre-commit hook probed for the wrong thing.</strong> It looked for “a
+        <code>python3</code> that can <code>import yaml</code>” — satisfied on the cluster
+        by a 3.6.8 too old to <em>parse</em> <code>lib.py</code>. So every commit was
+        blocked by a SyntaxError reported as schema drift. Hence
+        <code>scripts/find_python.sh</code>, and hence every command going through
+        <code>bin/cairn</code> rather than the scripts directly.</li>
+      <li><strong>Untyped edges lost information.</strong> Three findings could only be
+        connected in prose. Hence <code>relates</code> — the one schema addition in the
+        project's life, and it took a written argument.</li>
+    </ul>
+
+    <p class="faint">A backfill is also biased toward what worked, which is why the
+      coverage table reports what share of a project's nodes were committed within a week
+      of the work they describe. A project at 0% is a reconstruction, and a gap there
+      means the graph does not know.</p>
+
+  </article>
+
+  <div class="next">
+    <a href="index.html"><span class="l">back</span><span class="t">All entries &rarr;</span></a>
+    <a href="../model.html#validator"><span class="l">see also</span><span class="t">What the validator checks &rarr;</span></a>
+  </div>
+</main>
+
+<footer class="pagefoot">
+  <div class="wrap">
+    <span>Cairn &mdash; a research record that keeps the dead ends.</span>
+    <a href="../index.html">Overview</a>
+  </div>
+</footer>
+
+<script src="../cairn.js"></script>
+</body>
+</html>
