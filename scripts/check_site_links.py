@@ -40,6 +40,11 @@ EXTERNAL = ("http://", "https://", "mailto:", "tel:", "data:", "//")
 #: their `href`s are built at runtime — `demo/graph.html` writes
 #: `href="${esc(n.commitUrl)}"` from JavaScript, which is not a broken link. They
 #: are still valid link *targets*; they are just not scanned as sources.
+#:
+#: A *missing* generated target is a warning, not an error. `site/demo/` is
+#: gitignored until the release review clears, so on a fresh checkout it is
+#: legitimately absent — the Pages workflow says so in its own warning step, and
+#: this check must not contradict it by failing the deploy.
 GENERATED = ("demo",)
 
 
@@ -61,6 +66,7 @@ def main() -> int:
         ids[page] = set(ID.findall(page.read_text(encoding="utf-8")))
 
     errors: list[str] = []
+    warnings: list[str] = []
     linked: set[Path] = set()
 
     for page in pages:
@@ -80,7 +86,10 @@ def main() -> int:
             target = (page.parent / path_part).resolve() if path_part else page
 
             if not target.exists():
-                errors.append(f"{rel}: '{ref}' — no such file")
+                if set(Path(path_part).parts) & set(GENERATED):
+                    warnings.append(f"{rel}: '{ref}' — generated target absent (make site-demo)")
+                else:
+                    errors.append(f"{rel}: '{ref}' — no such file")
                 continue
 
             if target.suffix.lower() == ".html":
@@ -96,11 +105,14 @@ def main() -> int:
             continue
         errors.append(f"{page.relative_to(root)}: no page links to this")
 
+    for w in sorted(set(warnings)):
+        print(f"  warning: {w}")
     for e in errors:
         print(f"  {e}")
 
     n = len(pages)
-    print(f"check_site_links: {n} page(s), {len(errors)} problem(s)")
+    print(f"check_site_links: {n} page(s), {len(errors)} problem(s), "
+          f"{len(set(warnings))} warning(s)")
     return 1 if errors else 0
 
 
