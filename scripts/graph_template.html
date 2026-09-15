@@ -1069,6 +1069,15 @@ function open(id) {
       `<div style="margin-bottom:6px"><a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.title || r.doi)}</a>` +
       (r.cocited.length ? `<div class="muted">also cited by ${r.cocited.length} other node(s)</div>` : '') + `</div>`
     ).join('')) +
+    // Inputs, the mirror of Artifacts: which registered data this work ran on.
+    // The link is the registry page itself — a dataset has no external URL the
+    // way a paper has a DOI, so `../datasets/<key>.md` is the source of truth.
+    section('Data', (n.data || []).map(d =>
+      `<div style="margin-bottom:6px"><a href="../datasets/${encodeURIComponent(d.key)}.md">${esc(d.title || d.key)}</a>` +
+      (d.tier ? ` <span class="pill">${esc(d.tier)}</span>` : '') +
+      (d.sha256 ? `<div class="muted"><code>sha256:${esc(d.sha256.slice(0, 12))}…</code></div>` : '') +
+      (d.shared.length ? `<div class="muted">also used by ${d.shared.length} other node(s)</div>` : '') + `</div>`
+    ).join('')) +
     section('History', `<ul class="hist" style="padding-left:0;margin:0">` + n.history.map(h =>
       `<li${h.date > when ? ' class="future"' : ''}>` +
       `<span class="d">${esc(h.date)}</span><strong>${esc(h.status)}</strong>` +

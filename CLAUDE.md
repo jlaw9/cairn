@@ -58,6 +58,7 @@ In the **graph** repo (`$CAIRN_ROOT`):
 |---|---|
 | `nodes/<id>.md` | the graph. One file per node, never deleted, never moved |
 | `papers/<doi-slug>.md` | one page per cited paper, CrossRef-verified metadata |
+| `datasets/<key>.md` | one page per dataset nodes reference via `data:` — sha256, host:path, tier |
 | `meetings/<date>-<who>.md` | meeting notes, raw |
 | `inbox/<date>-<hhmm>.md` | unstructured capture, awaiting triage |
 | `assets/` | small figures only — one per node, for the HTML thumbnail |

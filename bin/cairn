@@ -37,6 +37,7 @@ usage: cairn <command> [args...]
   validate       check every node against the schema
   build          regenerate build/graph.html and build/graph.md
   add_paper      DOI in, CrossRef-verified papers/ entry out
+  add_dataset    register a dataset in datasets/ — sha256-verified when it can be
   mine_sessions  survey Claude Code transcripts (read-only)
   digest         what changed, and what needs you
   standup        what to pick up today; --project for a resume packet

@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 
 FIXTURE = Path(tempfile.mkdtemp(prefix="cairn-test-"))
-for sub in ("nodes", "papers", "build"):
+for sub in ("nodes", "papers", "datasets", "build"):
     (FIXTURE / sub).mkdir(parents=True)
 
 # lib reads CAIRN_ROOT at import time, so this has to happen before the import.
@@ -40,7 +40,7 @@ def write(name: str, text: str, folder: str = "nodes") -> Path:
 
 
 def clear() -> None:
-    for folder in ("nodes", "papers"):
+    for folder in ("nodes", "papers", "datasets"):
         for path in (FIXTURE / folder).glob("*.md"):
             path.unlink()
 
@@ -658,6 +658,103 @@ class PaperIngest(unittest.TestCase):
         self.assertEqual(lib.paper_backlinks(lib.load_nodes()[0])[doi], [CHILD_ID])
         # A ref with a registry page must not warn about thin backlinks.
         self.assertFalse(any("has no page in papers/" in i.message for i in lib.validate()))
+
+
+class DatasetRegistryTest(unittest.TestCase):
+    """datasets/ is the papers/ pattern for input data: a keyed lookup table
+    off the DAG, joined from nodes by `data: [key]`, backlinked by the renderer.
+    The load-bearing promise is that the join never silently breaks."""
+
+    KEY = "dp18-250912"
+
+    def setUp(self):
+        clear()
+        valid_pair()
+
+    def dataset(self, key=None, **fields):
+        key = key or self.KEY
+        meta = {"key": key, "title": f"Dataset {key}", **fields}
+        path = lib.dataset_dir() / f"{key}.md"
+        lib.Node(path=path, meta=meta, body="provenance").write()
+        return path
+
+    def test_round_trip_and_backlinks(self):
+        self.dataset(sha256="a" * 64, tier="review")
+        write(f"{CHILD_ID}.md", node_text(CHILD_ID, extra=f"data: [{self.KEY}]\n"))
+        datasets, errors = lib.load_datasets()
+        self.assertEqual(errors, [])
+        self.assertEqual(datasets[self.KEY].meta["tier"], "review")
+        self.assertEqual(lib.dataset_backlinks(lib.load_nodes()[0])[self.KEY], [CHILD_ID])
+        self.assertFalse(any("has no page in datasets/" in i.message for i in lib.validate()))
+
+    def test_data_key_with_no_page_warns_but_does_not_block(self):
+        write(f"{CHILD_ID}.md", node_text(CHILD_ID, extra="data: [nowhere-250101]\n"))
+        issues = lib.validate()
+        self.assertFalse([i for i in issues if i.level == "error"])
+        self.assertTrue(any("has no page in datasets/" in i.message for i in issues))
+
+    def test_malformed_data_key_is_an_error(self):
+        write(f"{CHILD_ID}.md", node_text(CHILD_ID, extra='data: ["DP18 250912"]\n'))
+        self.assertIn("is not a dataset key", error_text())
+
+    def test_key_must_match_filename_stem(self):
+        # Written under one name, keyed as another — the join would resolve to
+        # a page git blame attributes to a different dataset.
+        path = lib.dataset_dir() / "wrong-name.md"
+        lib.Node(path=path, meta={"key": self.KEY, "title": "T"}, body="x").write()
+        _, errors = lib.load_datasets()
+        self.assertTrue(any("does not match filename stem" in e for e in errors))
+
+    def test_page_without_a_key_is_an_error(self):
+        (lib.dataset_dir() / "orphan.md").write_text("---\ntitle: T\n---\nx\n", encoding="utf-8")
+        _, errors = lib.load_datasets()
+        self.assertTrue(any("no 'key:' field" in e for e in errors))
+
+    def test_bad_sha256_and_tier_warn(self):
+        self.dataset(sha256="deadbeef", tier="secret")
+        messages = [i.message for i in lib.validate() if i.level == "warn"]
+        self.assertTrue(any("not 64 hex chars" in m for m in messages))
+        self.assertTrue(any("tier 'secret'" in m for m in messages))
+
+    def test_dangling_generated_by_and_supersedes_warn(self):
+        self.dataset(generated_by="2026-01-01-prekd-nonexistent", supersedes="dp18-250801")
+        messages = [i.message for i in lib.validate() if i.level == "warn"]
+        self.assertTrue(any("generated_by" in m for m in messages))
+        self.assertTrue(any("supersedes 'dp18-250801'" in m for m in messages))
+
+    def test_dataset_page_leads_with_the_key(self):
+        # A dataset has no `id`; the key is its identity and must sort first.
+        meta = {"title": "T", "sha256": "a" * 64, "key": self.KEY, "host": "kestrel"}
+        first = lib.dump_frontmatter(meta).splitlines()[0]
+        self.assertTrue(first.startswith("key:"), first)
+
+    def test_data_field_is_not_an_unknown_field(self):
+        self.dataset()
+        write(f"{CHILD_ID}.md", node_text(CHILD_ID, extra=f"data: [{self.KEY}]\n"))
+        self.assertFalse(any("unknown field 'data'" in i.message for i in lib.validate()))
+
+    def test_new_node_accepts_data_and_update_appends_it(self):
+        self.dataset()
+        import argparse
+        ns = argparse.Namespace(
+            type="experiment", title="Train on DP-18", project="prekd",
+            status="", note="", date="2026-09-02", slug="prekd-dp18-train",
+            parent=[], relate=[], ref=[], data=[self.KEY], repo=None,
+            commit=None, host=None, artifact=[], origin=None, venue=None,
+            url=None, due=None, source=None, new_project=False,
+        )
+        node = new_node.build(ns)
+        self.assertEqual(node.meta["data"], [self.KEY])
+        node.write()
+        ns2 = argparse.Namespace(
+            update=node.id, status="", note="", date="2026-09-02",
+            relate=[], data=["dp18-250913"], commit=None, host=None,
+            url=None, due=None, artifact=[],
+        )
+        updated = new_node.update(ns2)
+        self.assertEqual(updated.data, [self.KEY, "dp18-250913"])
+        # Appending a dataset is not a state transition: history untouched.
+        self.assertEqual(len(updated.history), 1)
 
 
 class FindPython(unittest.TestCase):
