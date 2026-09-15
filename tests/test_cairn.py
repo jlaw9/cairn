@@ -1495,6 +1495,95 @@ class Sync(unittest.TestCase):
             self.assertIn("1 node(s) never committed", result.stdout)
             self.assertIn("1 node(s) edited", result.stdout)
 
+    @staticmethod
+    def _seed(root):
+        """A minimal graph clone with one commit."""
+        import subprocess
+        (root / "nodes").mkdir()
+        (root / "build").mkdir()
+        (root / "nodes" / "2026-08-02-prekd-a.md").write_text("x\n")
+        for cmd in (["init", "-q"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t",
+                     "commit", "-q", "-m", "seed"]):
+            subprocess.run(["git", "-C", str(root), *cmd], timeout=30,
+                           capture_output=True)
+
+    def _sync(self, root, *args):
+        import subprocess
+        return subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "sync", "--check", *args],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "CAIRN_ROOT": str(root)})
+
+    def test_a_dead_rebase_is_reported_even_when_quiet(self):
+        """The regression this class exists to prevent a second time.
+
+        A `pull --rebase --autostash` whose rebase dies leaves .git/rebase-merge
+        holding only an `autostash` file. git then reports "you are currently
+        rebasing" forever and refuses every later pull, while the shelved work is
+        reachable only by that SHA. sync used to notice -- and log it to a channel
+        the session hook does not print, so the hook said "nothing needs you" for
+        a week while no pull had succeeded. It has to come out of report(), which
+        is what --quiet prints."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed(root)
+            (root / "draft.txt").write_text("work in progress\n")
+            subprocess.run(["git", "-C", str(root), "-c", "user.email=t@t",
+                            "-c", "user.name=t", "stash", "-q", "-u"],
+                           timeout=30, capture_output=True)
+            sha = subprocess.run(["git", "-C", str(root), "rev-parse", "refs/stash"],
+                                 capture_output=True, text=True, timeout=30).stdout.strip()
+            (root / ".git" / "rebase-merge").mkdir()
+            (root / ".git" / "rebase-merge" / "autostash").write_text(sha + "\n")
+
+            for args in ((), ("--quiet",)):
+                result = self._sync(root, *args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("dead rebase", result.stdout,
+                              f"not reported with args={args}:\n{result.stdout}")
+                self.assertIn(sha, result.stdout,
+                              "the autostash SHA is the only handle on the stranded "
+                              f"work and must be printed:\n{result.stdout}")
+
+    def test_a_dead_rebase_without_a_stash_is_still_reported(self):
+        """No stranded work, but it still blocks every pull, which is the part
+        that goes unnoticed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._seed(root)
+            (root / ".git" / "rebase-merge").mkdir()
+            result = self._sync(root, "--quiet")
+            self.assertIn("dead rebase", result.stdout)
+            self.assertNotIn("autostash", result.stdout)
+
+    def test_a_genuine_rebase_is_not_called_dead(self):
+        """The false positive that would matter: a real conflicted rebase is a
+        normal state a human is in the middle of, and telling them to rm -rf it
+        would destroy the rebase. `head-name` is what git itself needs to
+        --continue or --abort, so its presence is the test."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            git = lambda *a: subprocess.run(["git", "-C", str(root), *a],
+                                            timeout=30, capture_output=True)
+            self._seed(root)
+            git("-c", "user.email=t@t", "-c", "user.name=t", "checkout", "-q", "-b", "side")
+            (root / "nodes" / "2026-08-02-prekd-a.md").write_text("side\n")
+            git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "side")
+            git("checkout", "-q", "master")
+            (root / "nodes" / "2026-08-02-prekd-a.md").write_text("master\n")
+            git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "master")
+            git("checkout", "-q", "side")
+            git("-c", "user.email=t@t", "-c", "user.name=t", "rebase", "master")
+
+            self.assertTrue((root / ".git" / "rebase-merge" / "head-name").exists(),
+                            "test setup failed to produce a conflicted rebase")
+            result = self._sync(root, "--quiet")
+            self.assertNotIn("dead rebase", result.stdout,
+                             f"a genuine rebase was called dead:\n{result.stdout}")
+
     def test_it_does_not_need_pyyaml(self):
         """capture and sync are the two commands that must work on a machine where
         Cairn is otherwise broken, so neither may import lib."""
