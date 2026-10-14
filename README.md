@@ -1,17 +1,20 @@
 # <img src="docs/img/cairn.svg" height="30" alt=""> Cairn
 
-A persistent, git-backed DAG of research activity across projects —
-experiments, dead ends, open threads, conference ideas, tasks with deadlines,
-papers, milestones — maintained by Claude Code as a side effect of doing the
-work, and rendered as a clickable map.
+**The research record an agent keeps: a git-backed graph of what was tried, dead ends included.**
 
-**Two repos.** This one is the tool. Your graph is its own repo, created with
-`cairn init` and found through `$CAIRN_ROOT` — so the tool can be shared without
-shipping anyone's research record, and one tool can serve several graphs. A
-pre-split clone with `nodes/` beside `scripts/` keeps working unchanged.
-`example/` holds a scrubbed, generated copy of this project's own subgraph,
-because a tool for recording research decisions is best explained by the record
-of its own.
+A persistent DAG of research activity across projects — experiments, dead ends,
+open threads, conference ideas, tasks with deadlines, papers, milestones —
+written by Claude Code as a side effect of doing the work, and rendered as a
+clickable map.
+
+**Two repos.** This one is the tool, `$CAIRN_PATH`. Your graph is its own repo,
+created with `cairn init` and found through `$CAIRN_ROOT` — so the tool can be
+shared without shipping anyone's research record, and one tool can serve several
+graphs. A pre-split clone with `nodes/` beside `scripts/` keeps working
+unchanged. `example/` will hold a scrubbed, generated copy of this project's own
+subgraph — a tool for recording research decisions is best explained by the
+record of its own — once the release review below clears it; until then it is
+generated locally and gitignored.
 
 The point isn't visualization. The point is that six months from now, *"did we
 already try this, and what happened?"* has an answer, and *"what should I do
@@ -28,16 +31,19 @@ together.
 ## Contents
 
 - [Why this can exist now](#why-this-can-exist-now) — long version [on the site][site-why]
-- [Install — once per machine](#install--once-per-machine) · [The one dependency](#the-one-dependency)
+- [Install — once per machine](#install--once-per-machine) — `onboard` · [The one dependency](#the-one-dependency)
+- [Standalone, or with OpenViking](#standalone-or-with-openviking) — `openviking`
 - [Then pick your path](#then-pick-your-path)
   - [A. Work that already happened → backfill first](#a-you-have-work-that-already-happened--backfill-first)
   - [B. Starting something new → open the node before you run it](#b-you-are-starting-something-new--open-the-node-before-you-run-it)
   - [C. Starting from a literature review](#c-you-are-starting-from-a-literature-review)
   - [D. Your work isn't computational](#d-your-work-isnt-computational)
-- [What's here](#whats-here)
+- [What's here](#whats-here) — the tool, and the graph
 - [What to pick up today](#what-to-pick-up-today) — `standup`
 - [Capture, from anywhere](#capture-from-anywhere) — `capture`, `import_note`
 - [Notes on a node](#notes-on-a-node) — `note`
+- [Who presses commit](#who-presses-commit) — `policy`
+- [Which claims a human has actually read](#which-claims-a-human-has-actually-read) — `review`
 - [Where to start, and how much to trust a gap](#where-to-start-and-how-much-to-trust-a-gap) — `build/report.md`
 - [What changed, and what needs you](#what-changed-and-what-needs-you) — `digest` · [Tasks as issues](#tasks-as-issues)
 - [The map](#the-map) — `build/graph.html`
@@ -75,117 +81,132 @@ Three of Graphify's ideas were worth taking and two are in here.
 
 ## Install — once per machine
 
-**New here, or setting up a machine that isn't the one this was written on? Read
-[docs/install.md](docs/install.md).** It is the same four steps, spelled out,
-with the failure modes named — including what to do when a cluster's `python3`
-can't run the scripts at all.
+**[docs/install.md](docs/install.md) is the authority for setup** — the same
+steps spelled out, with the failure modes named, including what to do when a
+cluster's `python3` can't run the scripts at all.
 
 ```sh
-git clone <this-repo> ~/cairn && cd ~/cairn
-cairn init ~/research-graph                 # your graph: dirs, git, hook
-export CAIRN_PATH=$HOME/cairn               # the tool  — add both to your profile
-export CAIRN_ROOT=$HOME/research-graph      # the graph
-make setup                                  # hook + slash commands + checks
+git clone https://github.com/jlaw9/cairn ~/cairn && cd ~/cairn
+make python                                 # the interpreter Cairn will use, or why not
+bin/cairn onboard                           # three questions; the answers land on disk
+export CAIRN_PATH=$HOME/cairn               # the tool  — add these to your profile
+export CAIRN_ROOT=$HOME/research-graph      # your graph
 export PATH=$CAIRN_PATH/bin:$PATH           # optional: plain `cairn` anywhere
-make doctor                                 # confirm every step took
+cairn doctor                                # confirm every step took
 ```
 
-Already have a graph? Skip `init`, point `CAIRN_ROOT` at it, and run
-`cairn install_hooks $CAIRN_ROOT`.
+`onboard` asks three things, and keeps no config file — each answer becomes a
+fact on disk that `doctor` reads back:
 
-Then wire the machine up once, so every session sees the graph without a
-per-project step:
+1. **Where is your graph?** Created with `cairn init` if it doesn't exist:
+   directories, a `CLAUDE.md` with the conventions, `git init`, the validation
+   hook.
+2. **Commit policy** — `ask` or `auto`. See [Who presses commit](#who-presses-commit).
+3. **Which sessions see the graph?** Every Claude Code session on this machine,
+   or only sessions started in one project.
+
+Every question has a flag, so an agent can run it:
+`cairn onboard --graph ~/research-graph --commit-mode auto --scope project=. --yes`.
+Cloned an existing graph rather than `init`ing one? Point `CAIRN_ROOT` at it and
+run `cairn install_hooks $CAIRN_ROOT`.
+
+**Keep the graph outside every project repo.** One graph spans all projects
+(design decision 1), and a graph nested inside a project shows up as untracked in
+that project's `git status`, makes `/log`'s `repo` field ambiguous, and quietly
+implies the graph belongs to one project. `cairn init` refuses to nest one.
+
+The third question is `install_context`, which is worth understanding rather
+than just running:
 
 ```sh
-cairn install_context            # dry run: says what it would change
-cairn install_context --apply
+cairn install_context                               # dry run: says what it would change
+cairn install_context --apply                       # every session on this machine
+cairn install_context --project ~/work/polyid --apply   # only sessions started there
 ```
 
-That does three things, none of them per-project:
-
-1. Writes a marked block into `~/.claude/CLAUDE.md` — user-level memory, loaded
-   in every session in every directory — naming the graph and the four verbs.
-2. Installs a `SessionStart` hook running `cairn session_hook`, which pulls
-   (throttled) and returns the graph's current state as the session's context,
-   plus a `SessionEnd` hook that says what is unpushed.
-3. Symlinks the slash commands, so `/log`, `/standup`, `/capture`, `/triage`
-   and `/digest` resolve from any repo.
+Machine-wide, it writes three things under `~/.claude`: a marked block in
+`CLAUDE.md` naming the graph and the four verbs; a `SessionStart` hook running
+`cairn session_hook`, which pulls (throttled) and hands the session the graph's
+state and the commit policy in force, plus a `SessionEnd` hook that says what is
+unpushed; and symlinks so `/log`, `/standup`, `/capture`, `/triage`, `/digest`
+and `/paper` resolve from any repo. With `--project <path>` the same three land
+inside that project instead — `CLAUDE.local.md`, hooks in
+`.claude/settings.local.json`, and `.claude/commands/` — the two `.local` files
+being the ones git convention already ignores, so this machine's absolute paths
+never reach a collaborator.
 
 **The hook is the part a pointer can't do.** A line in a `CLAUDE.md` has to be
-*followed*, and an agent in the middle of a task does not go looking; state
-already in the context window gets used. `cairn session_hook --dry-run` prints
-exactly what a new session will be told, and `cairn install_context --remove`
-takes all of it back out. Everything it writes is inside markers, so it never
-touches a setting it didn't write — including other people's hooks on the same
-events.
+*followed*, and an agent mid-task does not go looking; state already in the
+context window gets used. `cairn session_hook --dry-run` prints what a session
+will be told, and `--remove` takes it all back out — everything is written
+inside markers, so it never touches a setting it didn't write. The older route,
+one line in a project's `CLAUDE.md` pointing at `$CAIRN_PATH/skills/`, still
+works; see [skills/README.md](skills/README.md).
 
-The older, narrower route still works and is worth knowing about, because it is
-what makes the conventions reachable rather than just the pointer: one line in a
-project repo's own `CLAUDE.md`.
-
-```markdown
-Research activity is recorded in Cairn. To capture a note, resume a project, or
-log a session, read the matching skill under `$CAIRN_PATH/skills/`.
-```
-
-That makes three skills reachable at zero cost until used — see
-[skills/README.md](skills/README.md).
-
-The `PATH` line is convenience only. `bin/cairn` works by path from anywhere, and
-the slash commands call it as `$CAIRN_PATH/bin/cairn`, so nothing depends on it.
-
-**Clone it outside every project repo.** One graph spans all projects (design
-decision 1), and a clone nested inside a project shows up as an untracked
-directory in that project's `git status`, makes `/log`'s `repo` field ambiguous,
-and quietly implies the graph belongs to one project. `make doctor` warns if
-this clone is nested.
-
-`make setup` installs the pre-commit validation hook and symlinks `/log` and
-`/paper` into `~/.claude/commands` so they work **from any repo**, not only
-from this one. That matters: `/log`'s whole job is to run inside a project repo
-and reach into the graph, and slash commands otherwise resolve only from the
-session's own directory. Do this on every machine you work on — laptop and
-cluster both.
-
-**`make doctor` is the thing to run when something is off.** It reports, without
-needing a working Python, which of the four install steps happened: interpreter,
-hook, slash commands, `CAIRN_PATH`. Each of those fails differently and none of
-the failures names which one is missing, which is how a first install goes
-wrong.
+**`cairn doctor` is the thing to run when something is off.** It reports,
+without needing a working Python, which install step is missing: interpreter,
+hook, slash commands, `CAIRN_PATH`, `CAIRN_ROOT`. Each of those fails
+differently and none of the failures names itself, which is how a first install
+goes wrong. Do all of this on every machine you work on — laptop and cluster
+both.
 
 ### The one dependency
 
 Cairn needs **Python >= 3.7 with PyYAML** and nothing else. `scripts/find_python.sh`
 finds a suitable interpreter rather than assuming `python3` is one — on Kestrel
-the default `python3` is 3.6.8 *with* PyYAML while `python3.9` has none, and
-picking either blindly fails.
+the default `python3` is 3.6.8 *with* PyYAML while `python3.9` has none.
 
-**This is why every command below is `bin/cairn <something>` rather than
-`scripts/<something>.py`.** The dispatcher is a `/bin/sh` script, so it has no
-Python version of its own to trip over: it asks `find_python.sh` and execs the
-answer, which is the same interpreter `make` and the pre-commit hook use. Running
-a script directly instead hands that choice to whatever `#!/usr/bin/env python3`
-happens to resolve to, and a shim *inside* the script cannot correct it — Python
-compiles the whole file before running a line of it, so on a 3.6 interpreter the
-SyntaxError arrives before any shim could execute.
+**This is why every command here is `bin/cairn <something>` rather than
+`scripts/<something>.py`.** The dispatcher is `/bin/sh`, so it has no Python
+version of its own to trip over; it execs the same interpreter `make` and the
+hook use. A script run directly gets whatever `#!/usr/bin/env python3` resolves
+to, and no shim inside it can help — Python compiles the whole file first, so on
+3.6 the SyntaxError arrives before any fallback runs.
 
-If nothing on the machine has PyYAML, install it whichever way suits that
-machine — `pip install pyyaml` is not always the right answer, and on a
-Homebrew python it is refused outright under PEP 668:
+No PyYAML anywhere? [docs/install.md](docs/install.md) §2 has the install for
+each kind of Python (on Homebrew's, `pip install` is refused under PEP 668), or
+`export CAIRN_PYTHON=/path/to/python`. `capture`, `sync`, `policy`, `onboard` and
+`openviking` need no PyYAML at all, so a thought is never lost to a broken
+install.
+
+## Standalone, or with OpenViking
+
+Two setup paths, both first-class, and the graph format is identical either way.
+
+**Standalone** is the complete tool: `cairn onboard`, three questions, done. The
+session hook gives every session the graph's state; `/log`, `/capture`, `/triage`
+and the skills do the writing; the map does the reading.
+
+**With [OpenViking](https://github.com/volcengine/OpenViking)**, install it and its
+Claude Code plugin first; `onboard` detects `ov` and offers to register the graph.
+The reason to run both is that they answer neighbouring questions. OpenViking is
+an agent's memory substrate — session history, summarization, semantic retrieval
+over everything it has seen. Cairn is the research-progression view — claims,
+dead ends, lineage, review, and a replay of how it looked in June. **Memory is
+extracted; a record is asserted.** OpenViking makes an agent *remember*; Cairn
+makes the research *legible*. Neither does the other's job.
 
 ```sh
-conda install pyyaml                        # conda-managed python
-python3 -m pip install --user pyyaml        # a python you control
-python3 -m venv ~/.cairn/venv && ~/.cairn/venv/bin/pip install pyyaml
+cairn openviking status          # is `ov` here, is a server up, what would be pushed
+cairn openviking push            # dry run: prints the `ov add-resource` commands
+cairn openviking push --apply    # registers them
 ```
 
-Or point Cairn at an interpreter that already has it, which is also the escape
-hatch for anything exotic:
+That is the whole seam. **The graph becomes a resource** — `nodes/`,
+`build/graph.md` and `build/report.md` under `viking://resources/cairn/<graph>/`
+— so OpenViking's recall answers "did we already try this?" in every session it
+serves. **Memories come back only as capture**: `cairn capture` into
+`$CAIRN_ROOT/inbox/`, for `/triage` to judge, never as nodes, because a missing
+node can only mean "not tried" if every present node was put there on purpose.
+Cairn does not import OpenViking's package (AGPLv3, and it needs a server and two
+models; Cairn's one dependency stays PyYAML), stores no OpenViking state in a
+node, and puts no server in the path of the map, the hook, `standup`, `sync` or
+the validator.
 
-```sh
-export CAIRN_PYTHON=/path/to/python
-make python                                 # prints what Cairn will use
-```
+**It has not yet been run against a live OpenViking server.** The command is
+built and tested against a stub `ov`, and the dry run exists so a wrong flag
+costs a read, not a write. [docs/openviking.md](docs/openviking.md) has the seam
+in full, and the two places the systems overlap.
 
 ## Then pick your path
 
@@ -240,22 +261,18 @@ bin/cairn new_node --update <id> --status running \
 A claim written before the result is a pre-registration; written after, it's a
 story. That difference is what makes a dead end publishable.
 
-Use `planned` for the pre-registration and `running` once it is queued. They are
-different facts and the replay slider shows both: `planned` on a date nothing was
-running would otherwise be a small lie in the history that `running` is grepped
-for. An experiment created with no `--status` is still `running`, so writing up
-work after the fact is unchanged.
+`planned` and `running` are different facts and the replay slider shows both.
+An experiment created with no `--status` is still `running`, so writing up work
+after the fact is unchanged.
 
 At the end of a session, `/log` from inside the project repo does the rest: it
 reads the git log, drafts the node, asks only for the interpretation it can't
-infer, and commits.
+infer, and then — under `ask` — shows it and waits, or — under `auto` — commits
+it and says so.
 
 ```sh
-make build && open build/graph.html
+cairn build && open $CAIRN_ROOT/build/graph.html
 ```
-
-A companion repo, **research-kit**, scaffolds a new project with a `CLAUDE.md`
-carrying these conventions, a `data/{raw,curated}` split and a stock DVC config.
 
 ### C. You are starting from a literature review
 
@@ -293,17 +310,13 @@ Three habits make this work:
   synthesis document.** The document is read once; the node is what the graph
   shows you when you touch that part of the problem again.
 
-Use the `litsearch-workflow` or `property-matrix-litsearch` skills to do the
-retrieval — don't reimplement it. What lands here is the conclusion and the
-verified DOIs, not the corpus.
+Do the retrieval with whatever literature tooling you already use; what lands
+here is the conclusion and the verified DOIs, not the corpus.
 
 **At corpus scale — hundreds or thousands of PDFs — read
 [docs/literature.md](docs/literature.md).** Those papers can't each get a node,
-and the answer is not one node per cluster either: the map is an artifact, one
-node describes the mapping run, and a cluster becomes a node only once someone
-has read it. That doc works out the pipeline, why cluster *identity* is the hard
-part when node ids are permanent, and where the boundary sits between "corpus
-member", "cited evidence with a `papers/` page", and "a claim of its own".
+and nor can each cluster: the map is an artifact, one node describes the mapping
+run, and a cluster becomes a node only once someone has read it.
 
 ### D. Your work isn't computational
 
@@ -312,41 +325,65 @@ deadlines. `repo`, `commit`, `host` and `artifacts` are all optional on an
 experiment, so a bench experiment node validates today with none of them, and
 a node with no SHA is not a second-class node.
 
-The *interface* is not neutral, but it was never meant to be the interface. The
-design assumes an agent writes the record while you work, and you read
-`graph.html` and answer one question: what the result means. See
-[docs/backfill.md](docs/backfill.md) §C, including the one field that will
-break first.
+The *interface* is not neutral, but it was never meant to be the interface: an
+agent writes the record while you work, and you answer one question — what the
+result means. See [docs/backfill.md](docs/backfill.md) §C.
 
 Work that happened somewhere Cairn can't see — a web session, a conversation, a
-whiteboard — goes in `inbox/` as unstructured text and gets triaged later.
-Capture always beats filing.
+whiteboard — goes in `$CAIRN_ROOT/inbox/` as unstructured text and gets triaged
+later. Capture always beats filing.
 
 ## What's here
 
+**The tool** — this repo, `$CAIRN_PATH`:
+
 ```
-nodes/       the graph — one file per node, append-only, never deleted
-papers/      one page per cited paper, keyed by DOI
-meetings/    raw meeting notes
-inbox/       unstructured capture awaiting triage
-assets/      small figures only
-build/       generated: graph.html (self-contained), graph.md (Mermaid),
-             report.md (where to start, and how much to trust a gap)
+bin/cairn    the dispatcher — run everything through it
 scripts/     lib.py, validate.py, build_graph.py, new_node.py, add_paper.py,
-             mine_sessions.py, digest.py, standup.py, capture.py, sync_issues.py,
-             sync.py, note.py, import_note.py, report.py, session_hook.py,
-             install_context.py
+             add_dataset.py, mine_sessions.py, standup.py, digest.py, report.py,
+             capture.py, import_note.py, note.py, review.py, policy.py, sync.py,
+             sync_issues.py, session_hook.py, install_context.py, init.py,
+             onboard.py, export.py, export_example.py, openviking.py,
+             check_site_links.py; find_python.sh, doctor.sh, install_hooks.sh
 skills/      path-addressed skills, so agents in *other* repos can use the graph
-docs/        install.md, schema.md, backfill.md, worked examples
+docs/        install.md, schema.md, backfill.md, literature.md, github.md,
+             openviking.md, worked examples
 site/        the documentation site — hand-written HTML, no build step
+example/     generated: a scrubbed copy of this project's own subgraph
 ```
 
-`make doctor` · `make validate` · `make build` · `make digest` · `make standup` ·
+**The graph** — its own repo, `$CAIRN_ROOT`, made by `cairn init`:
+
+```
+nodes/       the graph — one file per node, append-only, never deleted
+papers/      one page per cited paper, keyed by DOI, CrossRef-verified
+datasets/    one page per dataset nodes cite in `data:` — sha256, host:path, tier
+meetings/    raw meeting notes
+inbox/       unstructured capture awaiting triage
+assets/      small figures only — assets/<node-id>.<ext>, shown in the panel
+build/       generated: graph.html (self-contained), graph.md (Mermaid),
+             report.md (where to start, and how much to trust a gap)
+CLAUDE.md    the graph's conventions, and its one setting: commit_mode
+```
+
+`cairn doctor` · `make validate` · `make build` · `make digest` · `make standup` ·
 `make sync` · `make push` · `make test` · `make site-check` · `make site-serve`
 
 In a node body, `[[2026-07-01-polyid-network-ablation]]` refers to another node
 and renders as a link to it, labelled with that node's title. `make validate`
 warns if the target doesn't exist.
+
+**Datasets are registered the way papers are.** `artifacts` records what a node
+produced; `data: [<key>]` records what it consumed, pointing at a
+`$CAIRN_ROOT/datasets/<key>.md` page that `cairn add_dataset` writes. The
+load-bearing field is `sha256` — a path can be overwritten, a hash names the
+bytes — so `--file` measures it from a local copy rather than letting anyone
+retype it. The field reference is under "Datasets registry" in
+[docs/schema.md](docs/schema.md).
+
+`cairn export --project <key> --dest <repo>/docs/research` is what a project repo
+gets instead of its nodes: a filtered map, a Mermaid fallback and an index, all
+generated and saying so. The nodes stay in the one graph.
 
 ## What to pick up today
 
@@ -355,17 +392,13 @@ cairn standup                         # every project, most-needs-you first
 cairn standup --project polyid        # the resume packet for one project
 ```
 
-`digest` answers *what changed*, which is the right question when you have been
-present all week and the wrong one after two weeks away — then you don't need a
-list of events, you need the frontier: what is still open, what it was waiting
-on, and what the last note said to do next.
-
-Two differences carry it. It is **ordered by what needs you rather than by when
-it happened**, so a project whose live threads have gone quiet ranks above one
-that moved yesterday — the quiet one is the one whose context you have lost.
-And it **reads `## Next` back out of the node bodies**, which is the cheapest
-resume there is: the sentence you wrote when the whole problem was still in your
-head. That section was always the convention and nothing ever read it.
+`digest` answers *what changed*, the wrong question after two weeks away — then
+you need the frontier: what is still open, what it was waiting on, and what the
+last note said to do next. `standup` is **ordered by what needs you rather than
+by when it happened**, so a project whose live threads have gone quiet ranks
+above one that moved yesterday. And it **reads `## Next` back out of the node
+bodies** — the cheapest resume there is, the sentence you wrote when the whole
+problem was still in your head.
 
 `--project` goes deeper and adds the part that stops repeated work: **what this
 project already settled**, most recent first, each with the note saying why. A
@@ -385,17 +418,16 @@ cairn capture --from-file ~/notes/meeting.org --title "meeting with Dave"
 tail -40 slurm-12345.out | cairn capture --title "why the run died"
 ```
 
-Writes to `inbox/`, which has no schema and no validation. It **never refuses,
-never prompts, and never asks which project** — `--project` is a hint for triage,
-not a validated key, and this is the one place in Cairn where a typo costs
-nothing. It doesn't even commit, because committing runs the validation hook and
-a capture that can fail on unrelated schema drift is not a capture.
+Writes to `$CAIRN_ROOT/inbox/`, which has no schema and no validation. It
+**never refuses, never prompts, and never asks which project** — `--project` is a
+hint for triage, not a validated key, and this is the one place in Cairn where a
+typo costs nothing. It doesn't even commit, because committing runs the
+validation hook and a capture that can fail on unrelated schema drift is not a
+capture.
 
-That is design decision 7 finally having a command. It also means capture no
-longer depends on which machine you are on or what editor is installed there:
-`--from-file` takes org-mode, markdown or anything else verbatim, so an
-org-capture template on a laptop and a shell on a cluster are the same mechanism.
-Nothing in `inbox/` is ever parsed, so there is nothing to convert.
+That is design decision 7 having a command. `--from-file` takes org-mode,
+markdown or anything else verbatim, so an org-capture template on a laptop and a
+shell on a cluster are the same mechanism; nothing in `inbox/` is ever parsed.
 
 `/triage` turns the queue into nodes, or discards it. Both are correct outcomes.
 
@@ -408,13 +440,10 @@ cairn import_note ~/Downloads/scribbles.md --project polyid
 pbpaste | cairn import_note --meeting --who "dave, sarah" --title "CG handoff"
 ```
 
-A meeting import writes **two** files, and that is the design rather than an
-accident. The notes themselves go to `meetings/<date>-<who>.md`, because a
-meeting note is a durable record you find by who was in the room. A one-line
-pointer goes to `inbox/`, because the thing that belongs in a queue is not the
-record but the *obligation to read it*, and that is what `/triage` consumes.
-Content lands verbatim, always — org markup in a `.md` file is not a problem to
-be solved.
+A meeting import writes **two** files on purpose: the record goes to
+`$CAIRN_ROOT/meetings/<date>-<who>.md`, found by who was in the room, and a
+one-line pointer goes to `inbox/`, because what belongs in a queue is not the
+record but the *obligation to read it*. Content lands verbatim, always.
 
 ## Notes on a node
 
@@ -425,10 +454,8 @@ cairn note --list --project polyid
 ```
 
 The agent writes the record; you read it later and have a reaction — a doubt, a
-correction, "the number here is wrong", "this is the one that matters". Until
-this existed the only places to put that were a status change, which lies about
-what happened, and the inbox, which detaches the thought from the node it is
-about.
+correction, "this is the one that matters". A status change would lie about what
+happened, and the inbox would detach the thought from the node it is about.
 
 A note appends a dated bullet under `## Notes` in the node body:
 
@@ -436,28 +463,46 @@ A note appends a dated bullet under `## Notes` in the node body:
 - **2026-08-26** (jlaw) the spread looks bimodal — does it track the seed?
 ```
 
-`standup`, `digest`, `build/report.md` and the map all read them back. Three
-things are deliberate:
+`standup`, `digest`, `build/report.md` and the map all read them back. It is a
+**body edit, not a status change** — `status`, `updated` and `history` don't
+move, or the replay slider would show a change that never happened. It adds **no
+field**: the line carries its own date. And **"unanswered" is derived**: a note
+dated at or after the node's last history entry is one no later work has
+answered, and once the thread moves it stops being reported.
 
-- **It is a body edit, not a status change.** `status`, `updated` and `history`
-  don't move, because a note isn't a claim about the state of the work. If it
-  moved `updated`, the replay slider would show a change that never happened.
-- **No new field**, against rule 5. The line carries its own date, so it stays
-  findable by reading the body — exactly how `## Next` is already read.
-- **"Unanswered" is derived.** A note dated at or after the node's last history
-  entry is one no later work has responded to; once the thread moves, it stops
-  being reported. That is what keeps it off a nag list.
+It **commits by default**, in either commit mode: design decision 6 is about
+nodes nobody has read, and a sentence you just typed is the definition of read.
+The note is written before the commit is attempted, so a commit that fails on
+unrelated schema drift costs it nothing. And because notes are in the body, they
+are in `standup`'s resume packet and the session-start context — a note is how
+you hand an instruction to next week's session without writing a prompt.
 
-It **commits by default**, which is the one place this differs from `capture`:
-design decision 6 refuses to commit a node *you haven't seen*, and a sentence you
-just typed is the definition of seen. The whole value is that it's visible from
-the other machine tomorrow. The note is written to the file before the commit is
-attempted, so a commit that fails on unrelated schema drift costs it nothing.
+## Who presses commit
 
-And it works the other way round too — this is the answer to "can Claude pick up
-on comments I left?". Yes: notes are in the node body, so they are in `standup`'s
-resume packet, in the session-start context, and in the report. A note is how you
-hand an instruction to next week's session without writing a prompt.
+```sh
+cairn policy              # the mode in force, and what it means
+cairn policy auto         # agents commit the nodes they write; you edit after
+cairn policy ask          # agents draft, show, and wait (the default)
+```
+
+The policy is one line in the graph repo's own `CLAUDE.md` — `commit_mode: ask`
+or `commit_mode: auto` — and the session hook states it at the start of every
+session, so `/log` in any repo knows it without reading a file. Not a dotfile:
+the one preference Cairn cannot derive goes where every agent already reads, in
+git, next to the prose that says why, and a team shares it by sharing the repo.
+
+- **`ask`**: the agent drafts the node, shows it, and commits only after you
+  confirm. Nothing enters the graph unread.
+- **`auto`**: the agent commits the node it wrote about work it did, right then,
+  and says what it committed; you edit afterward. It still never commits a node
+  about work it didn't do, never hand-edits `status:`, and never writes in your
+  voice.
+
+`auto` is safe to offer only because an unread node stays *visible* rather than
+absent: `cairn review --list` derives from git which nodes nobody has read, in
+either mode. It is policy over identical data, so two collaborators with
+different modes still hold one graph. And whatever the mode, `sync` never
+commits a node.
 
 ## Which claims a human has actually read
 
@@ -471,42 +516,29 @@ cairn review polyid-run-variance       # read it, nothing to add
 `Cairn-Review: <who> <node-id>` trailer says a human read that node; a node whose
 last write came after its last stamp is one nobody has read since.
 
-The signal has to be a message trailer rather than an identity, and both halves
-of that are load-bearing. **Committer identity is erased by `sync`** — `git
-rebase` rewrites the committer, and the session protocol rebases twice a day.
-**Author identity is already spoken for**: `git log --diff-filter=A` is how
-authorship is derived, and an agent committing under its own name would make
-itself the author of work it only typed up. A trailer survives rebase and answers
-a different question.
+It has to be a message trailer rather than an identity. **Committer identity is
+erased by `sync`**, since `git rebase` rewrites it twice a day; **author identity
+is already spoken for**, since `git log --diff-filter=A` is how authorship is
+derived. The trailer names the node id because a review with nothing to add is an
+*empty* commit, which `git log -- nodes/<id>.md` never shows.
 
-The trailer carries the node id rather than relying on the diff, because a review
-with nothing to add is an *empty* commit and `git log -- nodes/<id>.md` never
-shows one. So the derivation is two passes: stamps from the whole log, writes
-from the path.
+- **A note is a review.** `cairn note` stamps the trailer itself; `cairn review`
+  with no text is for "I read it and had nothing to add", a real outcome.
+- **Reviewing an uncommitted draft admits it** — file and stamp land in one
+  commit. Under `ask` that is the queue design decision 6 creates, draining;
+  under `auto` it is how a committed-but-unread node gets read.
+- **What predates the convention stays `unclassified`**, left out of the report
+  rather than counted as unread, because git has nothing to say about it.
 
-Three consequences worth knowing:
-
-- **A note is a review.** `cairn note` stamps the trailer itself — reading a node
-  and reacting to it is the thing being measured, so it should not take two
-  commands. `cairn review` with no text exists for "I read it and had nothing to
-  add", which is a real outcome.
-- **Reviewing an uncommitted draft admits it.** The file and the stamp land in
-  the same commit. That is the queue design decision 6 creates, draining.
-- **What predates the convention stays `unclassified`.** The epoch is derived —
-  the oldest commit carrying a stamp — so nothing has to be stored. Those nodes
-  are left out of the report column rather than counted as unread, because git
-  has nothing to say about them either way.
-
-What this is *not* is proof a human did the reading. Agents run as whoever owns
-the clone, so nothing in git can tell them apart; the `commit-msg` hook only
-checks that a stamp is well-formed and aimed at a node that exists, because the
-failure it prevents — a mistyped id that marks nothing and reports nothing — is
-otherwise silent.
+What this is *not* is proof a human did the reading: agents run as whoever owns
+the clone. The `commit-msg` hook only checks that a stamp is well-formed and
+names a node that exists, because a mistyped id would otherwise mark nothing,
+silently.
 
 ## Where to start, and how much to trust a gap
 
-`make build` also writes **`build/report.md`**, which answers the questions the
-map and `standup` don't:
+`make build` also writes **`$CAIRN_ROOT/build/report.md`**, which answers the
+questions the map and `standup` don't:
 
 - **Start here** — the most-connected nodes. Everything hangs off these, so
   they're the cheapest way into a project, and changing what one claims has the
@@ -521,12 +553,10 @@ map and `standup` don't:
   toward what worked, so a gap there means the graph doesn't know.
 - **Reconstructed after the fact**, **Unattached**, and **notes nobody answered**.
 
-That contemporaneity number is the one idea worth taking from
-[Graphify](https://github.com/Graphify-Labs/graphify), which tags every edge
-`EXTRACTED` or `INFERRED` so you always know what was read versus guessed. The
-same distinction matters here and is already *derivable* — git knows when the
-file landed, the frontmatter says when the work happened, and the difference is
-capture lag. It costs no field, which is the only reason it belongs.
+That contemporaneity number is taken from [Graphify][gfy]'s `EXTRACTED` /
+`INFERRED` edge tags, and here it is *derivable*: git knows when the file landed,
+the frontmatter says when the work happened, and the difference is capture lag.
+It costs no field, which is the only reason it belongs.
 
 ## What changed, and what needs you
 
@@ -544,20 +574,16 @@ It invents no bookkeeping — `status` is an event log, so this is a query over
 `history` rather than a second thing to maintain. That's the payoff for design
 decision 5.
 
-The filters that keep entries **out** are the substance. `parked` means "paused,
-will resume" and an `open` direction is a container meant to sit for months, so
-neither is ever reported as going quiet. A digest that nags about things you
-already decided about is a digest people stop reading, and then it is worse than
-nothing.
+The filters that keep entries **out** are the substance: `parked` and an `open`
+direction are never reported as going quiet, because a digest that nags about
+things you already decided is one people stop reading.
 
 This is also the cheapest collaboration Cairn has: in a shared channel it means
 three people know what each other did without anyone opening a graph. Try it
 before building anything that syncs.
 
-Use `--format brief` for anything mailed. The full form is the right length for a
-terminal and too long for a mail client, where it competes with the map and loses
-— a mailed digest's job is to say what deserves a click, not to reproduce the
-graph in text.
+Use `--format brief` for anything mailed: a mailed digest's job is to say what
+deserves a click, not to reproduce the graph in text.
 
 ### Tasks as issues
 
@@ -574,23 +600,17 @@ closed to GitHub, while the point of this graph is that `dead` is not `closed`,
 mirroring an experiment would discard the part worth keeping.
 
 What issues buy that a markdown file cannot: assignment, notification, and a
-phone. The graph stays authoritative and each issue says so in its own body.
-
-The target repo is **derived** from the project's other nodes, not stored per
-task — an experiment in the same project already carries `repo`. Projects with no
-GitHub remote are reported and skipped, never guessed at.
-
-`sync_issues` reaches Enterprise hosts (`gh auth login --hostname <host>` first).
-Whether *mentioning an agent* on an issue works there is a different question and
-an open one — and the agent round trip only closes at all for issues in this repo,
-since an agent in a project repo has no checkout of the graph.
-**[docs/github.md](docs/github.md)** has the table, the prompts to test with, and
-the numbers.
+phone. The graph stays authoritative and each issue says so. The target repo is
+**derived** from the project's other nodes — an experiment there already carries
+`repo` — and a project with no GitHub remote is reported and skipped, never
+guessed at. Enterprise hosts work (`gh auth login --hostname <host>` first);
+whether *mentioning an agent* on an issue does is still open, and
+**[docs/github.md](docs/github.md)** has the table and the prompts to test with.
 
 ## The map
 
-`build/graph.html` is a single self-contained file — no server, no CDN, no
-build step beyond `make build`. Open it from disk.
+`$CAIRN_ROOT/build/graph.html` is a single self-contained file — no server, no
+CDN, no build step beyond `make build`. Open it from disk.
 
 Layout is **time-ordered**, not force-directed: x is the creation date, y is a
 project lane. Research history has a real time axis and a force layout throws
@@ -600,8 +620,10 @@ stays memorable.
 It's a full interactive app, just one served from disk instead of a server:
 
 - **hover** a node → card with its status, date and latest history note
-- **click** → side panel: rendered body, clickable commit link, DOI links,
-  parent/child links you can navigate, and a link to the node's markdown source
+- **click** → side panel: rendered body, the node's figure if it has one,
+  clickable commit link, DOI links, artifacts split into host and path (click to
+  copy the path), parent/child links you can navigate, and a link to the node's
+  markdown source
 - **isolate lineage** → collapse to one node's full ancestry and descent. On a
   milestone that's every experiment that fed the paper, dead ends included
 - **typed relations** → grey arrows are lineage; coloured, dashed ones carry
@@ -609,40 +631,44 @@ It's a full interactive app, just one served from disk instead of a server:
   one-line reason, backlinked so a contradiction is findable from both ends
 - **copy link** → deep link to a node (`graph.html#<node-id>`)
 - **the "as of" slider replays history** from the `history` log — drag it back
-  and the graph shows what was known then, with the statuses of that date, and
-  the panel follows. **`▶` plays it**, which is the difference between a control
-  and an animation: nobody drags a slider to watch a shape change, and the
-  animation is what makes five months legible at once
+  and the graph shows what was known then, with that date's statuses. **`▶`
+  plays it**: nobody drags a slider to watch a shape change, and the animation
+  is what makes five months legible at once
 - **needs you** → collapse to what is actually waiting: a thread whose status
   asserts activity but which has gone quiet, or a node carrying a note nobody has
   answered. Same rule as `cairn standup`, evaluated against the slider's date, so
   "needs you as of June" means what it meant in June
-- **leave a note** → type it in the panel and copy the exact `cairn note` command
-  to your clipboard. The page is `file://` with no server by design, so it cannot
-  write to the repo — and a comment living in one browser's localStorage, invisible
-  from the other machine, is the failure this whole repo exists to avoid. Two
-  keystrokes at a terminal and the note is in the node body, in git, on both
-  machines, where `standup` and the next agent session both find it
+- **leave a note** → type it in the panel and copy the exact `cairn note` command.
+  The page is `file://` with no server, so it cannot write to the repo — and a
+  comment in one browser's localStorage, invisible from the other machine, is the
+  failure this whole repo exists to avoid
+- **search reaches the bodies** — the claim, the result, `## Next`, the notes,
+  and the history notes where a `dead` node keeps *why* it died
+- **size is descent** → a glyph grows with how much work hangs off it, counted as
+  of the slider's date
+- **colour by** status, needs-you, age or author — fill changes meaning, the
+  legend says which, and nothing else is repainted
+- **fold a lane** to a strip of ticks at their real dates, keeping the time axis
+  and every edge that leaves the lane
 - **keyboard navigation** — arrow keys walk the layout (x is time, y is a project
   lane), `p`/`c` walk the edges, `i` isolates, `n` writes a note, `w` toggles
   needs-you, `space` plays the replay, `/` searches, `Esc` closes
-- a ring marks a node that needs you; a dot marks one carrying a note. Marks on
-  top of the glyph, never changes to it — shape already means type and fill
-  already means status, so a third axis has to be a decoration or the map stops
-  being decodable
-- filter by project / type / status / author, search, pan, wheel-zoom
-- URL params: `?since=YYYY-MM-DD`, `?project=<key>`, `#<node-id>`
+- a ring marks a node that needs you; a dot marks one carrying a note —
+  decorations on the glyph, because shape already means type and fill status
+- filter by project / type / status / author, pan, wheel-zoom
+- URL params: `?since=YYYY-MM-DD`, `?project=<key>`, `?colour=`, `?folded=a,b`,
+  `#<node-id>`
 
 `build/graph.md` is a Mermaid fallback that renders in GitHub, an editor, or a
 terminal.
 
-**`nodes/` is already an Obsidian vault**, and nothing had to be built for that.
-Node bodies refer to each other as `[[<node-id>]]`, which is Obsidian's own
-wikilink syntax, so pointing Obsidian at this repo gives you backlinks, a local
-graph view, full-text search, and a mobile app — over the same files, in the same
-git remote, with no export step. Use it when you want to *write*; use
-`graph.html` when you want the time axis, the replay and the lineage view, which
-Obsidian has no idea about.
+**`$CAIRN_ROOT/nodes/` is already an Obsidian vault**, and nothing had to be
+built for that. Node bodies refer to each other as `[[<node-id>]]`, which is
+Obsidian's own wikilink syntax, so pointing Obsidian at the graph repo gives you
+backlinks, a local graph view, full-text search, and a mobile app — over the same
+files, in the same git remote, with no export step. Use it when you want to
+*write*; use `graph.html` when you want the time axis, the replay and the lineage
+view, which Obsidian has no idea about.
 
 Because the whole graph is in git, checking out an old commit and re-rendering
 replays the research history a second way, for free.
@@ -653,7 +679,8 @@ These are settled. See `docs/schema.md` for the field reference and `CLAUDE.md`
 for the conventions the agent follows.
 
 1. **Separate repo.** One graph spans all projects; nodes carry `project:`.
-   This is what makes the laptop/HPC split tractable.
+   This is what makes the laptop/HPC split tractable. The tool is a repo of its
+   own too, so it can be shared without anyone's record.
 2. **Reference commits, never branches.** Branches get merged and deleted, and
    the most valuable nodes here are the dead ends git is designed to garbage
    collect.
@@ -662,14 +689,18 @@ for the conventions the agent follows.
 4. **Tiny schema.** Every optional field is a field that stops getting filled in.
 5. **Status is an event log.** `history:` gives the time axis for free, which
    is what makes replay and the weekly digest work.
-6. **Nothing is committed unreviewed.** Draft the node, show it, then commit.
-   An auto-populated graph nobody has read is the failure this project exists
-   to avoid. Unprompted capture goes to `inbox/` instead.
+6. **Nothing enters unread without saying so.** Under `commit_mode: ask` the
+   agent drafts, shows, then commits; under `auto` it commits only nodes about
+   work it did, says so, and `cairn review --list` keeps them visible as unread.
+   An auto-populated graph nobody *can tell* is unread is the failure this
+   project exists to avoid — the policy changes who presses commit, not whether a
+   reader can see what a human has weighed in on. Unprompted capture goes to
+   `inbox/` instead.
 7. **Capture ≠ structure.** `inbox/` accepts unstructured junk from anywhere;
    a separate triage pass turns junk into nodes. Never require filing at
    capture time — that's how capture dies.
 8. **Artifacts stay where they are.** Nodes reference big outputs by
-   `host:/path`. The repo stays small forever, so it syncs instantly and diffs
+   `host:/path`. The graph stays small forever, so it syncs instantly and diffs
    stay readable.
 9. **One graph, many writers, synced through git.** No server, no auth, no
    real-time editing, no discussion threads — but multi-writer was never the
@@ -681,10 +712,10 @@ for the conventions the agent follows.
 
 ## Two machines, or two people
 
-Clone on every machine you work on, synced through this remote, and run
-`make setup` and `cairn install_context --apply` on each. Neither machine ever
-needs to reach the other: nodes reference code by `repo` + `commit` and outputs
-by `host:/path`.
+Clone the tool and the graph on every machine you work on — the graph from one
+shared remote — and run `cairn onboard` on each. Neither machine ever needs to
+reach the other: nodes reference code by `repo` + `commit` and outputs by
+`host:/path`.
 
 ```sh
 cairn sync                     # pull, then say what still needs you
@@ -692,40 +723,39 @@ cairn sync --push              # regenerate build/, commit build/, push
 cairn sync --check             # no network; local state only
 ```
 
-The friction here was never storage — that question got asked and refuted, in
-`2026-08-21-cairn-database-question`. It is a **habit gap at two moments**:
-forgetting to pull before working, and forgetting to push after. The second is
-the expensive one, because the work is written down and simply invisible from
-the other machine.
+The friction here was never storage (asked and refuted in
+`2026-08-21-cairn-database-question`). It is a **habit gap**: forgetting to pull
+before working, and — the expensive one — forgetting to push after.
 
 So `sync` automates the half that is safe to automate and *reports* the half
-that isn't. **It never commits a node** — design decision 6 — so `--push`
-commits only `build/`, which is generated. Nodes stay uncommitted and get named,
-because a node file that has never been committed is almost always a draft
-nobody has read yet.
+that isn't. **It never commits a node**, whatever the commit policy: it cannot
+tell a node an agent meant to commit from a stray draft, so `--push` commits
+only `build/`, which is generated. Uncommitted nodes get named instead, because a
+node file that has never been committed is almost always a draft nobody has read
+yet. And if a rebase dies half-way and leaves git stuck, `sync` says so and names
+the stash holding your work rather than reporting that nothing needs you.
 
 Conflicts are near-impossible: nodes are separate append-only files. The only
-shared-file contention is `build/`, and `sync` resolves that itself the way this
-README always prescribed — when a rebase stops *only* on `build/`, it
-regenerates rather than merging, and continues. A conflict anywhere else is left
-for a human, because anywhere else it means something interesting happened.
+shared-file contention is `build/`, and `sync` resolves that itself — when a
+rebase stops *only* on `build/`, it regenerates rather than merging, and
+continues. A conflict anywhere else is left for a human, because anywhere else it
+means something interesting happened.
 
 With `install_context` in place, the pull happens on its own at session start
 and the "you have unpushed work" warning at session end. Neither replaces
 `sync --push`; they make forgetting visible.
 
-**The same mechanism carries a second person.** Two machines and two people are
-the same problem to this repo, so a collaborator is a collaborator on the git
-remote and nothing more. The one genuine collision is two people creating the
-same id on the same day — same project, same date, similar enough title to slug
-identically. Git catches that as a real conflict rather than losing one of them,
-which is the correct behaviour, if a startling way to find out.
+**The same mechanism carries a second person.** A collaborator is a
+collaborator on the graph's git remote and nothing more — with their own commit
+policy if they like, since the mode is policy over identical data. The one
+genuine collision is two people creating the same id on the same day; git
+catches that as a real conflict rather than losing one of them.
 
 ## Status
 
-**142 nodes across 12 projects**, 18 of them refutations, with 45 typed
-relations — zero validation errors. The first 61 were backfilled from five weeks
-of Claude sessions; the rest were written as the work happened.
+**215 nodes across 19 projects** as of 2026-10-14, 27 of them refutations, with
+66 typed relations — zero validation errors. The first 61 were backfilled from
+five weeks of Claude sessions; the rest were written as the work happened.
 
 The next step is deliberately *not* more features. The failure mode for a
 project like this is building the whole system and then not using it.

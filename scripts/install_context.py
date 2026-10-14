@@ -17,8 +17,8 @@ Three machine-level installs fix that once, and none of them is per-project:
    already in context gets used. Plus a `SessionEnd` hook that says what is
    unpushed, because that is the other half of the two-machine habit gap.
 3. **The slash commands**, symlinked into `~/.claude/commands` so `/log`,
-   `/standup`, `/capture`, `/triage` and `/digest` resolve from any repo rather
-   than only from a session rooted in this one.
+   `/standup`, `/capture`, `/triage`, `/digest` and `/paper` resolve from any
+   repo rather than only from a session rooted in this one.
 
     cairn install_context              # say what would change, touch nothing
     cairn install_context --apply

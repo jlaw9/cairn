@@ -78,7 +78,6 @@ In **this** repo (`$CAIRN_PATH`):
 | `docs/github.md` | tasks as GitHub Issues: what works, what's unverified |
 | `docs/literature.md` | corpora of thousands of papers: clusters, and what earns a node |
 | `docs/openviking.md` | the optional OpenViking seam: what crosses it, in which direction |
-| `build/report.md` | generated: where to start, and how much to trust a gap |
 
 Nothing heavy ever enters this repo. Big outputs are referenced by
 `host:/path`, code by `repo` + `commit`. The repo stays text-only and small
@@ -192,7 +191,7 @@ What to get right:
   finds by asking that question. "Tg literature review" is not.
 - **One claim per node.** A review touching eight things is eight nodes, or one
   `direction` with eight open questions.
-- **`--ref` the DOIs and register the papers** with `add_paper.py` / `/paper`, so
+- **`--ref` the DOIs and register the papers** with `bin/cairn add_paper` / `/paper`, so
   the evidence resolves. Never write a DOI from memory.
 - **`## What I did` is the corpus and the filter** — how many papers, from where,
   what was excluded. That is this node's methods section, and it's what tells a
