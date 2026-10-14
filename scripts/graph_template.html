@@ -92,7 +92,58 @@
   }
   aside button:hover { color: var(--ink); }
 
-  #stage { flex: 1; position: relative; overflow: hidden; }
+  #mapcol { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  #stage { flex: 1; position: relative; overflow: hidden; min-height: 0; }
+
+  /* The chat drawer. Built only when /api/health names an installed backend;
+     over file:// or under --no-chat none of this exists in the DOM. */
+  #chat {
+    flex: none; height: min(340px, 44vh); display: flex; flex-direction: column;
+    border-top: 1px solid var(--line); background: var(--panel); min-height: 0;
+  }
+  #chat[hidden] { display: none; }
+  #chat .chd {
+    display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+    border-bottom: 1px solid var(--line); font-size: 12px; flex: none;
+  }
+  #chat .chd strong { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); }
+  #chat select {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px;
+  }
+  #chat .act { color: var(--accent); cursor: pointer; }
+  #chat .act:hover { text-decoration: underline; }
+  #chatLog { flex: 1; overflow-y: auto; padding: 10px 14px 4px; font-size: 13px; min-height: 0; }
+  #chatLog .hint { max-width: 640px; margin: 4px 0 10px; }
+  .msg { margin: 0 0 12px; max-width: 760px; }
+  .msg .who { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 2px; }
+  .msg.you .txt { background: var(--panel-2); border-radius: 8px; padding: 6px 10px; display: inline-block; white-space: pre-wrap; }
+  .msg p { margin: 0 0 7px; }
+  .msg ul { margin: 0 0 7px; padding-left: 18px; }
+  .msg li { margin-bottom: 2px; }
+  .msg code { background: var(--panel-2); border-radius: 3px; padding: 0 3px; overflow-wrap: anywhere; }
+  .msg .lnk { display: inline; padding: 0; font-size: inherit; }
+  .msg .tl {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--ink-faint);
+    margin: 2px 0 5px; overflow-wrap: anywhere;
+  }
+  .msg .tl.denied { color: var(--pending); }
+  .msg .er { color: var(--bad); font-size: 12px; margin: 3px 0 6px; white-space: pre-wrap; }
+  .msg .nt { color: var(--ink-faint); font-size: 11.5px; font-style: italic; margin: 3px 0 6px; }
+  .msg .typing { color: var(--ink-faint); }
+  #chat .cin { display: flex; gap: 8px; padding: 8px 12px 10px; border-top: 1px solid var(--line); flex: none; }
+  #chat textarea {
+    flex: 1; resize: none; height: 54px; background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 13px;
+  }
+  #chat textarea:focus { outline: 1px solid var(--accent); }
+  #chat .cbtns { display: flex; flex-direction: column; gap: 6px; }
+  #chat .cbtns button {
+    background: var(--accent); color: var(--bg); border: 0; border-radius: 6px;
+    padding: 5px 14px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  #chat .cbtns button.ghost { background: var(--panel-2); color: var(--ink-dim); border: 1px solid var(--line); }
+  #chat .cbtns button:disabled { opacity: .45; cursor: default; }
   svg { width: 100%; height: 100%; display: block; cursor: grab; }
   svg.dragging { cursor: grabbing; }
   .lane-band { fill: var(--panel); opacity: .45; }
@@ -513,6 +564,10 @@
     <div id="relKey"></div>
   </aside>
 
+  <!-- The map, and under it the chat drawer when `cairn serve` offers one. A
+       column, so the drawer takes height from the map and never covers the
+       panel: both stay usable side by side. -->
+  <div id="mapcol">
   <div id="stage">
     <svg id="svg"><g id="view"></g></svg>
     <div id="gutter"></div>
@@ -522,6 +577,7 @@
       <p>Create one with <code>cairn new_node</code>, then <code>cairn build</code>.</p>
     </div>
     <div id="flash" hidden></div>
+  </div>
   </div>
 
   <div id="panel"></div>
@@ -1430,7 +1486,308 @@ async function probeServer() {
   server.actions = new Set(info.actions || []);
   document.body.classList.add('serving');
   $('#newNode').hidden = false;
-  if (state.selected) open(state.selected, { pan: false });   // re-render, now with writes
+  initChat(info);
+  if (state.selected) open(state.selected, { pan: false, replace: true });   // re-render, now with writes
+}
+
+/* ---------- the chat drawer ----------
+   One turn of the user's own Claude Code or Codex CLI per message, run by
+   `cairn serve` (POST /api/chat) and streamed back as NDJSON: `text` deltas,
+   `tool` lines, `error`s, and one `done`. The page renders that and keeps
+   nothing of its own: the conversation lives in the CLI's session, which the
+   page names by id (per backend, in sessionStorage) so a reload continues it.
+
+   Everything the model writes goes through bin/cairn, so a node it drafts is
+   an ordinary uncommitted draft: the map shows it with the hollow dot after
+   the reload, and committing it is the panel's "review & commit", by a human. */
+const BACKEND_LABEL = { claude: 'Claude Code', codex: 'Codex' };
+const CHAT_LOG = 'cairn.chat.log', CHAT_OPEN = 'cairn.chat.open', CHAT_BACKEND = 'cairn.chat.backend';
+const chatSessionKey = b => `cairn.chat.session.${b}`;
+const CHAT_KEEP = 50;            // messages kept across a reload
+
+const ss = {
+  get(k) { try { return sessionStorage.getItem(k); } catch (err) { return null; } },
+  set(k, v) {
+    try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); }
+    catch (err) { /* no storage: the drawer just forgets on reload */ }
+  },
+};
+
+Object.assign(chat, { backends: [], log: [], busy: false, ctrl: null, baseline: null, timer: null });
+
+function initChat(info) {
+  const found = Object.entries(info.chat || {})
+    .filter(([name, path]) => path && BACKEND_LABEL[name]).map(([name]) => name);
+  if (!found.length) return;               // none installed, or --no-chat: no control at all
+  chat.enabled = true;
+  chat.backends = found;
+
+  const btn = document.createElement('button');
+  btn.id = 'chatBtn';
+  btn.className = 'hbtn';
+  btn.textContent = 'chat';
+  btn.title = 'Ask about the graph — your own CLI, through bin/cairn (k)';
+  btn.onclick = () => toggleChat();
+  $('#newNode').after(btn);
+
+  const remembered = ss.get(CHAT_BACKEND);
+  const drawer = document.createElement('section');
+  drawer.id = 'chat';
+  drawer.hidden = true;
+  drawer.innerHTML =
+    `<div class="chd"><strong>Chat</strong>` +
+      `<select id="chatBackend" title="Which CLI runs the turn">` +
+        found.map(b => `<option value="${b}"${b === remembered ? ' selected' : ''}>${BACKEND_LABEL[b]}</option>`).join('') +
+      `</select>` +
+      `<span class="muted" id="chatState"></span><span class="grow"></span>` +
+      `<span class="act" data-chatnew="1" title="Forget this conversation and start a new one">new conversation</span>` +
+      `<button class="xbtn" data-chatx="1" title="Close (k)">×</button></div>` +
+    `<div id="chatLog" aria-live="polite"></div>` +
+    `<div class="cin"><textarea id="chatText" ` +
+      `placeholder="Ask about the graph — Enter sends, Shift+Enter for a new line"></textarea>` +
+      `<div class="cbtns"><button id="chatSend">Send</button>` +
+      `<button id="chatStop" class="ghost" disabled>Stop</button></div></div>`;
+  $('#mapcol').appendChild(drawer);
+  $('#chatBackend').onchange = e => { ss.set(CHAT_BACKEND, e.target.value); renderChat(); };
+  $('#chatSend').onclick = () => chatSend();
+  $('#chatStop').onclick = () => chat.ctrl?.abort();
+  $('#chatText').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(); }
+  });
+
+  try { chat.log = JSON.parse(ss.get(CHAT_LOG) || '[]'); } catch (err) { chat.log = []; }
+  renderChat();
+  if (ss.get(CHAT_OPEN) === '1') toggleChat(true, false);
+}
+
+function toggleChat(on, focus = true) {
+  const drawer = $('#chat');
+  if (!drawer) return;
+  const show = on === undefined ? drawer.hidden : on;
+  drawer.hidden = !show;
+  $('#chatBtn').classList.toggle('on', show);
+  ss.set(CHAT_OPEN, show ? '1' : null);
+  positionChrome();                  // the stage just changed height
+  if (show) {
+    const log = $('#chatLog');
+    log.scrollTop = log.scrollHeight;
+    if (focus) $('#chatText').focus();
+  }
+}
+
+function saveChat() {
+  chat.log = chat.log.slice(-CHAT_KEEP);
+  ss.set(CHAT_LOG, JSON.stringify(chat.log));
+}
+
+/** Minimal markdown: paragraphs, line breaks, `code`, **bold**, and node links —
+    `[[id]]`, or an id alone in backticks. Escaped first, so model output can
+    never become markup. A node the turn just drafted is not in this build yet,
+    so its link is marked broken until the reload. */
+function chatInline(s) {
+  const link = id => byId.has(id)
+    ? `<span class="lnk" data-goto="${esc(id)}" title="${esc(id)}">${esc(byId.get(id).title)}</span>`
+    : `<span class="lnk broken" title="not in this build of the map">${esc(id)}</span>`;
+  return s.split(/(`[^`\n]+`)/).map(part => {
+    if (/^`[^`\n]+`$/.test(part)) {
+      const inner = part.slice(1, -1);
+      return byId.has(inner)
+        ? `<span class="lnk" data-goto="${esc(inner)}" title="${esc(byId.get(inner).title)}"><code>${esc(inner)}</code></span>`
+        : `<code>${esc(inner)}</code>`;
+    }
+    return esc(part)
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[\[(\d{4}-\d{2}-\d{2}-[a-z0-9-]+)\]\]/g, (m, id) => link(id));
+  }).join('');
+}
+
+function chatMarkdown(src) {
+  return String(src).replace(/\r/g, '').split(/\n{2,}/)
+    .filter(b => b.trim())
+    .map(block => {
+      // Within a paragraph, a run of "- " / "* " lines is a list; the rest are lines.
+      let out = '', para = [], list = [];
+      const flushP = () => { if (para.length) out += `<p>${para.map(chatInline).join('<br>')}</p>`; para = []; };
+      const flushL = () => { if (list.length) out += `<ul>${list.map(l => `<li>${chatInline(l)}</li>`).join('')}</ul>`; list = []; };
+      for (const line of block.trim().split('\n')) {
+        const item = /^\s*[-*]\s+(.*)$/.exec(line);
+        if (item) { flushP(); list.push(item[1]); } else { flushL(); para.push(line); }
+      }
+      flushP(); flushL();
+      return out;
+    }).join('');
+}
+
+function msgHtml(m) {
+  if (m.role === 'you') {
+    return `<div class="msg you"><div class="who">you${m.node && byId.has(m.node)
+        ? ` · on “${esc(byId.get(m.node).title)}”` : ''}</div>` +
+      `<div class="txt">${esc(m.text)}</div></div>`;
+  }
+  const body = (m.items || []).map(it =>
+    it.k === 'text' ? chatMarkdown(it.s)
+    // The allowlist makes the model call bin/cairn by absolute path; the line
+    // says `cairn`, which is what a person would have typed.
+    : it.k === 'tool' ? `<div class="tl${it.denied ? ' denied' : ''}" title="${esc(it.s)}">▸ ` +
+      `${esc(it.s.replace(/(^|[\s=;(|&])\/\S*\/bin\/cairn(?=\s|$)/g, '$1cairn'))}${it.denied ? ' — denied' : ''}</div>`
+    : it.k === 'error' ? `<div class="er">${esc(it.s)}</div>`
+    : `<div class="nt">${esc(it.s)}</div>`).join('');
+  return `<div class="msg bot"><div class="who">${esc(BACKEND_LABEL[m.backend] || m.backend)}</div>` +
+    (body || (m.live ? '<div class="typing">…</div>' : '')) + `</div>`;
+}
+
+function renderChat() {
+  const log = $('#chatLog');
+  if (!log) return;
+  const label = BACKEND_LABEL[$('#chatBackend').value] || 'the CLI';
+  log.innerHTML = chat.log.length ? chat.log.map(msgHtml).join('') :
+    `<div class="hint">Each message runs one turn of your own <strong>${esc(label)}</strong> in ` +
+    `this graph. It can read the graph, run <code>cairn standup</code> and the other ` +
+    `<code>bin/cairn</code> reads, and draft nodes, which you then read and review in ` +
+    `the panel. Its drafts are never committed: that stays your "review &amp; commit". ` +
+    `The open node, if any, goes with your message.</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+/** Re-render only the bubble being streamed into, keeping the reader's scroll
+    unless they were already at the bottom. */
+function renderLive(m) {
+  const log = $('#chatLog');
+  const atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  const last = log.lastElementChild;
+  if (last && last.classList.contains('bot')) last.outerHTML = msgHtml(m);
+  else renderChat();
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+
+function setChatBusy(on) {
+  chat.busy = on;
+  $('#chatSend').disabled = on;
+  $('#chatStop').disabled = !on;
+  $('#chatBackend').disabled = on;
+  clearInterval(chat.timer);
+  const st = $('#chatState');
+  if (!on) { st.textContent = ''; return; }
+  const t0 = Date.now();
+  const tick = () => { st.textContent = `working · ${Math.round((Date.now() - t0) / 1000)} s`; };
+  tick();
+  chat.timer = setInterval(tick, 1000);
+}
+
+/** The built page as the server has it now. A turn that only read the graph
+    still regenerates build/ (the server rebuilds after every clean turn), so
+    whether *this* page is stale is answered by comparing, not by `rebuilt`. */
+async function builtPage() {
+  try {
+    const res = await fetch(location.pathname, { cache: 'no-store' });
+    return res.ok ? await res.text() : null;
+  } catch (err) { return null; }
+}
+
+async function chatSend() {
+  if (chat.busy) return;
+  const box = $('#chatText');
+  const text = box.value.trim();
+  if (!text) return;
+  const backend = $('#chatBackend').value;
+  box.value = '';
+  chat.log.push({ role: 'you', text, node: state.selected || '' });
+  const bot = { role: 'bot', backend, items: [], live: true };
+  chat.log.push(bot);
+  renderChat();
+  setChatBusy(true);
+  if (chat.baseline === null) chat.baseline = await builtPage();
+
+  const add = item => {
+    const last = bot.items[bot.items.length - 1];
+    if (item.k === 'text' && last && last.k === 'text') last.s += item.s;
+    else bot.items.push(item);
+    renderLive(bot);
+  };
+  const body = { backend, message: text };
+  const session = ss.get(chatSessionKey(backend));
+  if (session) body.session = session;
+  if (state.selected) body.node = state.selected;
+
+  let done = null, stopped = false;
+  chat.ctrl = new AbortController();
+  const handle = line => {
+    let ev;
+    try { ev = JSON.parse(line); } catch (err) { return; }
+    if (ev.type === 'text') add({ k: 'text', s: ev.delta || '' });
+    else if (ev.type === 'tool') add({ k: 'tool', s: ev.summary || ev.name || '?', denied: !!ev.denied });
+    else if (ev.type === 'error') add({ k: 'error', s: ev.message || 'error' });
+    else if (ev.type === 'done') done = ev;
+  };
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: chat.ctrl.signal,
+    });
+    if (!res.ok) {
+      // 503 names the install step; 400/404 say what was wrong. Verbatim.
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch (err) { /* not JSON */ }
+      add({ k: 'error', s: msg });
+    } else {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done: end } = await reader.read();
+        if (end) break;
+        buf += dec.decode(value, { stream: true });
+        let cut;
+        while ((cut = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, cut).trim();
+          buf = buf.slice(cut + 1);
+          if (line) handle(line);
+        }
+      }
+      buf += dec.decode();
+      if (buf.trim()) handle(buf.trim());
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') { stopped = true; add({ k: 'note', s: 'stopped — the server ends the CLI turn' }); }
+    else add({ k: 'error', s: String(err) });
+  }
+  chat.ctrl = null;
+  if (done) {
+    if (done.session) ss.set(chatSessionKey(done.backend || backend), done.session);
+    if (!done.ok && !bot.items.some(i => i.k === 'error')) {
+      add({ k: 'error', s: `the turn ended without an answer (exit ${done.code ?? '?'})` });
+    }
+  } else if (!stopped && !bot.items.some(i => i.k === 'error')) {
+    add({ k: 'error', s: 'the stream ended without a result line' });
+  }
+  bot.live = false;
+  renderLive(bot);
+  saveChat();
+  setChatBusy(false);
+
+  if (done && done.rebuilt) {
+    const now = await builtPage();
+    if (now !== null && chat.baseline !== null && now === chat.baseline) return;   // read-only turn
+    // An open form is a half-typed thing a reload would throw away: say so, and wait.
+    if (state.editing || state.creating) {
+      add({ k: 'note', s: 'the chat wrote to the graph — reload to see it (your open form is kept until then)' });
+      bot.live = false; saveChat();
+      return;
+    }
+    saveChat();
+    stashFlash({ text: 'the chat wrote to the graph — reloaded', id: state.selected || '' });
+    ss.set(CHAT_OPEN, '1');
+    reloadKeepingView(state.selected);
+  }
+}
+
+function newConversation() {
+  chat.ctrl?.abort();
+  for (const b of Object.keys(BACKEND_LABEL)) ss.set(chatSessionKey(b), null);
+  chat.log = [];
+  saveChat();
+  renderChat();
+  $('#chatText')?.focus();
 }
 
 /** What to add to "written, not committed": the command that commits it.
@@ -2616,6 +2973,8 @@ document.addEventListener('click', e => {
   const d = e.target.dataset || {};
   if (d.goto) return open(d.goto);
   if (d.helpx) return toggleHelp(false);
+  if (d.chatx) return toggleChat(false);
+  if (d.chatnew) return newConversation();
   if (e.target.closest?.('[data-help]')) return toggleHelp(true);
   // Alt- or ⌘-click a project row: that project alone. Checked before the
   // label's own toggle runs, which preventDefault cancels.
@@ -2996,6 +3355,7 @@ document.addEventListener('keydown', e => {
   if (e.key === '/') { e.preventDefault(); return $('#search').focus(); }
   if (e.key === ' ') { e.preventDefault(); return togglePlay(); }
   if (e.key === 'w') { e.preventDefault(); return setNeeds(!state.needs); }
+  if (e.key === 'k' && chat.enabled) { e.preventDefault(); return toggleChat(); }
   if (e.key === 'n') {
     if (!state.selected) return;
     e.preventDefault();
