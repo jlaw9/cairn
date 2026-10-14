@@ -390,6 +390,53 @@ class RenderTest(unittest.TestCase):
         self.assertIn("<code>code</code>", out)
         self.assertIn("<strong>bold</strong>", out)
 
+    def test_wrapped_ordered_list_is_one_ol(self):
+        out = build_graph.md_to_html("1. first line\n   wrapped on\n2. second\n   also wrapped\n3. third")
+        self.assertEqual(out.count("<ol>"), 1)
+        self.assertEqual(out.count("<li>"), 3)
+        self.assertIn("first line wrapped on", out)
+        self.assertNotIn("<p>", out)
+
+    def test_nested_list_stays_inside_its_item(self):
+        out = build_graph.md_to_html("- a\n  - inner\n- b")
+        self.assertEqual(out.count("<ul>"), 2)
+        self.assertEqual(out.count("<li>"), 3)
+        self.assertEqual(out.count("</ul>"), 2)
+
+    def test_blank_line_between_numbered_items_keeps_one_list(self):
+        out = build_graph.md_to_html("1. a\n\n2. b")
+        self.assertEqual(out.count("<ol>"), 1)
+
+    def test_pipe_table(self):
+        out = build_graph.md_to_html("| a | b |\n|---|:-:|\n| 1 | `x` |\n| 2 | 3 |\n\nafter")
+        self.assertIn('<thead><tr><th>a</th><th style="text-align:center">b</th></tr></thead>', out)
+        self.assertEqual(out.count("<tr>"), 3)
+        self.assertIn("<code>x</code>", out)
+        self.assertIn("<p>after</p>", out)
+        self.assertNotIn("|", out)
+
+    def test_pipes_without_a_separator_row_are_a_paragraph(self):
+        self.assertIn("<p>", build_graph.md_to_html("| a | b |\n| 1 | 2 |"))
+
+    def test_empty_section_heading_is_omitted_but_filled_one_stays(self):
+        body = "## Claim\n\nreal text\n\n## What I did\n\n## Result\n\n## Next\n\n- go\n\n## Open questions\n"
+        out = build_graph.md_to_html(body)
+        self.assertIn("<h4>Claim</h4>", out)
+        self.assertIn("<h4>Next</h4>", out)
+        self.assertNotIn("What I did", out)
+        self.assertNotIn("Result", out)
+        self.assertNotIn("Open questions", out)
+
+    def test_heading_with_only_a_subsection_is_not_empty(self):
+        out = build_graph.md_to_html("## A\n\n### B\n\ntext")
+        self.assertIn("<h4>A</h4>", out)
+
+    def test_empty_heading_omission_leaves_notes_parsing_alone(self):
+        # Render-time only: lib reads the stored body, which this never touches.
+        body = "## Result\n\n## Notes\n\n- **2026-08-26** (jlaw) hi\n"
+        self.assertIn("<h4>Notes</h4>", build_graph.md_to_html(body))
+        self.assertIn("hi", lib.body_section(body, [lib.NOTES_HEADING]))
+
     def test_markdown_escapes_html(self):
         self.assertIn("&lt;script&gt;", build_graph.md_to_html("<script>alert(1)</script>"))
 
@@ -2964,6 +3011,118 @@ class OnboardingFixes(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             self.upd("2026-08-02-prekd-a", parent=["2026-08-03-prekd-b"])
         self.assertIn("loop", str(caught.exception))
+
+
+class Discard(unittest.TestCase):
+    """`cairn discard` deletes only what git has never seen."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+    TRACKED = "2026-08-01-demo-kept"
+    DRAFT = "2026-08-02-demo-draft"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cairn-discard-"))
+        (self.tmp / "nodes").mkdir()
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "jlaw@example.gov")
+        self.git("config", "user.name", "Jeff Law")
+        self.node(self.TRACKED)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "seed")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args):
+        import subprocess
+        return subprocess.run(["git", "-C", str(self.tmp), *args],
+                              capture_output=True, text=True, timeout=30)
+
+    def node(self, name, **kw):
+        path = self.tmp / "nodes" / f"{name}.md"
+        path.write_text(node_text(name, project="demo", **kw).lstrip("\n"))
+        return path
+
+    def discard(self, *args):
+        import subprocess
+        return subprocess.run([str(self.ROOT / "bin" / "cairn"), "discard", *args],
+                              capture_output=True, text=True, timeout=60,
+                              env={**os.environ, "CAIRN_ROOT": str(self.tmp)})
+
+    def test_an_untracked_draft_is_deleted_with_its_untracked_asset(self):
+        path = self.node(self.DRAFT)
+        (self.tmp / "assets").mkdir()
+        asset = self.tmp / "assets" / f"{self.DRAFT}.png"
+        asset.write_bytes(b"x")
+        done = self.discard(self.DRAFT)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(path.exists())
+        self.assertFalse(asset.exists())
+        self.assertIn(f"nodes/{self.DRAFT}.md", done.stdout)
+
+    def test_a_tracked_node_is_refused(self):
+        done = self.discard(self.TRACKED)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("tracked", done.stderr)
+        self.assertTrue((self.tmp / "nodes" / f"{self.TRACKED}.md").exists())
+
+    def test_a_modified_tracked_node_is_refused(self):
+        path = self.tmp / "nodes" / f"{self.TRACKED}.md"
+        path.write_text(path.read_text() + "\nmore\n")
+        self.assertNotEqual(self.discard(self.TRACKED).returncode, 0)
+        self.assertTrue(path.exists())
+
+    def test_a_draft_that_is_someones_parent_is_refused_and_named(self):
+        path = self.node(self.DRAFT)
+        self.node("2026-08-03-demo-child", parents=f"[{self.DRAFT}]")
+        done = self.discard(self.DRAFT)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("2026-08-03-demo-child (parent)", done.stderr)
+        self.assertTrue(path.exists())
+
+    def test_a_draft_listed_in_relates_is_refused(self):
+        path = self.node(self.DRAFT)
+        self.node("2026-08-03-demo-other",
+                  extra=f"relates:\n  - {{to: {self.DRAFT}, type: supports, note: why}}\n")
+        done = self.discard(self.DRAFT)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("(relates)", done.stderr)
+        self.assertTrue(path.exists())
+
+    def test_anything_that_is_not_a_bare_node_id_is_refused(self):
+        outside = self.tmp / "keep.md"
+        outside.write_text("x")
+        for bad in ("../keep", "nodes/" + self.DRAFT, self.DRAFT + ".md", "demo-draft"):
+            self.node(self.DRAFT)
+            done = self.discard(bad)
+            self.assertNotEqual(done.returncode, 0, bad)
+            self.assertIn("bare node id", done.stderr)
+        self.assertTrue(outside.exists())
+        self.assertTrue((self.tmp / "nodes" / f"{self.DRAFT}.md").exists())
+
+    def test_a_graph_that_is_not_a_git_repo_is_refused(self):
+        plain = Path(tempfile.mkdtemp(prefix="cairn-discard-plain-"))
+        try:
+            (plain / "nodes").mkdir()
+            path = plain / "nodes" / f"{self.DRAFT}.md"
+            path.write_text(node_text(self.DRAFT, project="demo").lstrip("\n"))
+            import subprocess
+            done = subprocess.run([str(self.ROOT / "bin" / "cairn"), "discard", self.DRAFT],
+                                  capture_output=True, text=True, timeout=60,
+                                  env={**os.environ, "CAIRN_ROOT": str(plain),
+                                       "GIT_CEILING_DIRECTORIES": str(plain.parent)})
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn("not a git repo", done.stderr)
+            self.assertTrue(path.exists())
+        finally:
+            shutil.rmtree(plain, ignore_errors=True)
+
+    def test_dry_run_prints_and_removes_nothing(self):
+        path = self.node(self.DRAFT)
+        done = self.discard(self.DRAFT, "--dry-run")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"would remove nodes/{self.DRAFT}.md", done.stdout)
+        self.assertTrue(path.exists())
 
 
 if __name__ == "__main__":
