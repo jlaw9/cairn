@@ -57,7 +57,7 @@ commit messages. You have the evidence for all three.
 
 **`## Result` is the one thing to ask about.** It's the interpretation — what
 the numbers mean, whether the thing worked — and it usually isn't in the diff.
-Ask one focused question, not a form. If Jeff answers in a sentence, that
+Ask one focused question, not a form. If the user answers in a sentence, that
 sentence is the section; don't inflate it.
 
 If the result is that something failed: set the status to `dead` and write down
@@ -67,7 +67,7 @@ Do not soften them into `parked`. Park means "paused, will resume"; dead means
 
 ## 4. Show, then commit
 
-Print the node. Wait for confirmation. Never commit a node Jeff hasn't seen.
+Print the node. Wait for confirmation. Never commit a node the user hasn't seen.
 
 Then, in the graph repo:
 

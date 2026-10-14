@@ -138,7 +138,7 @@ after it, it is a story.
 **`--project` is checked against the keys already in the graph.** An unrecognised
 key is refused with the near-matches listed, because it is the only field whose
 typo validates cleanly and it silently splits a project in two. Starting a
-genuinely new project takes `--new-project` — ask Jeff before using it rather
+genuinely new project takes `--new-project` — ask the graph's owner before using it rather
 than assuming, since the usual cause is a typo or a key that already exists under
 a different name.
 
@@ -172,10 +172,10 @@ surface them. Three things about this are deliberate and worth not undoing:
   entry is one no later work has responded to; once the thread moves, the note
   stops being reported. That is what keeps it from becoming a nag list.
 
-A note in Jeff's voice is his to write — `cairn note` commits it, because a
-sentence he just typed is by definition one he has seen. If *you* are recording
+A note in the user's voice is theirs to write — `cairn note` commits it, because a
+sentence they just typed is by definition one they have seen. If *you* are recording
 an observation of your own, that is a history note on a status change or an
-`inbox/` capture, not a `## Notes` bullet in his name.
+`inbox/` capture, not a `## Notes` bullet in their name.
 
 ### A literature finding is an experiment
 
@@ -204,13 +204,13 @@ experiment to test whether it holds on our own material, a task for the schema
 change it forces. Make those children of the finding rather than siblings — the
 lineage is the argument.
 
-The `## Result` section is the one thing worth asking Jeff about, because it's
+The `## Result` section is the one thing worth asking the user about, because it's
 the interpretation and you usually can't infer it from a diff. Everything else
 — what changed, which commit, which host — read it out of the git log yourself.
 
 ## Drafting rules
 
-**Never commit a node Jeff hasn't seen.** Draft it, show it, then commit. An
+**Never commit a node the user hasn't seen.** Draft it, show it, then commit. An
 auto-populated graph nobody trusts is the exact failure mode this project
 exists to avoid.
 
