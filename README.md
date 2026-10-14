@@ -717,15 +717,30 @@ not exist. `cairn serve` is a localhost writer that closes that gap:
 - **leave a note** — the panel's note box saves directly instead of composing a
   command for the clipboard
 - **move a status** — a select beside it, offering only the statuses that node's
-  type actually has, with a one-line why that becomes the history note
-- **create a node** — `+ node` in the header, or `+ child node` in an open
-  node's panel, which prefills the parent and its project. Lineage recorded at
-  creation is lineage that actually gets recorded
+  type actually has, with a one-line why that becomes the history note. A move to
+  `dead`, `dropped`, `killed` or `closed` needs the why (a refuted claim is only
+  citable with its reason); every other move is free. Enter applies
+- **create a node** — `+ node` in the header makes a root; `+ child node` in an
+  open node's panel prefills the parent and its project. The project starts as
+  "choose…" (or the one project the map is showing), never a guess. The form
+  previews the id the title will become, takes your own slug, a "why now" that
+  becomes the first history note, and the type's own fields: `due` for a task,
+  `date`/`venue` for a milestone, collapsed provenance (repo, commit, host, DOIs)
+  for an experiment
 - **start a project** — the project select ends in `+ new project…`
-- **correct a node** — its body, title, due date, parents, relations and the
-  other fields its type carries, through `cairn edit`, which validates the result
-  before writing and refuses `status` (that is the select above, because it moves
-  `history` with it). An edit leaves `updated` alone: fixing a typo is not news
+- **correct a node** — `edit` in the panel opens a form for its title, project,
+  the scalar fields its type carries, parents, typed relations (with a required
+  why), refs, artifacts and the markdown body, through `cairn edit`, which
+  validates the result before writing and refuses `status` (that is the select
+  above, because it moves `history` with it). Only what changed is sent. An edit
+  leaves `updated` alone: fixing a typo is not news. A mistake in a committed
+  node is not deleted: add a `supersedes` relation from the corrected node, then
+  close this one
+- **review & commit, or discard** — a node git does not have yet (or one with an
+  uncommitted edit) carries a hollow dot on the map and a banner in the panel,
+  because it is invisible from the other machine. `review & commit` runs
+  `cairn review <id> [note]`, which is what admits it; `discard draft` (an
+  untracked file only, and it asks twice) runs `cairn discard <id>`
 
 **The form is the one place in Cairn that insists on structure**, and only for an
 experiment: it will not submit without a claim. The whole point of `planned` is a
@@ -740,20 +755,30 @@ that project, permanently: lowercase, digits and dashes only. And claiming a key
 is new when the graph already has it does *not* pass `--new-project` — that flag
 is what disables `check_project`, the guard that catches `photpoly` for
 `photopoly`, the one typo that validates cleanly and silently splits a project in
-two.
+two. Because the flag switches the guard off, the server runs the same near-match
+check first: a key close to an existing one comes back as "did you mean
+`photopoly`?", and the form offers `use photopoly` or `it really is new`.
 
 **It is not a second store.** Every write shells out to `bin/cairn` — the same
 code path `/log` and the terminal use — so the node file stays the only copy,
 `status`/`history` still move together in `lib.Node.set_status`, and everything
 the terminal refuses is refused here too. The view may create a node, append a
-note and propose a status change. It may never hand-edit frontmatter, there is no
+note, propose a status change, correct a node through `cairn edit`, and review or
+discard one through those commands. It may never hand-edit frontmatter, there is no
 endpoint that writes YAML, and the day one appears is the day the map becomes a
 second source of truth.
 
 The panel reports whatever the command said, including whether the write landed
 in git — derived by asking git about the file rather than declared, because
-`note` commits and `new_node --update` does not. An uncommitted node is invisible
-from the other machine, so it says so.
+`note` and `edit` commit and `new_node` does not. An uncommitted node is invisible
+from the other machine, so it says so, and names `cairn review <id>` — never
+`sync --push`, which commits only `build/`.
+
+Every write reloads the page, since the server has just regenerated `build/`.
+The view rides along in the URL — filters, search (`?q=`), fill, folded lanes,
+the needs-you lens, isolate, pan and zoom, and the open node — and the result
+message is shown again for a few seconds after the reload. Opening a node pans
+the map only if the node is out of sight.
 
 **`build/graph.html` still works with the server off**, which is what makes the
 process an enhancement rather than a dependency. Open the file directly and the
@@ -774,9 +799,7 @@ you are already sitting at should need:
   rebinding — the packets really do arrive on loopback, and the header is what
   still names the attacker
 
-The design rationale, and what is deliberately not built yet — the review button,
-which waits on `cairn review` and on a decision about design decision 6 — is in
-`2026-08-27-cairn-living-view`. Meeting notes still arrive through
+The design rationale is in `2026-08-27-cairn-living-view`. Meeting notes still arrive through
 `cairn import_note`, since they are a file rather than a node.
 
 ### Chat in the map

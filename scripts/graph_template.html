@@ -249,6 +249,9 @@
      overloading it would make both unreadable. */
   .node .flag { fill: var(--pending); stroke: var(--bg); stroke-width: 1; }
   .node.needs .ring { fill: none; stroke: var(--pending); stroke-width: 1.6; opacity: .85; }
+  /* Not in git: hollow, where the note dot is filled, and at the opposite
+     corner — a decoration on the glyph, like the other two marks. */
+  .node .draft { fill: var(--bg); stroke: var(--ink); stroke-width: 1.3; }
   .notes { font-size: 12.5px; }
   .notes .n { border-left: 2px solid var(--pending); padding: 2px 0 2px 10px; margin-bottom: 9px; }
   .notes .who { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
@@ -293,6 +296,53 @@
   .sect textarea.field { min-height: 58px; resize: vertical; }
   .hint { color: var(--ink-faint); font-size: 11.5px; margin-top: 6px; line-height: 1.6; }
   .said[hidden] { display: none; }   /* .said sets display, so [hidden] needs saying */
+  .wr button.ghost {
+    background: var(--panel-2); color: var(--ink-dim); border: 1px solid var(--line);
+  }
+  .wr button.ghost:hover { color: var(--ink); }
+  .wr button.danger { background: var(--bad); color: #fff; }
+  .idprev { font-size: 11.5px; color: var(--ink-dim); margin-top: 6px; word-break: break-all; }
+  .idprev code { color: var(--ink); }
+  .sect details summary { cursor: pointer; color: var(--ink-dim); font-size: 12px; }
+  .sect details[open] summary { margin-bottom: 6px; }
+  .flabel { display: block; font-size: 11px; color: var(--ink-faint); margin: 8px 0 3px; }
+  .sect input.field[type=date] { width: auto; }
+  .sect textarea.field.src { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; min-height: 240px; }
+
+  /* Edit mode. A list field is its current entries, each with an × to drop it,
+     and one row to add to it — the add/drop shape `cairn edit` itself has. */
+  .ed-item {
+    display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 12.5px;
+    border-bottom: 1px solid var(--line);
+  }
+  .ed-item:last-of-type { border-bottom: 0; }
+  .ed-item .what { flex: 1; min-width: 0; word-break: break-word; }
+  .ed-item .what .muted { display: block; }
+  .ed-item.added .what::before { content: "+ "; color: var(--good); }
+  .xbtn {
+    background: none; border: 0; color: var(--ink-faint); cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 0 2px;
+  }
+  .xbtn:hover { color: var(--bad); }
+
+  /* The working-tree banner: a node git has not got is a node the other machine
+     cannot see. It goes in the panel, not on the glyph, beyond one small mark. */
+  .gitbar {
+    margin: 10px 0 4px; padding: 8px 10px; border-radius: 6px; font-size: 12.5px;
+    background: var(--panel-2); border-left: 3px solid var(--pending);
+  }
+  .gitbar .wr { margin-top: 6px; }
+  .gitbar code { font-size: 11.5px; }
+
+  /* What the last write said, re-shown after the reload that follows it. */
+  #flash {
+    position: absolute; left: 14px; bottom: 14px; z-index: 15; max-width: min(560px, 80%);
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--good);
+    border-radius: 6px; padding: 8px 30px 8px 11px; font-size: 12px; white-space: pre-wrap;
+    color: var(--ink-dim); box-shadow: 0 8px 26px rgba(0,0,0,.3);
+  }
+  #flash.warn { border-left-color: var(--pending); }
+  #flash .xbtn { position: absolute; right: 6px; top: 5px; }
 
   .keys { font-size: 11px; color: var(--ink-faint); line-height: 1.9; }
   .keys kbd {
@@ -366,7 +416,8 @@
     </div>
     <div class="muted" style="line-height:1.6;margin-top:8px">
       shape = type · size = work downstream<br>
-      ring = needs you · dot = open note
+      ring = needs you · dot = open note<br>
+      hollow dot = not committed yet
     </div>
     <h2>Fill</h2>
     <div id="fillKey"></div>
@@ -388,6 +439,7 @@
       <p>No nodes yet.</p>
       <p>Create one with <code>cairn new_node</code>, then <code>cairn build</code>.</p>
     </div>
+    <div id="flash" hidden></div>
   </div>
 
   <div id="panel"></div>
@@ -416,7 +468,19 @@ const state = {
   collapsed: new Set(),
   creating: false,
   draft: null,
+  editing: null,       // id whose panel is the edit form
+  edit: null,          // that form's draft, kept across a re-render or a misclick
 };
+
+/* ---------- not in git yet ----------
+   `git` is the working tree's opinion at build time: "untracked" (a draft git has
+   never seen), "modified" (committed, with an edit on disk), "clean", or null when
+   the graph is not a git repo. Either of the first two is invisible from the
+   other machine, which is the thing worth a mark. */
+const isDraft = n => n.git === 'untracked' || n.git === 'modified';
+
+/** `uncommitted` is an author bucket, not a person; say what it means. */
+const whoLabel = a => a === 'uncommitted' ? 'not committed' : a;
 
 /* ---------- status as of a date: this is the replay ---------- */
 const CLS = {
@@ -594,7 +658,7 @@ function fillLegend() {
   } else if (state.colour === 'age') {
     for (const [, token, label] of AGE_BUCKETS) rows.push([token, label]);
   } else {
-    for (const [who, token] of WHO) rows.push([token, who]);
+    for (const [who, token] of WHO) rows.push([token, whoLabel(who)]);
   }
   $('#fillKey').innerHTML = rows.map(([token, label]) =>
     `<div class="row">${token ? `<span class="sw" style="background:var(--${token})"></span>` : ''}` +
@@ -835,6 +899,7 @@ function draw() {
       (attn ? `<circle class="ring" r="${r + 5}"></circle>` : '') +
       glyph(n.shape, r) +
       (noted ? `<circle class="flag" cx="${r - 3}" cy="${-r + 3}" r="3.4"></circle>` : '') +
+      (isDraft(n) ? `<circle class="draft" cx="${r - 3}" cy="${r - 3}" r="3.2"></circle>` : '') +
       `<text class="label" x="${r + 7}" y="4">${esc(n.label)}</text>` +
       `</g>`
     );
@@ -961,7 +1026,10 @@ function chk(container, values, key, colour, fold) {
     `<label class="chk">` +
     `<input type="checkbox" data-key="${key}" value="${esc(v)}" checked>` +
     (colour ? `<span class="swatch" style="background:var(--${CLS[v] || 'idle'})"></span>` : '') +
-    `<span>${esc(v)}</span><span class="n" data-count="${key}:${esc(v)}"></span>` +
+    (key === 'author' && v === 'uncommitted'
+      ? `<span class="muted" title="nodes git has never seen — no author yet">not committed</span>`
+      : `<span>${esc(v)}</span>`) +
+    `<span class="n" data-count="${key}:${esc(v)}"></span>` +
     (fold ? `<span class="fold" data-lane="${esc(v)}" title="Fold this lane to a strip">▾</span>` : '') +
     `</label>`
   ).join('');
@@ -1027,60 +1095,156 @@ function noteBox(n) {
    headers by design — so `server.up` stays false and every control below is
    simply never rendered. That is the constraint the note above states as a rule:
    the map must stay fully usable with the server off, which is what makes the
-   process an enhancement rather than a dependency. */
-const server = { up: false };
+   process an enhancement rather than a dependency.
+
+   `actions` is the server's own list, so a button for a command this server
+   does not have (an older `cairn serve`, a tool without `discard`) never shows. */
+const server = { up: false, actions: new Set() };
 
 async function probeServer() {
   if (!location.protocol.startsWith('http')) return;
+  let info = null;
   try {
     const res = await fetch('/api/health', { cache: 'no-store' });
-    const info = res.ok ? await res.json() : null;
+    info = res.ok ? await res.json() : null;
     if (!info || info.cairn !== 'serve') return;   // some other static server
   } catch (err) { return; }
   server.up = true;
+  server.actions = new Set(info.actions || []);
   document.body.classList.add('serving');
   $('#newNode').hidden = false;
-  if (state.selected) open(state.selected);        // re-render, now with writes
+  if (state.selected) open(state.selected, { pan: false });   // re-render, now with writes
+}
+
+/** What to add to "written, not committed": the command that commits it.
+    Never `sync --push` — sync commits only build/, so a node left for it stays
+    on this machine (design decision 6). */
+function uncommittedLine(out, id) {
+  if (out.committed !== false) return '';
+  return '\n\nWritten, but not committed — invisible from the other machine. ' +
+    `Read it back, then "review & commit" in the panel, or \`cairn review ${id}\`.`;
 }
 
 /** POST one write, and show what `bin/cairn` said about it.
     The server shells out; this reports. It never edits the payload in place —
     on success the server has regenerated build/, so the honest refresh is a
-    reload, and `#node-id` reopens the panel you were looking at. */
-async function write(body, said) {
+    reload, and the view (filters, search, fill, pan, the open node) is carried
+    across it in the URL, with the result message in sessionStorage.
+
+    Resolves to the server's answer with `ok` and `http` always set, so a caller
+    can act on a refusal it understands (the 409 near-miss project). */
+async function write(body, said, opts = {}) {
   said.hidden = false;
   said.className = 'said';
   said.textContent = 'writing…';
-  let out;
+  let out = null, http = 0;
   try {
     const res = await fetch('/api/write', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    http = res.status;
     out = await res.json();
   } catch (err) {
     out = { error: String(err) };
   }
-  if (!out || out.error || !out.ok) {
+  out = out || {};
+  out.http = http;
+  if (out.error || !out.ok) {
+    // The command's own words, verbatim; the form stays filled.
     said.className = 'said bad';
-    said.textContent = (out && (out.error || out.out)) || 'the write failed';
-    return false;
+    said.textContent = out.error || out.out || 'the write failed';
+    out.ok = false;
+    return out;
   }
   // `committed` is derived by the server from git, not declared: `cairn note`
-  // commits and `new_node --update` does not, and an uncommitted node is
+  // and `cairn edit` commit, `new_node` does not, and an uncommitted node is
   // invisible from the other machine — which is exactly the thing you would
   // rather not discover tomorrow.
-  said.textContent = (out.out || 'written.') +
-    (out.committed === false
-      ? '\n\nWritten, but not committed. `cairn sync --push` sends it on — or '
-        + 'read it back first, which is what the review rule is for.'
-      : '');
-  // Long enough to read the above. The reload is what makes this a living map:
-  // the server has already regenerated build/, so the page in front of you is
-  // stale by exactly the write you just made.
-  if (out.rebuilt) setTimeout(() => location.reload(), 2600);
+  const id = out.node || body.id || '';
+  const text = (opts.message ? opts.message(out) : (out.out || 'written.')) +
+    uncommittedLine(out, id);
+  said.textContent = text;
+  if (out.rebuilt) {
+    const next = typeof opts.reopen === 'function' ? opts.reopen(out)
+      : opts.reopen !== undefined ? opts.reopen : (state.selected || id);
+    stashFlash({ text, warn: out.committed === false, id: next || '' });
+    // The message survives the reload, so the reload need not wait for it to
+    // be read: the page in front of you is stale by exactly this write.
+    setTimeout(() => reloadKeepingView(next, opts.reveal), 700);
+  }
   return out;
+}
+
+/* ---------- keeping the view across a write ----------
+   Every write reloads, because the server has regenerated build/ and a page that
+   patched itself would be a second opinion about what the file now says. What a
+   reload must not do is throw away where you were. So the view goes into the
+   query string `initFromUrl` reads — which also makes it a link — and the result
+   message into sessionStorage, re-shown after. Both work over file:// as well. */
+const FILTER_KEYS = ['project', 'type', 'status', 'author'];
+const ALL_VALUES = {
+  project: () => new Set(DATA.nodes.map(n => n.project)),
+  type: () => new Set(DATA.types),
+  status: () => new Set(DATA.statuses),
+  author: () => new Set(DATA.authors),
+};
+
+function viewParams(reveal) {
+  const p = new URLSearchParams();
+  for (const key of FILTER_KEYS) {
+    const all = ALL_VALUES[key]();
+    if (![...all].some(v => !state[key].has(v))) continue;     // everything shown
+    const keep = [...state[key]].filter(v => all.has(v));
+    // A node just written must not land behind a filter: its project may be
+    // new, and its author is "not committed" until someone reviews it.
+    if (reveal && reveal[key] && !keep.includes(reveal[key])) keep.push(reveal[key]);
+    p.set(key, keep.join(','));
+  }
+  const q = $('#search').value.trim();
+  if (q && !(reveal && reveal.dropQuery)) p.set('q', q);
+  if (state.colour !== 'status') p.set('colour', state.colour);
+  if (state.collapsed.size) p.set('folded', [...state.collapsed].join(','));
+  if (!isLive()) p.set('since', DATA.dates[state.t]);
+  if (state.needs) p.set('needs', '1');
+  if (state.isolate) p.set('iso', state.isolate);
+  p.set('tx', Math.round(tx));
+  p.set('ty', Math.round(ty));
+  p.set('scale', Math.round(scale * 1000) / 1000);
+  return p;
+}
+
+function reloadKeepingView(openId, reveal) {
+  const q = viewParams(reveal).toString();
+  history.replaceState(null, '', location.pathname + (q ? '?' + q : '') +
+                                 (openId ? '#' + openId : ''));
+  location.reload();
+}
+
+const FLASH_KEY = 'cairn.flash';
+function stashFlash(f) {
+  try {
+    sessionStorage.setItem(FLASH_KEY, JSON.stringify(Object.assign(
+      { panelTop: panel.scrollTop, panelId: state.selected || '' }, f)));
+  } catch (err) { /* no storage: the reload just loses the message */ }
+}
+function takeFlash() {
+  try {
+    const raw = sessionStorage.getItem(FLASH_KEY);
+    sessionStorage.removeItem(FLASH_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) { return null; }
+}
+let flashTimer = null;
+function showFlash(f) {
+  const el = $('#flash');
+  el.className = f.warn ? 'warn' : '';
+  el.innerHTML = `<button class="xbtn" data-flashx="1" title="Dismiss">×</button>`;
+  el.appendChild(document.createTextNode(f.text || ''));
+  el.hidden = false;
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { el.hidden = true; }, 8000);
 }
 
 /* ---------- moving a status ----------
@@ -1090,21 +1254,72 @@ async function write(body, said) {
    terminal and /log do. The panel has no opinion about frontmatter, and the day
    it acquires one is the day the map becomes a second source of truth.
 
+   A move that closes a thread as a failure needs its reason (the server refuses
+   one without, too): a dead node is a refuted claim, and the reason is what
+   someone cites instead of re-running it. Every other move stays free.
+
    Hidden while the time slider is rewound: a control that writes *now* has no
    business sitting under a panel describing three months ago. */
+const CLOSING = new Set(['dead', 'dropped', 'killed', 'closed']);
+
 function statusBox(n) {
   const options = (DATA.statusesByType || {})[n.type] || DATA.statuses;
   return `<div class="sect"><div class="hd">Move the status</div>` +
     `<div class="wr">` +
-      `<select id="stPick">` +
+      `<select id="stPick" data-was="${esc(n.status)}">` +
         options.map(s =>
           `<option${s === n.status ? ' selected' : ''}>${esc(s)}</option>`).join('') +
       `</select>` +
       `<input id="stWhy" placeholder="why — becomes the history note">` +
-      `<button data-status="${esc(n.id)}">Apply</button>` +
+      `<button id="stApply" data-status="${esc(n.id)}" disabled>Apply</button>` +
     `</div>` +
+    `<div class="hint" id="stHint"></div>` +
     `<code class="said" id="stSaid" hidden></code>` +
     `</div>`;
+}
+
+/** Apply is live only for a real move, and for a closing one only with a reason —
+    said here, so neither costs a round trip to be told. */
+function syncStatusBox() {
+  const pick = $('#stPick'), why = $('#stWhy'), btn = $('#stApply'), hint = $('#stHint');
+  if (!pick || !why || !btn) return;
+  const same = pick.value === pick.dataset.was;
+  const closing = CLOSING.has(pick.value);
+  const needWhy = closing && !why.value.trim();
+  btn.disabled = same || needWhy;
+  why.placeholder = closing ? `why — required for ${pick.value}`
+                            : 'why — becomes the history note';
+  hint.textContent = !same && needWhy
+    ? `a move to ${pick.value} needs a reason — it is what makes the dead end citable`
+    : '';
+}
+
+/* ---------- not in git yet: review, or discard ----------
+   `cairn review` admits a draft (it commits the file with the review stamp);
+   `cairn discard` declines one, and refuses anything git has seen — so the
+   discard button is offered only for an untracked file, and asks twice, in the
+   panel rather than in a modal. */
+function gitBanner(n) {
+  if (!isDraft(n)) return '';
+  const untracked = n.git === 'untracked';
+  const head = untracked
+    ? 'Not in git yet — invisible from the other machine.'
+    : 'Edited, not committed — the other machine still has the old version.';
+  let inner = `<div><strong>${head}</strong></div>`;
+  if (server.up && isLive() && server.actions.has('review')) {
+    inner += `<div class="wr">` +
+      `<input id="rvNote" placeholder="what you thought (optional)">` +
+      `<button data-review="${esc(n.id)}">review &amp; commit</button>` +
+      (untracked && server.actions.has('discard')
+        ? `<button class="ghost" data-discard="${esc(n.id)}">discard draft</button>` : '') +
+      `</div><code class="said" id="rvSaid" hidden></code>`;
+  } else {
+    inner += `<div class="muted" style="margin-top:4px">Read it, then ` +
+      `<code>cairn review ${esc(n.id)}</code> commits it` +
+      (untracked ? ` — or <code>cairn discard ${esc(n.id)}</code> if it should not exist.` : '.') +
+      `</div>`;
+  }
+  return `<div class="gitbar">${inner}</div>`;
 }
 
 /** Shell-single-quote a note so a stray quote or backtick can't rewrite it. */
@@ -1115,6 +1330,73 @@ function shq(s) {
 function noteCommand(id) {
   const text = ($('#noteText')?.value || '').trim().replace(/\s+/g, ' ');
   return `cairn note ${id} ${text ? shq(text) : '"…"'}`;
+}
+
+/* ---------- picking a node by typing ----------
+   One <datalist> of every id, labelled with its title, shared by every field that
+   names a node (parent, relation target, a task's source). Built on first use. */
+function nodeList() {
+  if (!$('#dlNodes')) {
+    const dl = document.createElement('datalist');
+    dl.id = 'dlNodes';
+    dl.innerHTML = DATA.nodes.map(n =>
+      `<option value="${esc(n.id)}" label="${esc(n.title)}"></option>`).join('');
+    document.body.appendChild(dl);
+  }
+  return 'dlNodes';
+}
+
+/** An id, or a title typed out in full, to an id — or '' if it names nothing. */
+function resolveNode(text) {
+  const t = String(text || '').trim();
+  if (!t) return '';
+  if (byId.has(t)) return t;
+  const hit = DATA.nodes.filter(n => n.title.toLowerCase() === t.toLowerCase());
+  return hit.length === 1 ? hit[0].id : '';
+}
+
+/* ---------- the id a title will become ----------
+   A mirror of new_node.py's `slugify` + `shorten`, so the preview under the title
+   is the id the command will actually write. If the two drift the preview lies,
+   so tests/test_cairn.py checks the word lists against new_node's and, where a
+   JS engine is installed, runs this block on real titles. The rule: lowercase,
+   runs of anything but [a-z0-9] become one dash; the project word always stays;
+   STOPWORDS are dropped; words are added until the next would pass SLUG_MAX
+   (always at least one); a trailing DANGLING word is popped; hard cut at
+   SLUG_MAX. `--slug` replaces all of it, date still prefixed. */
+/* slug:begin */
+const SLUG_MAX = 34;
+const STOPWORDS = new Set(['a', 'an', 'the', 'of', 'on', 'in', 'for', 'to', 'and', 'with', 'from']);
+const DANGLING = new Set([
+  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'than', 'then', 'as', 'at',
+  'by', 'but', 'or', 'if', 'it', 'its', 'that', 'this', 'these', 'those', 'into',
+  'onto', 'over', 'under', 'via', 'vs', 'do', 'does', 'did', 'can', 'could',
+  'will', 'would', 'should', 'may', 'might', 'must', 'has', 'have', 'had', 'not',
+  'no', 'so', 'such', 'very', 'too', 'also', 'when', 'while', 'whether', 'how',
+  'why', 'what', 'which', 'who',
+]);
+function slugify(text) {
+  return String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-');
+}
+function shorten(slug, keep = 1) {
+  const words = slug.split('-');
+  const head = words.slice(0, keep);
+  const tail = words.slice(keep).filter(w => !STOPWORDS.has(w));
+  const out = [...head];
+  for (const word of tail) {
+    if ([...out, word].join('-').length > SLUG_MAX && out.length > head.length) break;
+    out.push(word);
+  }
+  while (out.length > keep && DANGLING.has(out[out.length - 1])) out.pop();
+  return out.join('-').slice(0, SLUG_MAX).replace(/^-+|-+$/g, '');
+}
+/* slug:end */
+
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-` +
+         `${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /* ---------- creating a node from the map ----------
@@ -1138,20 +1420,23 @@ function projectKeys() {
     .filter(p => p && p !== '(unassigned)').sort();
 }
 
+/** Header `+ node` is a node with no parent; `+ child node` is a child of the
+    open one. The project is never guessed: it starts as "choose…", unless the
+    map is showing exactly one project, in which case that is the one meant. */
 function openCreate(parentId) {
+  const keys = projectKeys();
+  const shown = keys.filter(p => state.project.has(p));
+  const only = shown.length === 1 && state.project.size === 1 ? shown[0] : '';
   state.selected = null;
   state.creating = true;
+  state.editing = null;
   state.draft = Object.assign(
-    { type: 'experiment', title: '', project: projectKeys()[0] || NEW_PROJECT,
-      newProject: '', status: '', body: '', parent: '', parentOn: false },
+    { type: 'experiment', title: '', project: only, newProject: '', status: '',
+      body: '', parent: '', note: '', slug: '', due: '', date: '', venue: '',
+      repo: '', commit: '', host: '', refs: '' },
     state.draft || {});
-  if (parentId && byId.has(parentId)) {
-    // Opening a node and asking for a new one almost always means a child of it,
-    // and lineage recorded at creation is lineage that actually gets recorded.
-    state.draft.parent = parentId;
-    state.draft.parentOn = true;
-    state.draft.project = byId.get(parentId).project;
-  }
+  state.draft.parent = parentId && byId.has(parentId) ? parentId : '';
+  if (state.draft.parent) state.draft.project = byId.get(parentId).project;
   renderCreate();
   panel.classList.add('open');
   panel.scrollTop = 0;
@@ -1159,18 +1444,56 @@ function openCreate(parentId) {
   draw();
 }
 
+const CREATE_FIELDS = [
+  ['type', 'nwType'], ['title', 'nwTitle'], ['body', 'nwBody'], ['project', 'nwProject'],
+  ['newProject', 'nwNewProject'], ['status', 'nwStatus'], ['parent', 'nwParent'],
+  ['note', 'nwNote'], ['slug', 'nwSlug'], ['due', 'nwDue'], ['date', 'nwDate'],
+  ['venue', 'nwVenue'], ['repo', 'nwRepo'], ['commit', 'nwCommit'], ['host', 'nwHost'],
+  ['refs', 'nwRefs'],
+];
+
 /** DOM -> draft, so a re-render (type change, new-project toggle) keeps what
     has been typed. Read at submit time too: nothing tracks every keystroke. */
 function syncDraft() {
   const d = state.draft, v = id => $('#' + id)?.value;
-  for (const [key, id] of [['type','nwType'], ['title','nwTitle'], ['body','nwBody'],
-                           ['project','nwProject'], ['newProject','nwNewProject'],
-                           ['status','nwStatus']]) {
+  for (const [key, id] of CREATE_FIELDS) {
     if (v(id) !== undefined) d[key] = v(id);
   }
-  if ($('#nwParent')) d.parentOn = $('#nwParent').checked;
+  const prov = $('#nwProv');
+  if (prov) d.provOpen = prov.open;
   const valid = (DATA.statusesByType || {})[d.type] || DATA.statuses;
   if (!valid.includes(d.status)) d.status = '';
+}
+
+function createProject(d) {
+  return (d.project === NEW_PROJECT ? d.newProject : d.project).trim();
+}
+
+/** The id `new_node` will write, from what is typed right now. */
+function idPreview(d) {
+  const project = createProject(d);
+  const slug = d.slug.trim();
+  if (slug) return `${todayISO()}-${slug}`;
+  if (!project || !d.title.trim()) return '';
+  return `${todayISO()}-${shorten(slugify(`${project}-${d.title}`))}`;
+}
+
+function syncIdPreview() {
+  if (!state.creating) return;
+  syncDraft();
+  const d = state.draft, el = $('#nwId');
+  if (!el) return;
+  const id = idPreview(d);
+  el.innerHTML = id
+    ? `id: <code>${esc(id)}</code>${byId.has(id) ? ' <span style="color:var(--bad)">— already exists</span>' : ''}`
+    : `id: <span class="muted">a project and a title make one</span>`;
+  const p = $('#nwParentName');
+  if (p) {
+    const pid = resolveNode(d.parent);
+    p.textContent = d.parent.trim()
+      ? (pid ? `child of “${byId.get(pid).title}”` : 'no node with that id')
+      : 'optional — no parent makes it a root';
+  }
 }
 
 function renderCreate() {
@@ -1178,11 +1501,33 @@ function renderCreate() {
   // Lifecycle order, so the first option is the one a just-created node should
   // have: `planned` for an experiment, `open` for a direction, `todo` for a task.
   const statuses = (DATA.statusesByType || {})[d.type] || DATA.statuses;
-  const parent = d.parent && byId.get(d.parent);
   const isNew = d.project === NEW_PROJECT;
   const label = BODY_LABEL[d.type] || 'Body';
   const opts = (list, chosen) => list.map(x =>
     `<option${x === chosen ? ' selected' : ''}>${esc(x)}</option>`).join('');
+  const field = (id, key, lbl, attrs = '') =>
+    `<label class="flabel" for="${id}">${lbl}</label>` +
+    `<input id="${id}" class="field" value="${esc(d[key] || '')}" ${attrs}>`;
+  const dl = nodeList();
+
+  let typeFields = '';
+  if (d.type === 'task') {
+    typeFields = `<div class="sect"><div class="hd">Due</div>` +
+      `<input id="nwDue" class="field" type="date" value="${esc(d.due)}"></div>`;
+  } else if (d.type === 'milestone') {
+    typeFields = `<div class="sect"><div class="hd">Milestone</div>` +
+      field('nwDate', 'date', 'date', 'type="date"') +
+      field('nwVenue', 'venue', 'venue', 'placeholder="journal, conference, review…"') +
+      `</div>`;
+  } else if (d.type === 'experiment') {
+    typeFields = `<div class="sect"><details id="nwProv"${d.provOpen ? ' open' : ''}>` +
+      `<summary>Provenance — repo, commit, host, refs (optional)</summary>` +
+      field('nwRepo', 'repo', 'repo', 'placeholder="git@github.com:you/project.git"') +
+      field('nwCommit', 'commit', 'commit', 'placeholder="a SHA, never a branch"') +
+      field('nwHost', 'host', 'host', 'placeholder="kestrel"') +
+      field('nwRefs', 'refs', 'refs', 'placeholder="DOIs, space- or comma-separated"') +
+      `</details></div>`;
+  }
 
   panel.innerHTML =
     `<button id="close" title="Close (Esc)">×</button>` +
@@ -1197,8 +1542,12 @@ function renderCreate() {
     `<div class="sect"><div class="hd">Title</div>` +
       `<input id="nwTitle" class="field" value="${esc(d.title)}" ` +
         `placeholder="the question this settles, not the topic">` +
-      `<div class="hint">This becomes the id, permanently, shortened at a word ` +
-        `boundary. "Does X hold on Y?" beats "X review".</div>` +
+      `<div class="idprev" id="nwId"></div>` +
+      `<details${d.slug ? ' open' : ''}><summary class="hint" style="cursor:pointer">` +
+        `choose the id yourself</summary>` +
+        `<input id="nwSlug" class="field" value="${esc(d.slug)}" ` +
+          `placeholder="project-short-name — the date is added for you"></details>` +
+      `<div class="hint">The id is permanent. "Does X hold on Y?" beats "X review".</div>` +
     `</div>` +
     `<div class="sect"><div class="hd">${esc(label)}` +
       (d.type === 'experiment' ? ' <span class="muted">— required</span>' : '') +
@@ -1211,9 +1560,11 @@ function renderCreate() {
           `pre-registration; written after it, it is a story. This is the one ` +
           `place in Cairn that insists on structure, and that is why.</div>` : '') +
     `</div>` +
-    `<div class="sect"><div class="hd">Project</div>` +
+    `<div class="sect"><div class="hd">Project <span class="muted">— required</span></div>` +
       `<div class="wr">` +
-        `<select id="nwProject">${opts(projectKeys(), d.project)}` +
+        `<select id="nwProject">` +
+          `<option value=""${d.project ? '' : ' selected'}>choose…</option>` +
+          opts(projectKeys(), d.project) +
           `<option value="${NEW_PROJECT}"${isNew ? ' selected' : ''}>+ new project…</option>` +
         `</select>` +
         (isNew ? `<input id="nwNewProject" value="${esc(d.newProject)}" ` +
@@ -1224,34 +1575,44 @@ function renderCreate() {
         `and splits a project in two, after which a missing node stops meaning ` +
         `"not tried". Lowercase letters, digits and dashes.</div>` : '') +
     `</div>` +
-    (parent ? `<div class="sect"><div class="hd">Lineage</div>` +
-      `<label class="muted"><input type="checkbox" id="nwParent"` +
-        `${d.parentOn ? ' checked' : ''}> child of “${esc(parent.title)}”</label>` +
-      `</div>` : '') +
+    `<div class="sect"><div class="hd">Parent</div>` +
+      `<input id="nwParent" class="field" list="${dl}" value="${esc(d.parent)}" ` +
+        `placeholder="a node id — type to search titles">` +
+      `<div class="hint" id="nwParentName"></div>` +
+    `</div>` +
+    typeFields +
+    `<div class="sect"><div class="hd">Why now</div>` +
+      `<input id="nwNote" class="field" value="${esc(d.note)}" ` +
+        `placeholder="the first history note — otherwise it just says “created”">` +
+    `</div>` +
     `<div class="wr"><button data-create="1">Create</button>` +
-      `<span class="muted">then read it back and commit it</span></div>` +
-    `<code class="said" id="nwSaid" hidden></code>`;
+      `<span class="muted">then read it back, and review &amp; commit it</span></div>` +
+    `<code class="said" id="nwSaid" hidden></code>` +
+    `<div class="wr" id="nwSuggest" hidden></div>`;
+  syncIdPreview();
 }
 
-function submitCreate(button) {
+function submitCreate(button, extra = {}) {
   syncDraft();
   const d = state.draft, said = $('#nwSaid');
-  const project = (d.project === NEW_PROJECT ? d.newProject : d.project).trim();
+  const project = createProject(d);
   const complain = why => {
     said.hidden = false;
     said.className = 'said bad';
     said.textContent = why;
   };
+  $('#nwSuggest').hidden = true;
   // Said here as well as server-side: a round trip to be told the title is
   // empty is a round trip that teaches nothing.
   if (!d.title.trim()) return complain('a node needs a title');
-  if (!project) return complain('a node needs a project');
+  if (!project) return complain('choose a project — it is the first word of the id, permanently');
   if (d.type === 'experiment' && !d.body.trim()) {
     return complain('an experiment needs a claim — that is what makes it a ' +
                     'pre-registration rather than a title');
   }
-  button.disabled = true;
-  write({
+  const parent = resolveNode(d.parent);
+  if (d.parent.trim() && !parent) return complain(`parent: no node ${d.parent.trim()}`);
+  const payload = {
     action: 'create',
     type: d.type,
     title: d.title.trim(),
@@ -1259,22 +1620,307 @@ function submitCreate(button) {
     status: d.status || undefined,
     body: d.body.trim(),
     newProject: d.project === NEW_PROJECT,
-    parents: (d.parentOn && d.parent) ? [d.parent] : [],
-  }, said).then(done => {
-    if (!done) { button.disabled = false; return; }
-    state.draft = null;
-    // Land on what was just made. The reload `write` schedules reads the hash.
-    if (done.node) location.hash = '#' + done.node;
+    parents: parent ? [parent] : [],
+    note: d.note.trim() || undefined,
+    slug: d.slug.trim() || undefined,
+  };
+  const own = { task: ['due'], milestone: ['date', 'venue'],
+                experiment: ['repo', 'commit', 'host'] }[d.type] || [];
+  for (const key of own) if (d[key].trim()) payload[key] = d[key].trim();
+  if (d.type === 'experiment') {
+    const refs = d.refs.split(/[\s,]+/).filter(Boolean);
+    if (refs.length) payload.refs = refs;
+  }
+  Object.assign(payload, extra);
+  button.disabled = true;
+  write(payload, said, {
+    // Land on what was just made, with its lane and author bucket shown.
+    reopen: out => out.node || '',
+    reveal: { project, author: 'uncommitted', type: d.type,
+              status: d.status || ((DATA.statusesByType || {})[d.type] || [])[0],
+              dropQuery: true },
+  }).then(done => {
+    if (done.ok) { state.draft = null; return; }
+    button.disabled = false;
+    // A near-miss key: offer the existing one, or the deliberate override.
+    if (done.http === 409 && Array.isArray(done.suggest) && done.suggest.length) {
+      const box = $('#nwSuggest');
+      box.innerHTML = done.suggest.map(s =>
+        `<button data-usepj="${esc(s)}">use ${esc(s)}</button>`).join('') +
+        `<button class="ghost" data-newpj="1">it really is new</button>`;
+      box.hidden = false;
+    }
   });
 }
 
-function open(id) {
+/* ---------- editing a node ----------
+   Through `cairn edit`, which may change the body and a whitelist of fields and
+   nothing else: never id, type, created, or status/updated/history (those move
+   only together, in the status box). The form shows the node's own fields from
+   `fieldsByType`, so it has no copy of the schema; lists are add/drop one entry
+   at a time, the shape the command has. Save posts only what changed, because
+   the command refuses a no-op list operation and an empty `set`. */
+const EDIT_SCALARS = ['due', 'date', 'venue', 'url', 'repo', 'commit', 'host', 'origin', 'source'];
+const DATE_FIELDS = new Set(['due', 'date']);
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const DOI = /^10\.\d{4,9}\/\S+$/;
+
+function editableFields(type) {
+  const spec = (DATA.fieldsByType || {})[type] || { required: [], optional: [] };
+  const own = [...spec.required, ...spec.optional];
+  return { scalars: EDIT_SCALARS.filter(k => own.includes(k)),
+           artifacts: own.includes('artifacts') };
+}
+
+function editOriginal(n) {
+  const scal = {};
+  for (const k of editableFields(n.type).scalars) {
+    scal[k] = n.extra[k] == null ? '' : String(n.extra[k]);
+  }
+  return {
+    title: n.title, project: n.project, scal,
+    parents: [...n.parents],
+    relates: (n.relations || []).filter(r => r.dir === 'out')
+      .map(r => ({ type: r.type, id: r.id, note: r.note || '' })),
+    refs: n.refs.map(r => r.doi),
+    artifacts: (n.extra.artifacts || []).map(String),
+    body: n.bodyRaw || '',
+  };
+}
+
+function openEdit(id) {
+  const n = byId.get(id);
+  if (!n) return;
+  if (!state.edit || state.edit.id !== id) {
+    state.edit = Object.assign({ id, pending: {} },
+                               JSON.parse(JSON.stringify(editOriginal(n))));
+  }
+  state.editing = id;
+  state.selected = id;
+  state.creating = false;
+  renderEdit(n);
+  panel.classList.add('open');
+  panel.scrollTop = 0;
+  $('#edTitle')?.focus();
+  draw();
+}
+
+const EDIT_PENDING = ['edAddParent', 'edRelType', 'edRelTarget', 'edRelWhy', 'edAddRef', 'edAddArt'];
+
+function syncEdit() {
+  const e = state.edit;
+  if (!e) return;
+  const v = id => $('#' + id)?.value;
+  if (v('edTitle') !== undefined) e.title = v('edTitle');
+  if (v('edProject') !== undefined) e.project = v('edProject');
+  for (const k of Object.keys(e.scal)) if (v('ed-' + k) !== undefined) e.scal[k] = v('ed-' + k);
+  if (v('edBody') !== undefined) e.body = v('edBody');
+  for (const id of EDIT_PENDING) if (v(id) !== undefined) e.pending[id] = v(id);
+}
+
+const relKey = r => `${r.type} ${r.id}`;
+const sameRel = (a, b) => relKey(a) === relKey(b) && (a.note || '') === (b.note || '');
+
+function renderEdit(n) {
+  const e = state.edit, o = editOriginal(n), f = editableFields(n.type);
+  const dl = nodeList();
+  const title = id => byId.has(id) ? esc(byId.get(id).title) : esc(id);
+  const pend = id => esc(e.pending[id] || '');
+  const item = (list, i, what, added) =>
+    `<div class="ed-item${added ? ' added' : ''}"><span class="what">${what}</span>` +
+    `<button class="xbtn" data-edrop="${list}:${i}" title="drop">×</button></div>`;
+  const gone = (list, i, what) =>
+    `<div class="ed-item"><span class="what" style="opacity:.55"><s>${what}</s></span>` +
+    `<button class="xbtn" data-edundo="${list}:${i}" title="keep it after all">undo</button></div>`;
+  const plainList = (list, show) =>
+    e[list].map((x, i) => item(list, i, show(x), !o[list].includes(x))).join('') +
+    o[list].map((x, i) => e[list].includes(x) ? '' : gone(list, i, show(x))).join('');
+  const nodeShow = id => `${title(id)}<span class="muted"><code>${esc(id)}</code></span>`;
+  const relShow = r =>
+    `<span class="rel-tag" style="color:var(--rel-${esc(r.type)})">${esc(r.type)}</span>${title(r.id)}` +
+    (r.note ? `<span class="muted">${esc(r.note)}</span>` : '');
+  const addRow = (list, inner) =>
+    `<div class="wr">${inner}<button class="ghost" data-edadd="${list}">+ add</button></div>`;
+
+  const scalars = f.scalars.map(k =>
+    `<label class="flabel" for="ed-${k}">${esc(k)}</label>` +
+    `<input id="ed-${k}" class="field" value="${esc(e.scal[k] || '')}"` +
+    (DATE_FIELDS.has(k) ? ' type="date"' : '') +
+    (k === 'source' ? ` list="${dl}" placeholder="a node id"` : '') +
+    (k === 'commit' ? ' placeholder="a SHA, never a branch"' : '') + `>`).join('');
+
+  const projects = projectKeys();
+  if (!projects.includes(e.project)) projects.unshift(e.project);
+  const fixed = Object.keys(n.extra).filter(k =>
+    !EDIT_SCALARS.includes(k) && k !== 'artifacts' && n.extra[k] != null && n.extra[k] !== '');
+
+  panel.innerHTML =
+    `<button id="close" title="Close (Esc)">×</button>` +
+    `<h3>Edit</h3>` +
+    `<div class="muted"><code>${esc(n.id)}</code> — through <code>cairn edit</code>, ` +
+      `which commits. The id, type and status are not edited here; the status ` +
+      `moves in its own box, with its history.</div>` +
+    `<div class="sect"><div class="hd">Title</div>` +
+      `<input id="edTitle" class="field" value="${esc(e.title)}"></div>` +
+    `<div class="sect"><div class="hd">Project</div>` +
+      `<div class="wr"><select id="edProject">` +
+        projects.map(p => `<option${p === e.project ? ' selected' : ''}>${esc(p)}</option>`).join('') +
+      `</select></div>` +
+      `<div class="hint">Moves the node to another lane. Its id keeps the project ` +
+        `word it was born with — ids are permanent.</div></div>` +
+    (scalars ? `<div class="sect"><div class="hd">${esc(n.type)} fields</div>${scalars}` +
+      `<div class="hint">Empty a field to remove it.</div></div>` : '') +
+    // Fields `cairn edit` has no flag for (contacts, data): shown, not editable,
+    // so the form never pretends it can change them.
+    (fixed.length ? `<div class="sect"><div class="hd">Not editable here</div>` +
+      fixed.map(k => `<div class="ed-item"><span class="what"><span class="muted">${esc(k)}</span>` +
+        `<code>${esc(JSON.stringify(n.extra[k]))}</code></span></div>`).join('') +
+      `<div class="hint">Change these in the file itself, then commit.</div></div>` : '') +
+    `<div class="sect"><div class="hd">Parents</div>` +
+      plainList('parents', nodeShow) +
+      addRow('parents', `<input id="edAddParent" list="${dl}" value="${pend('edAddParent')}" placeholder="a node id — type to search">`) +
+    `</div>` +
+    `<div class="sect"><div class="hd">Relations</div>` +
+      e.relates.map((r, i) => item('relates', i, relShow(r), !o.relates.some(x => sameRel(x, r)))).join('') +
+      o.relates.map((r, i) => e.relates.some(x => sameRel(x, r)) ? '' : gone('relates', i, relShow(r))).join('') +
+      `<div class="wr"><select id="edRelType">` +
+        (DATA.relations || []).map(t =>
+          `<option${t === e.pending.edRelType ? ' selected' : ''}>${esc(t)}</option>`).join('') +
+        `</select>` +
+        `<input id="edRelTarget" list="${dl}" value="${pend('edRelTarget')}" placeholder="target node id"></div>` +
+      addRow('relates', `<input id="edRelWhy" value="${pend('edRelWhy')}" placeholder="why — one line, required">`) +
+      `<div class="hint">Mistake in a committed node? Add a <code>supersedes</code> ` +
+        `relation from the corrected node, then close this one.</div>` +
+    `</div>` +
+    `<div class="sect"><div class="hd">References</div>` +
+      plainList('refs', x => `<code>${esc(x)}</code>`) +
+      addRow('refs', `<input id="edAddRef" value="${pend('edAddRef')}" placeholder="10.xxxx/… — a DOI, never from memory">`) +
+    `</div>` +
+    (f.artifacts || o.artifacts.length ? `<div class="sect"><div class="hd">Artifacts</div>` +
+      plainList('artifacts', x => `<code>${esc(x)}</code>`) +
+      addRow('artifacts', `<input id="edAddArt" value="${pend('edAddArt')}" placeholder="host:/path">`) +
+    `</div>` : '') +
+    `<div class="sect"><div class="hd">Body <span class="muted">— the markdown, as written</span></div>` +
+      `<textarea id="edBody" class="field src" spellcheck="false"></textarea></div>` +
+    `<div class="wr" style="margin-top:14px"><button data-edsave="${esc(n.id)}">Save</button>` +
+      `<button class="ghost" data-edcancel="${esc(n.id)}">Cancel</button>` +
+      `<span class="muted">writes and commits, as <code>cairn edit</code> does</span></div>` +
+    `<code class="said" id="edSaid" hidden></code>`;
+  // Set rather than written into the markup: a <textarea> drops a leading
+  // newline from its source, and the body usually starts with one.
+  $('#edBody').value = e.body;
+}
+
+function editComplain(why) {
+  const said = $('#edSaid');
+  said.hidden = false;
+  said.className = 'said bad';
+  said.textContent = why;
+}
+
+/** One add row -> the draft list, checked here so a bad id is said at once. */
+function editAdd(list) {
+  syncEdit();
+  const e = state.edit, p = e.pending;
+  if (list === 'parents') {
+    const id = resolveNode(p.edAddParent);
+    if (!id) return editComplain(`no node ${String(p.edAddParent || '').trim() || '— type an id'}`);
+    if (id === e.id) return editComplain('a node cannot be its own parent');
+    if (e.parents.includes(id)) return editComplain('already a parent');
+    e.parents.push(id);
+    p.edAddParent = '';
+  } else if (list === 'relates') {
+    const id = resolveNode(p.edRelTarget);
+    const note = String(p.edRelWhy || '').trim().replace(/\s+/g, ' ');
+    const type = p.edRelType || (DATA.relations || [])[0];
+    if (!id) return editComplain(`no node ${String(p.edRelTarget || '').trim() || '— type a target id'}`);
+    if (id === e.id) return editComplain('a node cannot relate to itself');
+    if (!note) return editComplain('a relation needs a one-line why — an arrow without a reason is one nobody can act on');
+    if (e.relates.some(r => relKey(r) === relKey({ type, id }))) {
+      return editComplain(`already ${type} that node — drop it first to change the why`);
+    }
+    e.relates.push({ type, id, note });
+    p.edRelTarget = ''; p.edRelWhy = '';
+  } else {
+    const key = list === 'refs' ? 'edAddRef' : 'edAddArt';
+    const value = String(p[key] || '').trim();
+    if (!value) return editComplain('nothing to add');
+    if (list === 'refs' && !DOI.test(value)) return editComplain(`not a DOI: ${value}`);
+    if (e[list].includes(value)) return editComplain('already listed');
+    e[list].push(value);
+    p[key] = '';
+  }
+  renderEdit(byId.get(e.id));
+}
+
+/** The diff between the form and the node, in the shape /api/write takes. */
+function editPayload(n) {
+  syncEdit();
+  const e = state.edit, o = editOriginal(n);
+  const p = { action: 'edit', id: n.id };
+  const set = {}, clear = [];
+  const title = e.title.trim();
+  if (!title) return { error: 'a node needs a title' };
+  if (title !== o.title) set.title = title;
+  if (e.project && e.project !== o.project) set.project = e.project;
+  for (const k of Object.keys(o.scal)) {
+    const v = (e.scal[k] || '').trim();
+    if (v === o.scal[k]) continue;
+    if (!v) { clear.push(k); continue; }
+    if (DATE_FIELDS.has(k) && !ISO_DAY.test(v)) return { error: `${k} must be a date (YYYY-MM-DD)` };
+    set[k] = v;
+  }
+  if (Object.keys(set).length) p.set = set;
+  if (clear.length) p.clear = clear;
+  for (const k of ['parents', 'refs', 'artifacts']) {
+    const add = e[k].filter(x => !o[k].includes(x));
+    const drop = o[k].filter(x => !e[k].includes(x));
+    if (add.length || drop.length) {
+      p[k] = {};
+      if (add.length) p[k].add = add;
+      if (drop.length) p[k].drop = drop;
+    }
+  }
+  const radd = e.relates.filter(r => !o.relates.some(x => sameRel(x, r)));
+  const rdrop = o.relates.filter(x => !e.relates.some(r => sameRel(x, r)))
+    .map(x => ({ type: x.type, id: x.id }));
+  if (radd.length || rdrop.length) {
+    p.relates = {};
+    if (radd.length) p.relates.add = radd;
+    if (rdrop.length) p.relates.drop = rdrop;
+  }
+  if (e.body.replace(/\s+$/, '') !== o.body.replace(/\s+$/, '')) {
+    if (!e.body.trim()) return { error: 'an empty body would erase the node — nodes are never deleted' };
+    p.body = e.body;
+  }
+  if (Object.keys(p).length === 2) return { error: 'nothing changed yet' };
+  return { payload: p };
+}
+
+function saveEdit(button) {
+  const n = byId.get(state.edit?.id);
+  if (!n) return;
+  const { payload, error } = editPayload(n);
+  if (error) return editComplain(error);
+  button.disabled = true;
+  write(payload, $('#edSaid'), {
+    reveal: payload.set && payload.set.project ? { project: payload.set.project } : null,
+  }).then(done => {
+    if (done.ok) { state.edit = null; return; }
+    button.disabled = false;
+  });
+}
+
+/** Open a node in the panel. `pan: false` for a re-render of the node already
+    open (the slider, the server probe), which must not move the map under you. */
+function open(id, opts = {}) {
   const n = byId.get(id);
   if (!n) return;
   // Following a link into a folded lane has to unfold it, or the panel describes
   // a node the map is not showing.
   if (state.collapsed.has(n.project)) setFolded(n.project, false);
   state.creating = false;
+  state.editing = null;
   state.selected = id;
 
   const rows = [];
@@ -1284,7 +1930,7 @@ function open(id) {
   push('updated', n.updated);
   // Derived from `git log --diff-filter=A`, not from a field. Two people
   // sharing a graph need to know whose claim they are reading.
-  push('author', esc(n.author));
+  push('author', esc(whoLabel(n.author)));
   for (const [k, v] of Object.entries(n.extra)) {
     if (k === 'contacts' && Array.isArray(v)) {
       push('contacts', v.map(c =>
@@ -1320,6 +1966,7 @@ function open(id) {
     `<div class="actions">` +
       `<a href="../nodes/${esc(n.id)}.md">source</a>` +
       `<span data-isolate="${esc(n.id)}">${state.isolate === n.id ? 'show all' : 'isolate lineage'}</span>` +
+      (server.up && isLive() ? `<span data-edit="${esc(n.id)}">edit</span>` : '') +
       `<span data-copy="${esc(n.id)}">copy link</span>` +
       (server.up ? `<span data-newchild="${esc(n.id)}">+ child node</span>` : '') +
     `</div>` +
@@ -1328,6 +1975,7 @@ function open(id) {
       `<span class="pill">${esc(n.type)}</span><span class="pill">${esc(n.project)}</span>` +
       (isLive() ? '' : `<span class="pill">as of ${esc(when)}</span>`) +
     `</div>` +
+    gitBanner(n) +
     `<dl class="kv">${rows.join('')}</dl>` +
     `<div class="body">${n.body}</div>` +
     // After the body: the body states the claim, the figure shows the result.
@@ -1379,11 +2027,14 @@ function open(id) {
   panel.scrollTop = 0;
   history.replaceState(null, '', '#' + id);
   draw();
+  syncStatusBox();
+  if (opts.pan !== false) ensureVisible(id);
 }
 
 function close() {
   state.selected = null;
   state.creating = false;
+  state.editing = null;
   panel.classList.remove('open');
   history.replaceState(null, '', location.pathname + location.search);
   draw();
@@ -1452,6 +2103,19 @@ function fit() {
   tx = (rect.width - w * scale) / 2 - x0 * scale;
   ty = (rect.height - h * scale) / 2 - y0 * scale;
   applyTransform();
+}
+
+/** Pan only if the node is outside the stage area the panel leaves free.
+    The panel is a flex sibling, so the <svg> rect already is that area; on a
+    phone the panel covers everything and there is nothing to aim at. Only when
+    actually out of view, so walking with the keys does not jitter. */
+function ensureVisible(id) {
+  const n = byId.get(id);
+  if (!n || !visible(n) || laneNow.get(n.project)?.collapsed) return;
+  const rect = svg.getBoundingClientRect();
+  if (rect.width < 120 || rect.height < 120) return;
+  const sx = n.x * scale + tx, sy = Y(n) * scale + ty, m = 40;
+  if (sx < m || sx > rect.width - m || sy < m || sy > rect.height - m) centerOn(id);
 }
 
 /** Pan a node to the middle of the stage without shrinking anything. */
@@ -1528,7 +2192,7 @@ timeInput.addEventListener('input', e => {
   state.t = +e.target.value;
   updateTimeLabel();
   if (!state.selected) draw();
-  else if (visible(byId.get(state.selected))) open(state.selected);  // re-render as-of
+  else if (visible(byId.get(state.selected))) open(state.selected, { pan: false });  // re-render as-of
   else close();
 });
 
@@ -1544,7 +2208,7 @@ document.addEventListener('click', e => {
   }
   if (d.copy) {
     const link = location.origin + location.pathname + location.search + '#' + d.copy;
-    navigator.clipboard?.writeText(link);
+    navigator.clipboard?.writeText(link).catch(() => {});   // refused when unfocused; harmless
     e.target.textContent = 'copied';
     setTimeout(() => { e.target.textContent = 'copy link'; }, 1200);
   }
@@ -1556,19 +2220,68 @@ document.addEventListener('click', e => {
   }
   const art = e.target.closest?.('.art[data-artifact]');
   if (art) {
-    navigator.clipboard?.writeText(art.dataset.artifact);
+    navigator.clipboard?.writeText(art.dataset.artifact).catch(() => {});   // refused when unfocused; harmless
     art.classList.add('copied');
     setTimeout(() => art.classList.remove('copied'), 1400);
   }
   if (d.note) {
     const cmd = noteCommand(d.note);
-    navigator.clipboard?.writeText(cmd);
+    navigator.clipboard?.writeText(cmd).catch(() => {});   // refused when unfocused; harmless
     $('#noteCmd').textContent = cmd;
     e.target.textContent = 'copied — paste in a terminal';
     setTimeout(() => { e.target.textContent = 'copy command'; }, 2000);
   }
   if (d.newchild) return openCreate(d.newchild);
   if (d.create) return submitCreate(e.target);
+  if (d.usepj) {
+    // The near-miss key the server named: take it, and send again.
+    syncDraft();
+    state.draft.project = d.usepj;
+    renderCreate();
+    return submitCreate(panel.querySelector('[data-create]'));
+  }
+  if (d.newpj) return submitCreate(panel.querySelector('[data-create]'), { confirmNew: true });
+  if (d.flashx) { $('#flash').hidden = true; return; }
+  if (d.edit) return openEdit(d.edit);
+  if (d.edcancel) { state.edit = null; return open(d.edcancel, { pan: false }); }
+  if (d.edsave) return saveEdit(e.target);
+  if (d.edadd) return editAdd(d.edadd);
+  if (d.edrop || d.edundo) {
+    syncEdit();
+    const [list, i] = (d.edrop || d.edundo).split(':');
+    const n = byId.get(state.edit.id);
+    if (d.edrop) state.edit[list].splice(+i, 1);
+    else state.edit[list].push(editOriginal(n)[list][+i]);
+    return renderEdit(n);
+  }
+  if (d.review) {
+    e.target.disabled = true;
+    const note = ($('#rvNote')?.value || '').trim();
+    write({ action: 'review', id: d.review, note: note || undefined }, $('#rvSaid'), {
+      message: out => (out.out || 'reviewed.') + '\n\nCommitted, with your review stamp.',
+    }).then(done => { if (!done.ok) e.target.disabled = false; });
+    return;
+  }
+  if (d.discard) {
+    // Two steps, in the panel: the button itself asks. Never a modal.
+    const b = e.target;
+    const disarm = () => {
+      b.dataset.armed = ''; b.className = 'ghost'; b.textContent = 'discard draft';
+    };
+    if (b.dataset.armed !== '1') {
+      b.dataset.armed = '1';
+      b.className = 'danger';
+      b.textContent = 'really discard?';
+      setTimeout(() => { if (b.isConnected && !b.disabled) disarm(); }, 6000);
+      return;
+    }
+    b.disabled = true;
+    write({ action: 'discard', id: d.discard }, $('#rvSaid'), {
+      reopen: null,
+      message: out => (out.out || 'discarded.') + '\n\nThe draft is gone; it never entered the graph.',
+    }).then(done => { if (!done.ok) { b.disabled = false; disarm(); } });
+    return;
+  }
   if (d.save) {
     const text = ($('#noteText')?.value || '').trim();
     const said = $('#noteSaid');
@@ -1580,7 +2293,7 @@ document.addEventListener('click', e => {
     }
     e.target.disabled = true;
     write({ action: 'note', id: d.save, text }, said)
-      .then(done => { if (!done) e.target.disabled = false; });
+      .then(done => { if (!done.ok) e.target.disabled = false; });
     return;
   }
   if (d.status) {
@@ -1590,7 +2303,7 @@ document.addEventListener('click', e => {
       id: d.status,
       status: $('#stPick').value,
       note: ($('#stWhy')?.value || '').trim(),
-    }, $('#stSaid')).then(done => { if (!done) e.target.disabled = false; });
+    }, $('#stSaid')).then(done => { if (!done.ok) syncStatusBox(); });
     return;
   }
   if (d.noteclear && $('#noteText')) {
@@ -1616,11 +2329,30 @@ document.addEventListener('input', e => {
   if (e.target.id === 'noteText' && state.selected) {
     $('#noteCmd').textContent = noteCommand(state.selected);
   }
+  if (e.target.id === 'stWhy') syncStatusBox();
+  if (state.creating && /^nw(Title|Slug|NewProject|Parent)$/.test(e.target.id)) syncIdPreview();
+});
+document.addEventListener('change', e => {
+  if (e.target.id === 'stPick') syncStatusBox();
+});
+// Enter applies: in the status "why", and in an edit form's add rows.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  const id = e.target.id;
+  if (id === 'stWhy') {
+    e.preventDefault();
+    const b = $('#stApply');
+    if (b && !b.disabled) b.click();
+    return;
+  }
+  const add = { edAddParent: 'parents', edRelTarget: 'relates', edRelWhy: 'relates',
+                edAddRef: 'refs', edAddArt: 'artifacts' }[id];
+  if (add && state.edit) { e.preventDefault(); editAdd(add); }
 });
 $('#isolateOff').onclick = () => { state.isolate = null; draw(); fit(); };
-// Prefilled from the selection when there is one: a new node opened from an old
-// one is nearly always its child, and in the same project.
-$('#newNode').onclick = () => openCreate(state.selected);
+// The header button is a node with no parent. A child of the open node is the
+// panel's own "+ child node" — two buttons, two meanings, never a guess.
+$('#newNode').onclick = () => openCreate(null);
 
 function setFolded(project, on) {
   if (on) state.collapsed.add(project); else state.collapsed.delete(project);
@@ -1689,12 +2421,13 @@ function showHover(g, clientX, clientY) {
       `${esc(status)} · ${esc(n.type)} · ${esc(n.project)} · ${esc(n.created)}` +
       // Only worth the space once the graph actually has more than one
       // person in it; on a solo graph it is the same name every time.
-      `${DATA.authors.length > 1 ? ' · ' + esc(n.author) : ''}</div>` +
+      `${DATA.authors.length > 1 ? ' · ' + esc(whoLabel(n.author)) : ''}</div>` +
     (note ? `<div class="note">${esc(note.note)}</div>` : '') +
     // A magnitude channel with no way to read the magnitude is decoration, and
     // the hover card is where the glyph's size gets its number.
     `<div class="hint">click to open${n.parents.length || n.children.length ? ' · ' + (n.parents.length + n.children.length) + ' linked' : ''}` +
-      `${descCount(n) ? ' · ' + descCount(n) + ' downstream' : ''}</div>`;
+      `${descCount(n) ? ' · ' + descCount(n) + ' downstream' : ''}` +
+      `${isDraft(n) ? ' · not committed' : ''}</div>`;
   hover.hidden = false;
   // Flip to the other side of the cursor near the viewport edges.
   const box = hover.getBoundingClientRect();
@@ -1790,14 +2523,14 @@ function walk(dx, dy) {
     pool = shown.filter(n => n.y === target);
     pool.sort((a, b) => Math.abs(a.x - cur.x) - Math.abs(b.x - cur.x));
   }
-  if (pool.length) { open(pool[0].id); centerOn(pool[0].id); }
+  if (pool.length) open(pool[0].id);           // open() pans only if it must
 }
 
 function hop(key) {
   const cur = state.selected && byId.get(state.selected);
   if (!cur) return;
   const ids = (key === 'p' ? cur.parents : cur.children).filter(i => byId.has(i));
-  if (ids.length) { open(ids[0]); centerOn(ids[0]); }
+  if (ids.length) open(ids[0]);
 }
 
 const TYPING = () => {
@@ -1838,7 +2571,11 @@ document.addEventListener('keydown', e => {
   }
 });
 
-/* URL: #node-id selects, ?since=YYYY-MM-DD or ?t= rewinds, ?project= filters */
+/* URL: #node-id selects, ?since=YYYY-MM-DD or ?t= rewinds, ?project=a,b filters
+   (type/status/author too), ?q= searches, ?colour= fills, ?folded= folds,
+   ?needs=1, ?iso=<id> isolates, ?tx&ty&scale pan — the last three written by a
+   write's reload, so the view survives it. */
+let savedView = null;
 (function initFromUrl() {
   const params = new URLSearchParams(location.search);
   const since = params.get('since') || params.get('t');
@@ -1858,18 +2595,43 @@ document.addEventListener('keydown', e => {
     $('#colourBy').value = colour;
   }
   document.body.dataset.colour = state.colour;
-  const project = params.get('project');
-  if (project) {
-    state.project = new Set([project]);
-    document.querySelectorAll('[data-key=project]').forEach(i => { i.checked = i.value === project; });
+  // ?project=a,b (and type/status/author the same way): exactly these are shown.
+  // One value is the old ?project=polyid, unchanged.
+  for (const key of FILTER_KEYS) {
+    if (!params.has(key)) continue;
+    const wanted = new Set(params.get(key).split(',').filter(Boolean));
+    state[key] = new Set([...ALL_VALUES[key]()].filter(v => wanted.has(v)));
+    document.querySelectorAll(`[data-key=${key}]`).forEach(i => { i.checked = state[key].has(i.value); });
   }
+  const q = params.get('q');
+  if (q) { $('#search').value = q; state.query = q.trim().toLowerCase(); }
+  if (params.get('needs') === '1') { state.needs = true; $('#needs').classList.add('on'); }
+  const iso = params.get('iso');
+  if (iso && byId.has(iso)) state.isolate = iso;
+  const at = ['tx', 'ty', 'scale'].map(k => parseFloat(params.get(k)));
+  if (at.every(Number.isFinite) && at[2] > 0) savedView = at;
 })();
 
 updateTimeLabel();
 syncFoldButton();
 draw();
 fit();
+// Pan and zoom carried across a write's reload: applied once, then dropped from
+// the URL, so a later manual reload (or a copied link) fits as usual.
+if (savedView) {
+  [tx, ty, scale] = [savedView[0], savedView[1], Math.min(2.4, Math.max(0.18, savedView[2]))];
+  applyTransform();
+  const p = new URLSearchParams(location.search);
+  ['tx', 'ty', 'scale'].forEach(k => p.delete(k));
+  history.replaceState(null, '', location.pathname + (p.toString() ? '?' + p : '') + location.hash);
+}
 if (location.hash.length > 1) open(decodeURIComponent(location.hash.slice(1)));
+(function reshowFlash() {
+  const f = takeFlash();
+  if (!f) return;
+  showFlash(f);
+  if (f.panelId && f.panelId === state.selected && f.panelTop) panel.scrollTop = f.panelTop;
+})();
 probeServer();
 window.addEventListener('resize', () => { if (scale <= 1) fit(); });
 </script>

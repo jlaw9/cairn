@@ -59,6 +59,42 @@ def node_authors() -> dict[str, str]:
             authors.setdefault(Path(path).stem, lines[0])
     return authors
 
+
+def node_git_states() -> dict[str, str] | None:
+    """Which node files the working tree disagrees with HEAD about.
+
+    `node_authors` can say a node was never committed, but not that a committed
+    node has an edit sitting on disk — and both are invisible from the other
+    machine, which is the thing the map has to make visible. One `git status`
+    for the whole directory, same reasoning as the `git log` above.
+
+    Returns {id: "untracked" | "modified"} for the nodes git has something to
+    say about; a node absent from it is clean. None when there is no git here
+    at all, so the page can tell "clean" from "cannot know". Derived, never
+    stored: this is the working tree's state, not a fact about the node.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(lib.REPO_ROOT), "status", "--porcelain", "-uall",
+             "--", "nodes"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    states: dict[str, str] = {}
+    for line in done.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        code, path = line[:2], line[3:]
+        path = path.split(" -> ")[-1].strip().strip('"')
+        if path.endswith(".md"):
+            # `A ` (staged, never committed) counts as modified rather than
+            # untracked: git has seen it, so it is not a draft to throw away.
+            states[Path(path).stem] = "untracked" if code == "??" else "modified"
+    return states
+
 # Layout constants (px)
 X_PAD = 150
 Y_PAD = 60
@@ -408,6 +444,7 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
     titles = {node_id: node.title for node_id, node in nodes.items()}
 
     authors = node_authors()
+    git_states = node_git_states()
     assets = lib.find_assets()
 
     payload_nodes = []
@@ -475,6 +512,10 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
             "y": round(y, 1),
             "shape": TYPE_SHAPE.get(node.type, "circle"),
             "body": md_to_html(node.body, titles),
+            # The markdown as written, for the edit form: it posts the whole body
+            # back through `cairn edit --body -`, and the rendered HTML above
+            # cannot be turned back into what the file said.
+            "bodyRaw": node.body,
             "extra": {
                 key: (lib.as_date(value).isoformat() if isinstance(value, (dt.date, dt.datetime)) else value)
                 for key, value in node.meta.items()
@@ -483,6 +524,10 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
             "commitUrl": commit_url(str(node.meta.get("repo", "")), str(node.meta.get("commit", ""))),
             "terminal": node.is_terminal,
             "author": authors.get(node.id, UNCOMMITTED),
+            # "clean" | "modified" | "untracked", or None with no git. Not a
+            # field: it is the working tree's opinion, read at build time.
+            "git": (None if git_states is None
+                    else git_states.get(node.id, "clean")),
             # Notes are parsed out of the body rather than left inside the
             # rendered HTML, so the map can mark which nodes carry one and the
             # panel can show them as their own section. They are still *in* the
