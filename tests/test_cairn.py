@@ -1734,14 +1734,18 @@ class Sync(unittest.TestCase):
             git = lambda *a: subprocess.run(["git", "-C", str(root), *a],
                                             timeout=30, capture_output=True)
             self._seed(root)
+            # The seed branch is whatever init.defaultBranch says on this machine
+            # (master on one, main on another), so read it rather than assume it.
+            base = subprocess.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                                  timeout=30, capture_output=True, text=True).stdout.strip()
             git("-c", "user.email=t@t", "-c", "user.name=t", "checkout", "-q", "-b", "side")
             (root / "nodes" / "2026-08-02-prekd-a.md").write_text("side\n")
             git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "side")
-            git("checkout", "-q", "master")
-            (root / "nodes" / "2026-08-02-prekd-a.md").write_text("master\n")
-            git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "master")
+            git("checkout", "-q", base)
+            (root / "nodes" / "2026-08-02-prekd-a.md").write_text("base\n")
+            git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "base")
             git("checkout", "-q", "side")
-            git("-c", "user.email=t@t", "-c", "user.name=t", "rebase", "master")
+            git("-c", "user.email=t@t", "-c", "user.name=t", "rebase", base)
 
             self.assertTrue((root / ".git" / "rebase-merge" / "head-name").exists(),
                             "test setup failed to produce a conflicted rebase")
