@@ -205,7 +205,7 @@ def build(args: argparse.Namespace) -> lib.Node:
             print(
                 f"note: id shortened to '{stem}'\n"
                 f"      full title slug was '{full}'\n"
-                f"      ids are permanent — re-run with --slug to choose your own",
+                f"      ids are permanent — to choose your own, `cairn discard <id>` and recreate with --slug",
                 file=sys.stderr,
             )
     node_id = f"{created.isoformat()}-{stem}"

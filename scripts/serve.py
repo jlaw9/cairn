@@ -348,8 +348,8 @@ def do_discard(payload: dict) -> dict:
 
 #: The payload keys `edit` takes, so a misspelt one (`relations`, `parent`) is
 #: refused instead of silently doing nothing.
-EDIT_KEYS = {"action", "id", "set", "clear", "parents", "refs", "artifacts",
-             "relates", "body"}
+EDIT_KEYS = {"action", "id", "set", "clear", "parents", "refs", "data",
+             "artifacts", "relates", "body"}
 
 
 def do_edit(payload: dict) -> dict:
@@ -359,7 +359,7 @@ def do_edit(payload: dict) -> dict:
 
         {"id": ..., "set": {"title": ..., "due": "2026-11-01"}, "clear": ["due"],
          "parents": {"add": [...], "drop": [...]}, "refs": {...},
-         "artifacts": {...},
+         "data": {...}, "artifacts": {...},
          "relates": {"add": [{"type": "supports", "id": ..., "note": "why"}],
                      "drop": [{"type": ..., "id": ...}]},
          "body": "the whole markdown body"}
@@ -413,13 +413,16 @@ def do_edit(payload: dict) -> dict:
     for key in shaped("clear", list):
         args.append(f"--clear={field_name(key)}")
 
-    for key, flag in (("parents", "parent"), ("refs", "ref"), ("artifacts", "artifact")):
+    for key, flag in (("parents", "parent"), ("refs", "ref"), ("data", "data"),
+                      ("artifacts", "artifact")):
         found = ops(key)
         for verb, prefix in (("drop", "--drop-"), ("add", "--")):
             for item in found.get(verb) or []:
                 item = str(item).strip()
                 if key == "parents" and not ID_RE.match(item):
                     raise Refused(f"parent is not a node id: {item!r}")
+                if key == "data" and not lib.DATASET_KEY_RE.match(item):
+                    raise Refused(f"data is not a dataset key: {item!r}")
                 args.append(f"{prefix}{flag}={item}")
 
     relates = ops("relates")

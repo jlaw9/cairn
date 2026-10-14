@@ -158,7 +158,7 @@ how capture dies.
 It replaces the body (`--body FILE`, or `-` for stdin), sets or `--clear`s a
 whitelisted scalar the node's type carries (`title`, `project`, `due`, `date`,
 `venue`, `url`, `repo`, `commit`, `host`, `origin`, `source`), and adds or drops
-one `--parent`, `--ref`, `--artifact` or `--relate` at a time. It refuses, by
+one `--parent`, `--ref`, `--data`, `--artifact` or `--relate` at a time. It refuses, by
 name, `id`, `type`, `created`, `status`, `updated` and `history` — the last three
 move only together, through `new_node --update`. **It does not touch `updated` or
 `history`**: an edit is a correction, not a claim about the state of the work, so

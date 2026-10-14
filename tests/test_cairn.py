@@ -2356,6 +2356,23 @@ class Serve(unittest.TestCase):
         self.assertEqual((node.meta["updated"], node.history),
                          (before.meta["updated"], before.history))
 
+    def test_an_edit_can_add_and_drop_a_dataset_key(self):
+        node_id = "2026-08-03-prekd-editdata"
+        write(f"{node_id}.md", node_text(node_id, created="2026-08-03"))
+        lib.Node(path=lib.dataset_dir() / "dp18-250912.md",
+                 meta={"key": "dp18-250912", "title": "DP18"}, body="x").write()
+        code, out = self.post({"action": "edit", "id": node_id,
+                               "data": {"add": ["dp18-250912"]}})
+        self.assertEqual(code, 200, out)
+        self.assertEqual(self.node(node_id).data, ["dp18-250912"])
+        code, out = self.post({"action": "edit", "id": node_id,
+                               "data": {"drop": ["dp18-250912"]}})
+        self.assertEqual(code, 200, out)
+        self.assertEqual(self.node(node_id).data, [])
+        code, out = self.post({"action": "edit", "id": node_id,
+                               "data": {"add": ["--bad key"]}})
+        self.assertEqual(code, 400, out)
+
     def test_an_edit_to_a_field_outside_the_whitelist_is_refused(self):
         node_id = "2026-08-02-prekd-probe"
         before = (FIXTURE / "nodes" / f"{node_id}.md").read_bytes()
@@ -3264,6 +3281,32 @@ class Edit(unittest.TestCase):
     def test_a_required_field_cannot_be_cleared(self):
         self.refused(self.RUN_ID, "--clear", "title", says="required")
         self.refused(self.RUN_ID, "--clear", "project", says="required")
+
+    def dataset_page(self, key="dp18-250912"):
+        (self.tmp / "datasets").mkdir(exist_ok=True)
+        lib.Node(path=self.tmp / "datasets" / f"{key}.md",
+                 meta={"key": key, "title": f"Dataset {key}"}, body="provenance").write()
+
+    def test_a_data_key_can_be_added_and_dropped(self):
+        self.dataset_page()
+        before = self.node(self.RUN_ID)
+        done = self.edit(self.RUN_ID, "--data", "dp18-250912")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.node(self.RUN_ID).data, ["dp18-250912"])
+        self.assertIn("+data dp18-250912", self.git("log", "-1", "--format=%B").stdout)
+        self.refused(self.RUN_ID, "--data", "dp18-250912", says="already a data")
+        done = self.edit(self.RUN_ID, "--drop-data", "dp18-250912")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("data", self.node(self.RUN_ID).meta)
+        self.assertIn("-data dp18-250912", self.git("log", "-1", "--format=%B").stdout)
+        self.refused(self.RUN_ID, "--drop-data", "dp18-250912", says="not a data")
+        after = self.node(self.RUN_ID)
+        self.assertEqual((after.meta["updated"], after.history),
+                         (before.meta["updated"], before.history))
+
+    def test_a_malformed_data_key_is_refused_and_nothing_is_written(self):
+        self.dataset_page()
+        self.refused(self.RUN_ID, "--data", "DP18 250912", says="not a dataset key")
 
     def test_an_edit_that_changes_nothing_is_refused(self):
         title = self.node(self.RUN_ID).title

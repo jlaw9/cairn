@@ -28,7 +28,7 @@ history:
 `history` must have at least the creation entry.
 
 After creation, `bin/cairn edit <id>` is how any of this changes: the body,
-`title`, `project`, the type's own scalars below, and `parents`/`relates`/`refs`/
+`title`, `project`, the type's own scalars below, and `parents`/`relates`/`refs`/`data`/
 `artifacts` one entry at a time. `id`, `type` and `created` never change, and
 `status`/`updated`/`history` change only together through `new_node --update` —
 an edit is a correction, so it leaves `updated` where it was.

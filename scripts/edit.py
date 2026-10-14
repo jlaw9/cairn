@@ -6,6 +6,7 @@
     cairn edit 2026-08-20-prekd-read-tether --clear due
     cairn edit 2026-08-02-prekd-cosmo-baseline --parent 2026-07-20-prekd-scoping \\
         --relate "contradicts:2026-06-25-prekd-old:opposite sign, same control"
+    cairn edit 2026-08-02-prekd-cosmo-baseline --data dp18-250912
     cairn edit 2026-08-02-prekd-cosmo-baseline --body - < body.md
     cairn edit 2026-08-02-prekd-cosmo-baseline --commit 3f9c21a --dry-run
 
@@ -18,7 +19,7 @@ is the single command that does it instead, through the same serializer and the
 same validator as every other write.
 
 **What it may change.** The body, verbatim; the scalars in SCALARS where the
-node's type carries them; and the lists — parents, refs, artifacts, relates — by
+node's type carries them; and the lists — parents, refs, data, artifacts, relates — by
 adding or dropping one entry at a time. **What it may not**, each refused by name
 with the command to use instead: `id` and `created` are permanent (rule 1),
 `type` is a creation-time decision, and `status`, `updated` and `history` move
@@ -65,7 +66,7 @@ SCALARS = ("title", "project", "due", "date", "venue", "url",
            "repo", "commit", "host", "origin", "source")
 
 #: Fields every type carries, so the per-type check does not apply to them.
-COMMON_EDITABLE = {"title", "project", "parents", "refs", "relates"}
+COMMON_EDITABLE = {"title", "project", "parents", "refs", "data", "relates"}
 
 #: Scalars that hold an ISO date, stored as one.
 DATES = {"due", "date"}
@@ -215,11 +216,14 @@ def apply(node: lib.Node, args: argparse.Namespace) -> list[str]:
     # DOIs are case-insensitive, and the registry keys them lowercased.
     edit_list("refs", "ref", args.ref, args.drop_ref,
               same=lambda a, b: a.lower() == b.lower())
+    edit_list("data", "data", args.data, args.drop_data)
     edit_list("artifacts", "artifact", args.artifact, args.drop_artifact)
     if "artifacts" in meta and not meta["artifacts"]:
         del meta["artifacts"]                     # optional: absent beats []
     if "refs" in meta and not meta["refs"]:
         del meta["refs"]
+    if "data" in meta and not meta["data"]:
+        del meta["data"]
 
     if args.relate or args.unrelate:
         relates = [dict(r) for r in (meta.get("relates") or [])]
@@ -286,6 +290,8 @@ def main() -> int:
     p.add_argument("--drop-parent", action="append", default=[], metavar="ID")
     p.add_argument("--ref", action="append", default=[], metavar="DOI")
     p.add_argument("--drop-ref", action="append", default=[], metavar="DOI")
+    p.add_argument("--data", action="append", default=[], metavar="KEY")
+    p.add_argument("--drop-data", action="append", default=[], metavar="KEY")
     p.add_argument("--artifact", action="append", default=[], metavar="HOST:/PATH")
     p.add_argument("--drop-artifact", action="append", default=[], metavar="HOST:/PATH")
     p.add_argument("--relate", action="append", default=[], metavar="TYPE:ID:WHY")
