@@ -750,11 +750,18 @@ class ScriptsUseTheFoundInterpreter(unittest.TestCase):
 
         # Running under the wrong interpreter — exactly what the shebang does on
         # a machine where python3 is not the one with PyYAML — must still work.
-        result = subprocess.run(
-            [wrong, str(self.SCRIPTS / "validate.py"), "--quiet"],
-            capture_output=True, text=True,
-            env={k: v for k, v in os.environ.items() if k != "CAIRN_RELAUNCHED"},
-        )
+        # Validate a graph of its own: the shared FIXTURE holds whatever the
+        # tests that ran before this one left behind (a.md holding a differently
+        # named id), which made this test pass or fail by run order.
+        with tempfile.TemporaryDirectory(prefix="cairn-relaunch-") as tmp:
+            (Path(tmp) / "nodes").mkdir()
+            (Path(tmp) / "papers").mkdir()
+            result = subprocess.run(
+                [wrong, str(self.SCRIPTS / "validate.py"), "--quiet"],
+                capture_output=True, text=True,
+                env={**{k: v for k, v in os.environ.items() if k != "CAIRN_RELAUNCHED"},
+                     "CAIRN_ROOT": tmp},
+            )
         self.assertNotIn("Cairn needs PyYAML", result.stdout + result.stderr)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
