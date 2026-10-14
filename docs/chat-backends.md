@@ -43,6 +43,12 @@ machine (logged in), in a scratch directory.
     prefix does not carry a compound command through.
   - Through the server later, `B=<abs>/bin/cairn; $B note --help` was also
     refused.
+- **Deny rules beat the allow rule.** A run had `--disallowedTools
+  "Bash(<abs>/bin/cairn review *)" "Bash(<abs>/bin/cairn review)" "Bash(<abs>/bin/cairn sync)" …`
+  next to the `bin/cairn *` allow. In it, `cairn standup` ran, and both
+  `cairn review x` and a bare `cairn sync` were refused. The chat denies the
+  subcommands that are a human's act this way: `review`, `discard`, `edit`,
+  `policy`, `install_*`, `onboard`, `sync`, `sync_issues`, `export*` and `init`.
 - `--resume <id>` continued the conversation. The model recalled the earlier
   turn, and the id was unchanged.
 - **The system prompt is recorded on the first request and reused on resume**

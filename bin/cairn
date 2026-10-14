@@ -32,27 +32,33 @@ usage() {
     cat >&2 <<'EOF'
 usage: cairn <command> [args...]
 
+  onboard        set up this machine: graph, commit policy, which sessions see it
   init           create a research graph repo (run this once, per graph)
+  policy         read or set the commit policy: ask (default) or auto
   new_node       create a node, or append a status change to one
   validate       check every node against the schema
   build          regenerate build/graph.html and build/graph.md
   serve          serve the map on localhost, and let it write back
   add_paper      DOI in, CrossRef-verified papers/ entry out
+  add_dataset    register a dataset in datasets/ — sha256-verified when it can be
   mine_sessions  survey Claude Code transcripts (read-only)
   digest         what changed, and what needs you
   standup        what to pick up today; --project for a resume packet
   sync           pull the graph; --push to regenerate build/ and push
   note           append a dated note to a node's body
+  edit           correct a node's body or a whitelisted field (not its status)
   review         mark a node read; --list for what nobody has read
+  discard        delete a draft node git has never seen (refuses anything committed)
   import_note    bring a meeting note or external file into the graph
   report         write build/report.md — where to start, what a gap means
   install_hooks  enable pre-commit validation for a graph repo
-  install_context make every Claude session on this machine see the graph
+  install_context wire sessions to the graph: this machine, or --project for one
   export         write one project's view into that project's own repo
   export_example write a scrubbed, derived copy of one project for publication
   session_hook   emit Claude Code session-hook JSON (called by the hook)
   capture        append a note to inbox/ — no schema, never refuses
   sync_issues    mirror open task nodes to GitHub Issues (dry run by default)
+  openviking     register the graph with an OpenViking server (dry run by default)
   doctor         check the install
 
 `cairn <command> --help` for a command's own options.
@@ -93,7 +99,7 @@ fi
 # is to work when something else is broken. Demanding PyYAML in order to *launch*
 # them would undo that here, one layer above where the guarantee was made.
 case $cmd in
-    capture | sync | session_hook | init) probe="--any" ;;
+    capture | sync | session_hook | init | policy | onboard | openviking) probe="--any" ;;
     *)                             probe="" ;;
 esac
 

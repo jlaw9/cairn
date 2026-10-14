@@ -6,7 +6,7 @@ is the command that makes the second one, so that "install Cairn" and "start my
 graph" are two steps instead of one fork.
 
     cairn init ~/research-graph
-    cairn init ~/research-graph --name "Jeff's research graph"
+    cairn init ~/research-graph --name "my research graph" --commit-mode auto
 
 Deliberately importing nothing from lib: this runs before PyYAML is necessarily
 installed, and the first thing a new machine does should not be able to fail on a
@@ -24,6 +24,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+import policy  # stdlib only, like this file
 
 DIRS = ["nodes", "papers", "meetings", "inbox", "assets", "build"]
 
@@ -66,6 +68,7 @@ start and end of a session are documented **in the tool repo** — read
 `$CAIRN_PATH/CLAUDE.md` and `$CAIRN_PATH/docs/schema.md`. They are versioned
 with the code that enforces them, so they cannot drift from the validator.
 
+{policy_section}
 ## Project keys used here
 
 Add a line when a project starts, so an agent can see the vocabulary without
@@ -117,6 +120,11 @@ def main() -> int:
     ap.add_argument("--name", default="", help="human name for the graph")
     ap.add_argument("--no-git", action="store_true",
                     help="skip git init and the pre-commit hook")
+    ap.add_argument("--commit-mode", choices=policy.MODES, default=policy.DEFAULT,
+                    help="ask (draft, show, commit — the default) or auto (agents commit "
+                         "the nodes they write; you edit after). `cairn policy` changes it later")
+    ap.add_argument("--allow-nested", action="store_true",
+                    help="create the graph inside another git repo anyway")
     args = ap.parse_args()
 
     root = Path(args.path).expanduser().resolve()
@@ -128,6 +136,29 @@ def main() -> int:
               "  One graph per repo. To use it, export CAIRN_ROOT and stop here.",
               file=sys.stderr)
         return 2
+
+    # Refuse a graph nested inside a project repo (2026-08-27-cairn-onboarding-
+    # and-node-location): one graph spans every project, a nested one shows up
+    # as untracked junk in the parent's `git status`, makes `repo:` ambiguous,
+    # and quietly implies the record belongs to that one project. `doctor`
+    # warns about this after the fact; here, at the moment of the mistake, a
+    # refusal costs nothing.
+    if not args.allow_nested:
+        probe = root
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        try:
+            parent = subprocess.run(
+                ["git", "-C", str(probe), "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, timeout=30).stdout.strip()
+        except (subprocess.SubprocessError, OSError):
+            parent = ""
+        if parent and (root / ".git").exists() is False and Path(parent) != root:
+            print(f"cairn init: {root} would sit inside the git repo at {parent} — refusing.\n"
+                  "  One graph spans all your projects, so keep it outside every project\n"
+                  "  repo (e.g. ~/research-graph). --allow-nested overrides.",
+                  file=sys.stderr)
+            return 2
 
     root.mkdir(parents=True, exist_ok=True)
     for d in DIRS:
@@ -141,7 +172,8 @@ def main() -> int:
     wrote = []
     for rel, text in (
         (".gitignore", GITIGNORE),
-        ("CLAUDE.md", CLAUDE_MD.format(name=name)),
+        ("CLAUDE.md", CLAUDE_MD.format(
+            name=name, policy_section=policy.SECTION.format(mode=args.commit_mode))),
         ("README.md", README_MD.format(name=name, root=root)),
     ):
         p = root / rel
@@ -154,6 +186,7 @@ def main() -> int:
     print("  created " + ", ".join(f"{d}/" for d in DIRS))
     if wrote:
         print("  wrote   " + ", ".join(wrote))
+    print(f"  policy  commit_mode: {args.commit_mode}  (in CLAUDE.md; `cairn policy` changes it)")
 
     if not args.no_git:
         if (root / ".git").exists():
@@ -175,6 +208,11 @@ def main() -> int:
     print()
     print("Then, so every Claude session on this machine sees the graph:")
     print(f"  {tool}/bin/cairn install_context --apply")
+    print()
+    print("Commit your first nodes yourself (cd $CAIRN_ROOT && git add nodes &&")
+    print("git commit): `cairn note` and `cairn review` commit one node at a time and")
+    print("cannot commit a file git has never seen, and an uncommitted node is")
+    print("invisible to your other machine. After that, notes commit on their own.")
     print()
     print("An empty graph means nothing for months, and during those months a")
     print("missing node means 'we had not started', not 'not tried'. Backfill")

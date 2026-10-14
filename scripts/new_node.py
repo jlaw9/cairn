@@ -4,17 +4,17 @@
 This exists so that /log never has to hand-assemble YAML. Hand-assembled
 frontmatter is how `status` and `history` drift apart.
 
-    scripts/new_node.py experiment "COSMO-RS baseline" --project prekd \\
+    bin/cairn new_node experiment "COSMO-RS baseline" --project prekd \\
         --status running --parent 2026-07-20-prekd-scoping \\
         --repo git@github.com:jlaw9/prekd.git --commit a3f9c21 --host kestrel
 
-    scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \\
+    bin/cairn new_node --update 2026-08-02-prekd-cosmo-baseline \\
         --status dead --note "solvation model wrong for ionics"
 
-    scripts/new_node.py experiment "PET basal face discriminates" --project mplastic \\
+    bin/cairn new_node experiment "PET basal face discriminates" --project mplastic \\
         --status planned --body "The basal chain-end face binds WS2 more strongly than WS3."
 
-    scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \\
+    bin/cairn new_node --update 2026-08-02-prekd-cosmo-baseline \\
         --relate "contradicts:2026-07-20-prekd-scoping:opposite sign on the same set"
 """
 
@@ -144,12 +144,40 @@ def check_project(project: str, allow_new: bool) -> None:
     sys.exit("\n".join(lines))
 
 
+def deadline_fields(node_type: str, args: argparse.Namespace) -> dict:
+    """`due` (task) and `date` (milestone) from --due / --when, validated.
+
+    `--date` already means the creation date, so a milestone's own date has its
+    own flag. A flag the type does not carry is refused, naming the right one:
+    storing it anyway surfaces later as `unknown field`, and an unparseable date
+    used to be stored as `due: ~` with no error at all.
+    """
+    fields: dict = {}
+    for flag, key, carrier in (("due", "due", "task"), ("when", "date", "milestone")):
+        raw = getattr(args, flag, None)
+        if not raw:
+            continue
+        if node_type != carrier:
+            other = {"task": "use --due for a task's deadline",
+                     "milestone": "use --when for a milestone's date"}[
+                         "milestone" if carrier == "task" else "task"]
+            if node_type not in ("task", "milestone"):
+                other = "only tasks (--due) and milestones (--when) carry a date"
+            sys.exit(f"--{flag}: a {node_type} has no '{key}' field; {other}")
+        parsed = lib.as_date(raw)
+        if parsed is None:
+            sys.exit(f"--{flag}: not an ISO date: {raw}")
+        fields[key] = parsed
+    return fields
+
+
 def build(args: argparse.Namespace) -> lib.Node:
     created = lib.as_date(args.date) or dt.date.today()
     spec = lib.TYPES[args.type]
     status = args.status or spec.default_status
     if status not in spec.statuses:
         sys.exit(f"'{status}' is not a valid status for {args.type}: {', '.join(spec.statuses)}")
+    deadlines = deadline_fields(args.type, args)
     check_project(args.project, getattr(args, "new_project", False))
 
     if args.slug:
@@ -181,10 +209,11 @@ def build(args: argparse.Namespace) -> lib.Node:
         "created": created,
         "updated": created,
     }
-    for key in ("repo", "commit", "host", "origin", "venue", "url", "due", "source"):
+    for key in ("repo", "commit", "host", "origin", "venue", "url", "source"):
         value = getattr(args, key, None)
         if value:
-            meta[key] = lib.as_date(value) if key == "due" else value
+            meta[key] = value
+    meta.update(deadlines)
     if args.artifact:
         meta["artifacts"] = list(args.artifact)
     meta["parents"] = list(args.parent)
@@ -192,6 +221,8 @@ def build(args: argparse.Namespace) -> lib.Node:
         meta["relates"] = [parse_relation(r) for r in args.relate]
     if args.ref:
         meta["refs"] = list(args.ref)
+    if getattr(args, "data", None):
+        meta["data"] = list(args.data)
     meta["history"] = [{"date": created, "status": status, "note": args.note or "created"}]
 
     # `--body` fills the opening section — `## Claim` for an experiment, its
@@ -201,6 +232,35 @@ def build(args: argparse.Namespace) -> lib.Node:
     body = BODY_TEMPLATE[args.type].format(
         title=getattr(args, "body", "") or args.title)
     return lib.Node(path=path, meta=meta, body=body)
+
+
+def add_parents(node: lib.Node, parents: list) -> None:
+    """Append parents to an existing node. Append only; never removes one.
+
+    Refuses a parent that does not exist, or one that would close a loop (the
+    new parent already descends from this node). Validation would catch both
+    after the write, but a node file already rewritten is the wrong time.
+    """
+    nodes, _ = lib.load_nodes()
+    current = list(node.meta.get("parents") or [])
+    for parent in parents:
+        if parent not in nodes:
+            sys.exit(f"--parent: no such node: {parent}")
+        if parent == node.id:
+            sys.exit("--parent: a node cannot be its own parent")
+        seen, stack = set(), [parent]
+        while stack:
+            at = stack.pop()
+            if at == node.id:
+                sys.exit(f"--parent: {parent} descends from {node.id}; "
+                         "that would close a loop")
+            if at in seen or at not in nodes:
+                continue
+            seen.add(at)
+            stack.extend(nodes[at].parents)
+        if parent not in current:
+            current.append(parent)
+    node.meta["parents"] = current
 
 
 def update(args: argparse.Namespace) -> lib.Node:
@@ -214,10 +274,28 @@ def update(args: argparse.Namespace) -> lib.Node:
     relate = getattr(args, "relate", None)
     if relate:
         node.meta.setdefault("relates", []).extend(parse_relation(r) for r in relate)
+    # Edits that are not a state transition, so no history entry and no `updated`
+    # move: a deadline slipping, a parent found later. Same reasoning as a note.
+    changed = bool(relate)
+    parents = getattr(args, "parent", None) or []
+    if parents:
+        add_parents(node, parents)
+        changed = True
+    # `data` works the same way: which file a run trained on is usually known at
+    # creation, but sometimes only pinned down later (a sha256 arrives with the
+    # release manifest), and recording it is not a state transition.
+    data = getattr(args, "data", None)
+    if data:
+        node.meta.setdefault("data", []).extend(data)
+        changed = True
     if not args.status:
-        if relate:
+        deadlines = deadline_fields(node.type, args)
+        if deadlines:
+            node.meta.update(deadlines)
+            changed = True
+        if changed:
             return node
-        sys.exit("--update requires --status (or --relate)")
+        sys.exit("--update requires --status (or --relate, --parent, --data, --due/--when)")
     when = lib.as_date(args.date) or dt.date.today()
     try:
         node.set_status(args.status, args.note or "", when)
@@ -230,11 +308,7 @@ def update(args: argparse.Namespace) -> lib.Node:
     # deadline is the one thing about a task that legitimately moves after it
     # exists — and the validator nags about a task with no date, so there has to be
     # a way to add one without hand-editing the frontmatter.
-    if getattr(args, "due", None):
-        when_due = lib.as_date(args.due)
-        if when_due is None:
-            sys.exit(f"--due: not an ISO date: {args.due}")
-        node.meta["due"] = when_due
+    node.meta.update(deadline_fields(node.type, args))
     if args.artifact:
         node.meta.setdefault("artifacts", []).extend(args.artifact)
     return node
@@ -263,6 +337,10 @@ def main() -> int:
         help="typed relation, e.g. contradicts:2026-06-25-mplastic-scramble-control:only on crystalline",
     )
     parser.add_argument("--ref", action="append", default=[], metavar="DOI")
+    parser.add_argument(
+        "--data", action="append", default=[], metavar="KEY",
+        help="dataset key this work used as input (a datasets/<key>.md page)",
+    )
     parser.add_argument("--repo")
     parser.add_argument("--commit")
     parser.add_argument("--host")
@@ -270,7 +348,10 @@ def main() -> int:
     parser.add_argument("--origin")
     parser.add_argument("--venue")
     parser.add_argument("--url")
-    parser.add_argument("--due", metavar="ISO_DATE")
+    parser.add_argument("--due", metavar="ISO_DATE", help="a task's deadline")
+    parser.add_argument("--when", metavar="ISO_DATE",
+                        help="a milestone's date (the `date` field; --date is the "
+                             "creation date)")
     parser.add_argument("--source", metavar="ID")
     args = parser.parse_args()
 

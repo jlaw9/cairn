@@ -61,6 +61,22 @@ MAX_TURNS = 30
 #: CLI's own transcript.
 SUMMARY_CHARS = 200
 
+#: bin/cairn subcommands the chat may not run, though they go through bin/cairn.
+#: Each one is a human's act or reaches past the graph:
+#: - `review` commits a draft *as read by a human*. The chat running it would
+#:   forge the one signal design decision 6 depends on.
+#: - `discard` declines a draft, and `edit` rewrites a committed node and
+#:   commits it. Both are the panel's job, done by the person at it.
+#: - `policy` and `install_*`/`onboard` change how agents behave.
+#: - `sync` pulls or pushes, `sync_issues` writes to GitHub, and `export`,
+#:   `export_example` and `init` write outside the graph.
+#: Claude Code enforces this list with deny rules, which beat the bin/cairn
+#: allow rule (checked on 2.1.300). Codex is only told about it, and its sandbox
+#: stops the committing and networked ones anyway.
+REFUSED = ("review", "discard", "edit", "policy", "install_context",
+           "install_hooks", "onboard", "sync", "sync_issues", "export",
+           "export_example", "init")
+
 SYSTEM = """\
 You are answering inside the Cairn map: a browser view of a research graph, \
 served on this machine by `cairn serve`. The person typing is looking at the map.
@@ -76,7 +92,10 @@ their own, such as `cairn note`, are fine — but `cairn note` is for words the 
 user gave you. An observation of your own is `{cairn} capture`, not a note in \
 their name.
 - A node you create is a draft the user reviews in the map's panel before it \
-is committed. Say which file you wrote, using the path bin/cairn printed.
+is committed. This holds whatever the graph's commit policy says (it is \
+`{mode}` here): from the map's chat you never commit a node, and you never \
+run `cairn {refused}`. Those are the user's acts, done in the panel or a \
+terminal. Say which file you wrote, using the path bin/cairn printed.
 - Before proposing work in a project, run `{cairn} standup --project <key>`. \
 A `dead` node there is a claim already refuted, with the reason attached.
 - The panel is narrow: answer briefly, and cite nodes as [[<node-id>]].\
@@ -102,7 +121,13 @@ def system_prompt(graph: Path, tool: Path = TOOL_ROOT, backend: str = "") -> str
     in resumed conversations"), so a node named here would go stale the moment
     the user clicked another one. That goes in `turn_prompt()` instead.
     """
-    text = SYSTEM.format(graph=graph, tool=tool, cairn=tool / "bin" / "cairn")
+    try:
+        import policy                                  # stdlib only
+        mode = policy.read_commit_mode(graph)
+    except ImportError:                                # a tool predating `cairn policy`
+        mode = "ask"
+    text = SYSTEM.format(graph=graph, tool=tool, cairn=tool / "bin" / "cairn",
+                         mode=mode, refused="|".join(REFUSED))
     return text + (CODEX_ADDENDUM if backend == "codex" else "")
 
 
@@ -153,6 +178,13 @@ class Claude:
         return [f"Bash({tool / 'bin' / 'cairn'} *)", "Read", "Grep", "Glob", "Skill"]
 
     @staticmethod
+    def disallowed_tools(tool: Path = TOOL_ROOT) -> list[str]:
+        cairn = tool / "bin" / "cairn"
+        # Both forms, so a bare `cairn sync` is caught as well as `cairn sync --push`.
+        return [rule for sub in REFUSED
+                for rule in (f"Bash({cairn} {sub})", f"Bash({cairn} {sub} *)")]
+
+    @staticmethod
     def argv(prompt: str, session: str | None = None, system: str = "",
              cwd: Path | None = None, tool: Path = TOOL_ROOT,
              binary: str | None = None) -> list[str]:
@@ -168,10 +200,11 @@ class Claude:
             args += ["--append-system-prompt", system]
         if session:
             args += ["--resume", session]
-        # --allowedTools is variadic, so it goes last and `--` closes it: without
-        # that the prompt would be read as one more tool name, and a prompt that
-        # opens with a dash would be read as a flag.
-        args += ["--allowedTools", *Claude.allowed_tools(tool), "--", prompt]
+        # Both tool lists are variadic. Each ends at the next flag, and `--`
+        # closes the last one: without it the prompt would be read as one more
+        # tool name, and a prompt that opens with a dash would be read as a flag.
+        args += ["--disallowedTools", *Claude.disallowed_tools(tool),
+                 "--allowedTools", *Claude.allowed_tools(tool), "--", prompt]
         return args
 
     @staticmethod

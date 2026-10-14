@@ -118,7 +118,7 @@ REPO_ROOT = _graph_root()
 # table is a real decision, not a convenience. See docs/schema.md.
 
 COMMON_REQUIRED = ["id", "type", "title", "project", "status", "created", "updated"]
-COMMON_OPTIONAL = ["parents", "relates", "refs", "history"]
+COMMON_OPTIONAL = ["parents", "relates", "refs", "data", "history"]
 
 #: Typed relations, mapped to how they read from the other end.
 #:
@@ -221,6 +221,14 @@ STATUS_CLASS = {
 ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*$")
 DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$")
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+#: A dataset key is the join between a node's `data:` and a datasets/ page, and
+#: unlike a DOI it is also the filename — so it is restricted to what survives
+#: both roles unmangled. Dots allowed for versions ("dp18-250912.v2").
+DATASET_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+#: What a dataset page's `tier:` may say about shareability. `review` means
+#: "needs a release review before it leaves the building".
+DATASET_TIERS = {"public", "restricted", "review"}
 ARTIFACT_RE = re.compile(r"^[A-Za-z0-9_.-]+:/\S*$")
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
 
@@ -241,6 +249,17 @@ FIELD_ORDER = [
 #: to the entry Overleaf cites; `md` points at the converted full text on a
 #: compute host, which is far too big to live in this repo.
 PAPER_FIELD_ORDER = ["doi", "title", "authors", "year", "venue", "bibkey", "md"]
+
+#: Datasets are the other keyed registry, and the same logic applies: the key is
+#: the identity, so it leads. `sha256` is the load-bearing field — it names the
+#: bytes, where `host`/`path` name a location that can be overwritten. `tier`
+#: records shareability (public|restricted|review), which is tracked nowhere
+#: else. `generated_by` is the node that produced the file; `supersedes` is an
+#: earlier dataset key this one replaces.
+DATASET_FIELD_ORDER = [
+    "key", "title", "rows", "host", "path", "sha256",
+    "release", "tier", "generated_by", "supersedes",
+]
 
 
 def validate_schema_table() -> None:
@@ -297,6 +316,12 @@ class Node:
     @property
     def refs(self) -> list[str]:
         return [str(r) for r in (self.meta.get("refs") or [])]
+
+    @property
+    def data(self) -> list[str]:
+        """Dataset keys this node used as input — the mirror of `refs` for
+        datasets/. `artifacts` records outputs; this records what went in."""
+        return [str(d) for d in (self.meta.get("data") or [])]
 
     @property
     def history(self) -> list[dict]:
@@ -382,7 +407,11 @@ def as_date(value) -> dt.date | None:
 
 
 def parse_file(path: Path) -> Node:
-    text = path.read_text(encoding="utf-8")
+    return parse_text(path.read_text(encoding="utf-8"), path)
+
+
+def parse_text(text: str, path: Path) -> Node:
+    """`parse_file` on text already in hand — for checking a write before it lands."""
     match = FRONTMATTER_RE.match(text)
     if not match:
         raise ValueError(f"{path}: no YAML frontmatter (file must start with '---')")
@@ -423,10 +452,27 @@ def _scalar(value, flow: bool = False) -> str:
         or " #" in text          # starts a trailing comment mid-value
         or (flow and any(c in text for c in ",{}[]"))
         or text.lower() in {"true", "false", "null", "yes", "no", "on", "off", "~"}
+        or _resolves_to_non_string(text)
     )
     if needs_quotes:
         return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
     return text
+
+
+_RESOLVER = yaml.resolver.Resolver()
+_STR_TAG = "tag:yaml.org,2002:str"
+
+
+def _resolves_to_non_string(text: str) -> bool:
+    """Would YAML read this bare string back as something else?
+
+    The keyword list above misses every number. A commit SHA that happens to be
+    all digits — about one short SHA in twenty-seven — went out as
+    `commit: 1234567` and came back as the integer 1234567; `0123456` came back
+    as an octal 42798, and `1:30` as sexagesimal 90. Asking PyYAML's own
+    resolver is the only check that cannot fall behind the resolver.
+    """
+    return _RESOLVER.resolve(yaml.ScalarNode, text, (True, False)) != _STR_TAG
 
 
 def _flow_map(mapping: dict) -> str:
@@ -441,8 +487,15 @@ def dump_frontmatter(meta: dict) -> str:
     line each (a status change should be a one-line diff) and a field order
     that reads top-down instead of alphabetically.
     """
-    # A paper page has no `id`; its DOI is its identity and should lead.
-    order = PAPER_FIELD_ORDER if ("doi" in meta and "id" not in meta) else FIELD_ORDER
+    # Registry pages have no `id`; their join key is their identity and leads.
+    if "id" in meta:
+        order = FIELD_ORDER
+    elif "doi" in meta:
+        order = PAPER_FIELD_ORDER
+    elif "key" in meta:
+        order = DATASET_FIELD_ORDER
+    else:
+        order = FIELD_ORDER
     keys = [k for k in order if k in meta]
     keys += sorted(k for k in meta if k not in order)
 
@@ -456,7 +509,7 @@ def dump_frontmatter(meta: dict) -> str:
             if all(isinstance(item, dict) for item in value):
                 lines.append(f"{key}:")
                 lines.extend(f"  - {_flow_map(item)}" for item in value)
-            elif key in {"parents", "refs"} and len(value) <= 4:
+            elif key in {"parents", "refs", "data"} and len(value) <= 4:
                 lines.append(f"{key}: [" + ", ".join(_scalar(v) for v in value) + "]")
             else:
                 lines.append(f"{key}:")
@@ -479,6 +532,10 @@ def node_dir(root: Path | None = None) -> Path:
 
 def paper_dir(root: Path | None = None) -> Path:
     return (root or REPO_ROOT) / "papers"
+
+
+def dataset_dir(root: Path | None = None) -> Path:
+    return (root or REPO_ROOT) / "datasets"
 
 
 def require_graph(root: Path | None = None) -> Path:
@@ -586,6 +643,32 @@ def slug_doi(doi: str) -> str:
     return doi.strip().lower().replace("/", "__")
 
 
+def load_datasets(root: Path | None = None) -> tuple[dict[str, Node], list[str]]:
+    """Load the datasets registry, keyed by the `key:` field.
+
+    Unlike a DOI, a dataset key is filename-safe by construction, so the key
+    and the filename stem are required to agree — there is no slug transform
+    and therefore no ambiguity to defend against, only drift.
+    """
+    datasets: dict[str, Node] = {}
+    errors: list[str] = []
+    for path in sorted(dataset_dir(root).glob("*.md")):
+        try:
+            node = parse_file(path)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        key = str(node.meta.get("key", "")).strip()
+        if not key:
+            errors.append(f"{path}: dataset has no 'key:' field")
+            continue
+        if key != path.stem:
+            errors.append(f"{path}: key '{key}' does not match filename stem '{path.stem}'")
+            continue
+        datasets[key] = node
+    return datasets, errors
+
+
 # --------------------------------------------------------------------------
 # Validation
 # --------------------------------------------------------------------------
@@ -651,6 +734,10 @@ def _check_common(node: Node, out: list[Issue]) -> None:
     for ref in node.refs:
         if not DOI_RE.match(ref):
             err(f"ref '{ref}' is not a bare DOI (expected 10.xxxx/suffix)")
+
+    for key in node.data:
+        if not DATASET_KEY_RE.match(key):
+            err(f"data '{key}' is not a dataset key (lowercase [a-z0-9._-], letter/digit first)")
 
 
 def _check_history(node: Node, out: list[Issue]) -> None:
@@ -731,7 +818,7 @@ def _check_type_extras(node: Node, out: list[Issue]) -> None:
         if node.meta.get("due") is not None and as_date(node.meta["due"]) is None:
             err(f"'due' is not an ISO date: {node.meta['due']!r}")
         if not node.meta.get("due") and node.status in {"todo", "doing"}:
-            warn("open task with no due date — it will never surface in /weekly")
+            warn("open task with no due date — it will never surface in standup")
 
 
 def _check_edges(nodes: dict[str, Node], out: list[Issue]) -> None:
@@ -830,6 +917,59 @@ def _check_refs(nodes: dict[str, Node], papers: dict[str, Node], out: list[Issue
                 ))
 
 
+def _check_data(nodes: dict[str, Node], datasets: dict[str, Node], out: list[Issue]) -> None:
+    """Dataset pages and the `data:` keys that point at them.
+
+    A page is a lookup-table row like a paper, not a DAG member, so the strict
+    node checks don't apply. What does get checked is the join itself and the
+    fields that would silently lie: a sha256 of the wrong shape names no bytes,
+    an unknown tier answers "can I share this?" with a shrug, and a dangling
+    `generated_by` or `supersedes` is an arrow into nothing.
+    """
+    for node in nodes.values():
+        for key in node.data:
+            if key not in datasets:
+                out.append(Issue(
+                    "warn", node.path.name,
+                    f"data '{key}' has no page in datasets/ — provenance will be thin",
+                ))
+
+    for key, page in datasets.items():
+        where = f"datasets/{page.path.name}"
+        if not DATASET_KEY_RE.match(key):
+            out.append(Issue(
+                "error", where,
+                f"key '{key}' is not a dataset key (lowercase [a-z0-9._-], letter/digit first)",
+            ))
+        sha = str(page.meta.get("sha256", "")).strip()
+        if sha and not SHA256_RE.match(sha):
+            out.append(Issue(
+                "warn", where,
+                f"sha256 {sha!r} is not 64 hex chars — it names no bytes",
+            ))
+        tier = str(page.meta.get("tier", "")).strip()
+        if tier and tier not in DATASET_TIERS:
+            out.append(Issue(
+                "warn", where,
+                f"tier '{tier}' is not one of {', '.join(sorted(DATASET_TIERS))}",
+            ))
+        generated_by = str(page.meta.get("generated_by", "")).strip()
+        if generated_by and generated_by not in nodes:
+            out.append(Issue(
+                "warn", where,
+                f"generated_by '{generated_by}' is not a node in this graph",
+            ))
+        supersedes = str(page.meta.get("supersedes", "")).strip()
+        if supersedes:
+            if supersedes == key:
+                out.append(Issue("warn", where, "supersedes itself"))
+            elif supersedes not in datasets:
+                out.append(Issue(
+                    "warn", where,
+                    f"supersedes '{supersedes}', which has no page in datasets/",
+                ))
+
+
 #: `[[node-id]]` in a body. The renderer turns these into live links, so a
 #: typo'd or since-renamed id is a dead reference — cheap to catch here, and
 #: invisible otherwise until someone clicks it.
@@ -889,19 +1029,33 @@ def validate(root: Path | None = None) -> list[Issue]:
     issues: list[Issue] = []
     nodes, node_errors = load_nodes(root)
     papers, paper_errors = load_papers(root)
+    datasets, dataset_errors = load_datasets(root)
     issues += [Issue("error", "nodes/", message) for message in node_errors]
     issues += [Issue("error", "papers/", message) for message in paper_errors]
+    issues += [Issue("error", "datasets/", message) for message in dataset_errors]
+    issues += check_nodes(nodes)
+    _check_refs(nodes, papers, issues)
+    _check_data(nodes, datasets, issues)
+    _check_assets(nodes, issues, root)
+    return issues
 
+
+def check_nodes(nodes: dict[str, Node]) -> list[Issue]:
+    """The node and edge checks, on a graph held in memory.
+
+    Split out of `validate` so a writer can check a node *before* it touches the
+    disk — `cairn edit` swaps its modified node into the loaded graph and refuses
+    on any error the swap introduces, which is how a parent that closes a cycle is
+    refused with nothing written rather than caught by the pre-commit hook after.
+    """
+    issues: list[Issue] = []
     for node in nodes.values():
         _check_common(node, issues)
         _check_history(node, issues)
         _check_type_extras(node, issues)
-
     _check_edges(nodes, issues)
     _check_relations(nodes, issues)
-    _check_refs(nodes, papers, issues)
     _check_body_links(nodes, issues)
-    _check_assets(nodes, issues, root)
     return issues
 
 
@@ -1191,6 +1345,16 @@ def paper_backlinks(nodes: dict[str, Node]) -> dict[str, list[str]]:
     for node in nodes.values():
         for ref in node.refs:
             links.setdefault(ref.lower(), []).append(node.id)
+    return links
+
+
+def dataset_backlinks(nodes: dict[str, Node]) -> dict[str, list[str]]:
+    """Dataset key -> node ids that used it. This is the query the registry
+    exists to answer: "what else trained on this file?"."""
+    links: dict[str, list[str]] = {}
+    for node in nodes.values():
+        for key in node.data:
+            links.setdefault(key, []).append(node.id)
     return links
 
 

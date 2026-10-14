@@ -1,6 +1,6 @@
 ---
 name: cairn-log
-description: Record what a work session produced as a node in Cairn's research graph — a result, a failed approach, a literature finding, or a commitment with a deadline. Use at the end of a session that settled something, or when asked to log, record, or write up work. Requires the user present to confirm the interpretation; if they are not, use cairn-capture instead.
+description: Record what a work session produced as a node in Cairn's research graph — a result, a failed approach, a literature finding, or a commitment with a deadline. Use at the end of a session that settled something, or when asked to log, record, or write up work. Under the graph's `ask` commit policy the user must be present to confirm; under `auto` you commit what you wrote about work you did and say so. If neither applies, use cairn-capture instead.
 ---
 
 # Log a session to Cairn
@@ -8,13 +8,16 @@ description: Record what a work session produced as a node in Cairn's research g
 Cairn is a git-backed graph of research activity: one markdown file per node,
 append-only, never deleted. This skill writes a node for work that just happened.
 
-**Prerequisite: the user is present.** A node asserts a finding, and an
-unreviewed assertion is exactly the failure Cairn exists to prevent — the graph's
-value is that everything in it has been read by a human. If nobody can confirm
-the interpretation, use `cairn-capture` and let triage handle it.
+**Read the commit policy first.** The session-start context states it, and
+`$CAIRN_PATH/bin/cairn policy` prints it. Under **`ask`** the user must be
+present: a node asserts a finding, and an unreviewed assertion is the failure
+Cairn exists to prevent — if nobody can confirm the interpretation, use
+`cairn-capture` and let triage handle it. Under **`auto`** you commit the node
+you write about work you did, right away, and say what you committed; an unread
+node stays visible through `cairn review --list` rather than being absent.
 
-`$CAIRN_PATH` below is the Cairn clone; on a shared filesystem,
-`/kfs2/projects/bpms/jlaw/tools/Cairn-graph`. Always invoke through
+`$CAIRN_PATH` below is the tool (the Cairn clone) and `$CAIRN_ROOT` is the graph
+repo. If either is unset, ask rather than guess. Always invoke through
 `bin/cairn`, never `scripts/*.py` — the dispatcher picks a Python that can
 actually run the scripts, and on an HPC login node the default `python3` often
 cannot even compile them.
@@ -109,13 +112,14 @@ literature refuted means the same downstream as a job that failed. One claim per
 node. `--ref <doi>` the evidence and register it with
 `$CAIRN_PATH/bin/cairn add_paper <doi>`; never write a DOI from memory.
 
-## 5. Show, then commit
+## 5. Show, then commit — or commit, then show
 
-Print the node. **Wait for confirmation.** Then:
+Print the node. Under `ask`, **wait for confirmation**. Under `auto`, commit now
+and tell the user what landed and where to edit it. Either way:
 
 ```sh
-cd $CAIRN_PATH && make build && git add -A \
-  && git commit -m "log: <node id>" && git push
+cd $CAIRN_ROOT && git add nodes/<node id>.md \
+  && git commit -m "log: <node id>" && $CAIRN_PATH/bin/cairn sync --push
 ```
 
 The pre-commit hook validates. If it fails, fix the node — do not `--no-verify`
@@ -131,17 +135,18 @@ $CAIRN_PATH/bin/cairn sync --push
 
 That regenerates `build/`, commits **only** `build/`, and pushes. It never
 commits a node — so if it reports uncommitted drafts, those are yours to show
-Jeff and commit, not for it to sweep in.
+the user and commit, not for it to sweep in.
 
 ## Do not
 
-- **Do not write a `## Notes` bullet.** That section is where *Jeff* reacts to a
-  node, and `cairn note` stamps his handle on it. Your observations go in the
+- **Do not write a `## Notes` bullet.** That section is where *the user* reacts
+  to a node, and `cairn note` stamps their handle on it. Your observations go in the
   history note of the status change, where they are correctly attributed.
 
-- Do not commit a node the user hasn't seen.
+- Do not commit a node the user hasn't seen under `ask`; under `auto`, do not
+  commit a node about work you did not do.
 - Do not copy large outputs in. Reference them as `host:/path` in `artifacts`.
-  One small summary figure may go in `$CAIRN_PATH/assets/`. One.
+  One small summary figure may go in `$CAIRN_ROOT/assets/<node-id>.svg`. One.
 - Do not add schema fields. Every optional field is one that stops getting
   filled in; adding one is a real decision made in `lib.TYPES` and
   `docs/schema.md`, not in passing.

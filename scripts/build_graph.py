@@ -122,8 +122,53 @@ def md_inline(text: str, titles: dict[str, str] | None = None) -> str:
     return out
 
 
+_TABLE_SEP = re.compile(r"^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
+_ITEM = re.compile(r"^(\s*)(?:([-*+])|\d+[.)])\s+(.*)$")
+
+
+def _cells(row: str) -> list[str]:
+    row = row.strip().replace("\\|", "\x00")
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|"):
+        row = row[:-1]
+    return [c.replace("\x00", "|").strip() for c in row.split("|")]
+
+
+def _indent(line: str) -> int:
+    return len(line[: len(line) - len(line.lstrip())].expandtabs(4))
+
+
+def _empty_sections(lines: list[str]) -> set[int]:
+    """Indexes of headings with nothing under them, so the renderer can skip them.
+
+    Empty means only blank lines before the next heading of the same or a higher
+    level, or the end of the body. This is a render-time decision: the body on
+    disk is untouched, and `lib.section()` / notes parsing never see this.
+    """
+    heads: list[tuple[int, int]] = []  # (line index, level), outside code
+    in_code = False
+    for i, raw in enumerate(lines):
+        if raw.rstrip().startswith("```"):
+            in_code = not in_code
+            continue
+        m = None if in_code else re.match(r"^(#{1,6})\s+(.*)$", raw.rstrip())
+        if m:
+            heads.append((i, len(m.group(1))))
+    empty: set[int] = set()
+    for n, (i, level) in enumerate(heads):
+        end = len(lines)
+        for j, lv in heads[n + 1:]:
+            if lv <= level:
+                end = j
+                break
+        if not any(l.strip() for l in lines[i + 1:end]):
+            empty.add(i)
+    return empty
+
+
 def md_to_html(text: str, titles: dict[str, str] | None = None) -> str:
-    """A deliberately small markdown subset: headings, lists, code, quotes.
+    """A deliberately small markdown subset: headings, lists, tables, code, quotes.
 
     Node bodies are notes, not documents. Pulling in a markdown dependency for
     this would be the first crack in "runs anywhere without a venv".
@@ -132,8 +177,9 @@ def md_to_html(text: str, titles: dict[str, str] | None = None) -> str:
     link with the target's title rather than as a raw id.
     """
     lines = text.strip().splitlines()
+    skip = _empty_sections(lines)
     out: list[str] = []
-    list_stack: list[str] = []
+    list_stack: list[tuple[str, int]] = []  # (tag, indent); the last <li> stays open
     in_code = False
     paragraph: list[str] = []
 
@@ -144,10 +190,13 @@ def md_to_html(text: str, titles: dict[str, str] | None = None) -> str:
 
     def close_lists() -> None:
         while list_stack:
-            out.append(f"</{list_stack.pop()}>")
+            out[-1] += f"</li></{list_stack.pop()[0]}>"
 
-    for raw in lines:
+    i = 0
+    while i < len(lines):
+        raw = lines[i]
         line = raw.rstrip()
+        i += 1
 
         if line.startswith("```"):
             flush_paragraph()
@@ -161,13 +210,19 @@ def md_to_html(text: str, titles: dict[str, str] | None = None) -> str:
 
         if not line.strip():
             flush_paragraph()
-            close_lists()
+            # A blank line between items does not end the list: closing it would
+            # restart the numbering of an ordered one.
+            nxt = next((l for l in lines[i:] if l.strip()), "")
+            if not (list_stack and (_ITEM.match(nxt) or nxt[:1] in (" ", "\t"))):
+                close_lists()
             continue
 
         heading = re.match(r"^(#{1,6})\s+(.*)$", line)
         if heading:
             flush_paragraph()
             close_lists()
+            if i - 1 in skip:
+                continue
             level = min(len(heading.group(1)) + 2, 6)
             out.append(f"<h{level}>{md_inline(heading.group(2), titles)}</h{level}>")
             continue
@@ -178,17 +233,54 @@ def md_to_html(text: str, titles: dict[str, str] | None = None) -> str:
             out.append("<hr>")
             continue
 
-        bullet = re.match(r"^\s*[-*+]\s+(.*)$", line)
-        number = re.match(r"^\s*\d+[.)]\s+(.*)$", line)
-        if bullet or number:
+        item = _ITEM.match(line)
+        if item:
             flush_paragraph()
-            want = "ul" if bullet else "ol"
-            if list_stack and list_stack[-1] != want:
-                close_lists()
-            if not list_stack:
-                list_stack.append(want)
+            want = "ul" if item.group(2) else "ol"
+            ind = _indent(line)
+            if list_stack and ind > list_stack[-1][1]:
+                list_stack.append((want, ind))  # nested inside the open <li>
                 out.append(f"<{want}>")
-            out.append(f"<li>{md_inline((bullet or number).group(1), titles)}</li>")
+            else:
+                while len(list_stack) > 1 and ind < list_stack[-1][1]:
+                    out[-1] += f"</li></{list_stack.pop()[0]}>"
+                if list_stack and list_stack[-1][0] != want:
+                    out[-1] += f"</li></{list_stack.pop()[0]}>"
+                if list_stack:
+                    out[-1] += "</li>"
+                else:
+                    list_stack.append((want, ind))
+                    out.append(f"<{want}>")
+            out.append(f"<li>{md_inline(item.group(3), titles)}")
+            continue
+
+        if list_stack and line[:1] in (" ", "\t"):
+            out[-1] += " " + md_inline(line.strip(), titles)  # wrapped item text
+            continue
+
+        if (line.startswith("|") and i < len(lines) and lines[i].startswith("|")
+                and "-" in lines[i] and _TABLE_SEP.match(lines[i].strip())):
+            flush_paragraph()
+            close_lists()
+            aligns = []
+            for c in _cells(lines[i]):
+                aligns.append("center" if c.startswith(":") and c.endswith(":")
+                              else "right" if c.endswith(":") else "left" if c.startswith(":") else "")
+            j = i + 1
+            rows = []
+            while j < len(lines) and lines[j].startswith("|"):
+                rows.append(_cells(lines[j]))
+                j += 1
+
+            def cell(tag: str, k: int, c: str) -> str:
+                st = f' style="text-align:{aligns[k]}"' if k < len(aligns) and aligns[k] else ""
+                return f"<{tag}{st}>{md_inline(c, titles)}</{tag}>"
+
+            head = "".join(cell("th", k, c) for k, c in enumerate(_cells(line)))
+            body = "".join("<tr>" + "".join(cell("td", k, c) for k, c in enumerate(r)) + "</tr>"
+                           for r in rows)
+            out.append(f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
+            i = j
             continue
 
         quote = re.match(r"^>\s?(.*)$", line)
@@ -308,9 +400,10 @@ def commit_url(repo: str, sha: str) -> str | None:
     return f"https://{host}/{match.group(3)}/commit/{sha}"
 
 
-def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict:
+def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, height) -> dict:
     kids = lib.children_of(nodes)
     backlinks = lib.paper_backlinks(nodes)
+    data_links = lib.dataset_backlinks(nodes)
     inbound = lib.relation_backlinks(nodes)
     titles = {node_id: node.title for node_id, node in nodes.items()}
 
@@ -334,6 +427,20 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
                 "doi": ref,
                 "title": paper.title if paper else "",
                 "cocited": [i for i in backlinks.get(ref.lower(), []) if i != node.id],
+            })
+
+        # The mirror of refs, for inputs: which registered data this work ran
+        # on, and what else ran on the same bytes. `tier` travels so the panel
+        # can say whether the data behind a result is shareable.
+        data = []
+        for key in node.data:
+            page = datasets.get(key)
+            data.append({
+                "key": key,
+                "title": page.meta.get("title", "") if page else "",
+                "tier": str(page.meta.get("tier", "")) if page else "",
+                "sha256": str(page.meta.get("sha256", "")) if page else "",
+                "shared": [i for i in data_links.get(key, []) if i != node.id],
             })
 
         payload_nodes.append({
@@ -362,6 +469,7 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
                 for r in inbound.get(node.id, [])
             ],
             "refs": refs,
+            "data": data,
             "history": history,
             "x": round(x, 1),
             "y": round(y, 1),
@@ -415,6 +523,12 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
         # type-blind.
         "statusesByType": {name: list(spec.statuses)
                            for name, spec in sorted(lib.TYPES.items())},
+        # The type's own fields, so the edit form renders the right inputs
+        # without a copy of the schema. Common fields are every type's and are
+        # not repeated here.
+        "fieldsByType": {name: {"required": list(spec.required),
+                                "optional": list(spec.optional)}
+                         for name, spec in sorted(lib.TYPES.items())},
         "relations": sorted(lib.RELATIONS),
         "generated": dt.date.today().isoformat(),
     }
@@ -538,9 +652,10 @@ def main() -> int:
 
     nodes, _ = lib.load_nodes()
     papers, _ = lib.load_papers()
+    datasets, _ = lib.load_datasets()
 
     positions, lanes, ticks, width, height = compute_layout(nodes)
-    payload = build_payload(nodes, papers, positions, lanes, ticks, width, height)
+    payload = build_payload(nodes, papers, datasets, positions, lanes, ticks, width, height)
 
     build = lib.REPO_ROOT / "build"
     build.mkdir(exist_ok=True)

@@ -65,10 +65,13 @@ else
 fi
 
 # 3. /log and /paper, which only work from other repos once symlinked.
-if [ -e "$HOME/.claude/commands/log.md" ]; then
+cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+if [ -e "$cfg/commands/log.md" ]; then
     say_ok "/log and /paper reachable from any repo"
+elif [ -e "./.claude/commands/log.md" ]; then
+    say_ok "/log and /paper reachable from $(pwd) (project scope)"
 else
-    say_bad "/log not installed for this machine" "make install-commands"
+    say_bad "/log not installed for this machine" "cairn install_context --apply  (or: --project <path> --apply)"
 fi
 
 # 4. CAIRN_PATH — the tool. /log reads it from inside a project repo.
@@ -106,7 +109,35 @@ else
     say_note "or start one: cairn init ~/research-graph"
 fi
 
-# 4c. Codex, only where Codex is installed: without the links it has no skills.
+# 4c. Which sessions see the graph. Scope is wherever the hook landed: user
+#     settings mean every session on this machine; a project's
+#     .claude/settings.local.json means only sessions started there. doctor
+#     can only see the first from here, so it says so rather than guessing.
+if grep -qs "session_hook" "$cfg/settings.json" 2>/dev/null; then
+    say_ok "every session on this machine sees the graph (SessionStart hook in $cfg)"
+elif grep -qs "session_hook" "./.claude/settings.local.json" 2>/dev/null; then
+    say_ok "sessions in $(pwd) see the graph (project-scoped hook)"
+else
+    say_bad "no session hook — sessions start without the graph's state" \
+            "cairn install_context --apply   (or: --project <path> --apply for one project)"
+    say_note "or run everything at once: cairn onboard"
+fi
+
+# 4d. The commit policy, read from the graph's CLAUDE.md. Informational: both
+#     modes are correct, which is the point of its being a policy.
+if [ -n "$py" ] && [ -d "$graph/nodes" ]; then
+    mode=$(CAIRN_ROOT="$graph" "$py" "$tool/scripts/policy.py" --quiet 2>/dev/null || echo "ask")
+    say_note "commit policy: $mode  (cairn policy — ask: draft/show/commit; auto: agents commit, you edit)"
+fi
+
+# 4e. OpenViking is optional and never a MISS. Say whether it is here.
+if command -v ov >/dev/null 2>&1; then
+    say_note "OpenViking: ov found — optional; cairn openviking status"
+else
+    say_note "OpenViking: not installed — optional; see docs/openviking.md"
+fi
+
+# 4f. Codex, only where Codex is installed: without the links it has no skills.
 if command -v codex >/dev/null 2>&1 && [ ! -e "$HOME/.agents/skills/cairn-capture" ]; then
     say_bad "codex is installed but cannot see Cairn's skills" \
             "cairn install_context --codex --apply"
