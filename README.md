@@ -76,17 +76,17 @@ Three of Graphify's ideas were worth taking and two are in here.
 ## Install — once per machine
 
 **New here, or setting up a machine that isn't the one this was written on? Read
-[docs/install.md](docs/install.md).** It is the same four steps, spelled out,
+[docs/install.md](docs/install.md).** It is the same steps, spelled out,
 with the failure modes named — including what to do when a cluster's `python3`
 can't run the scripts at all.
 
 ```sh
 git clone <this-repo> ~/cairn && cd ~/cairn
+export CAIRN_PATH=$HOME/cairn               # the tool
+export PATH=$CAIRN_PATH/bin:$PATH           # plain `cairn` from anywhere
 cairn init ~/research-graph                 # your graph: dirs, git, hook
-export CAIRN_PATH=$HOME/cairn               # the tool  — add both to your profile
-export CAIRN_ROOT=$HOME/research-graph      # the graph
+export CAIRN_ROOT=$HOME/research-graph      # the graph — add all three exports to your profile
 make setup                                  # hook + slash commands + checks
-export PATH=$CAIRN_PATH/bin:$PATH           # optional: plain `cairn` anywhere
 make doctor                                 # confirm every step took
 ```
 
@@ -152,6 +152,28 @@ needing a working Python, which of the four install steps happened: interpreter,
 hook, slash commands, `CAIRN_PATH`. Each of those fails differently and none of
 the failures names which one is missing, which is how a first install goes
 wrong.
+
+### Your own graph
+
+If you are not the person this was written for, this is the whole path from a
+clone to a graph of your own. Everything above is assumed done.
+
+```sh
+cd $CAIRN_ROOT
+cairn new_node direction "Does X predict Y?" --project demo      # first project needs no --new-project
+cairn new_node experiment "X predicts Y" --project demo --parent <direction-id> --status planned \
+  --body "Expect R2>0.5 on held-out; wrong if R2<0.2." --note "pre-registered"
+cairn new_node task "Request data access" --project demo --parent <direction-id> --due 2026-10-30
+cairn validate && cairn build && cairn standup
+git add nodes && git commit -m "first nodes"        # you read them, then you commit; sync never commits nodes
+git remote add origin <your-graph-remote> && cairn sync --push
+cairn serve --port 8790                             # the map, live, at localhost:8790
+```
+
+**Commit the first nodes before anything else.** Notes and reviews commit one
+node at a time, which git refuses for a file it has never seen, and an
+uncommitted node is invisible from your other machine. Replace `<direction-id>`
+with the id the first command printed.
 
 ### The one dependency
 
