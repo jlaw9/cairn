@@ -1,23 +1,23 @@
 # Installing and using Cairn
 
-For someone who has never used Cairn, on any machine. Ten minutes, four steps,
+For someone who has never used Cairn, on any machine. Ten minutes, five steps,
 one dependency.
 
 If a command fails at any point, run `make doctor` before debugging anything
-else. It reports which of the four install steps is missing, and it runs without
+else. It reports which of the install steps is missing, and it runs without
 a working Python — which matters, because the interpreter is the most common
-thing to be wrong and none of the four failures names itself.
+thing to be wrong and none of the failures names itself.
 
 ---
 
 ## 1. Clone it, outside every project repo
 
 ```sh
-git clone <cairn-remote> ~/Cairn-graph
-cd ~/Cairn-graph
+git clone <cairn-remote> ~/cairn
+cd ~/cairn
 ```
 
-`~/Cairn-graph` is a suggestion; anywhere works. **What matters is that it is not
+`~/cairn` is a suggestion; anywhere works. **What matters is that it is not
 nested inside a project repo.** One graph spans all your projects, and a clone
 inside one project shows up as untracked junk in that project's `git status`,
 makes the `repo` field ambiguous, and quietly implies the graph belongs to that
@@ -65,35 +65,59 @@ of its own to trip over. Running a script directly hands that choice to whatever
 it: Python compiles the whole file before running a line, so the SyntaxError
 arrives before any fallback could execute.
 
-## 3. Set up this machine
+## 3. Create your graph, and tell your shell where everything is
+
+The tool (this clone) and your graph are two repos. `CAIRN_PATH` names the tool,
+`CAIRN_ROOT` names the graph, and `cairn` has to be on your `PATH` before the
+first `cairn ...` command below works. None of the three is optional: the slash
+commands and skills find the tool through `CAIRN_PATH`, and every read and write
+finds the graph through `CAIRN_ROOT` (without it you get "CAIRN_ROOT is not set
+and this clone has no nodes/").
 
 ```sh
-make setup
+export CAIRN_PATH=$HOME/cairn
+export PATH=$CAIRN_PATH/bin:$PATH
+cairn init ~/research-graph                 # dirs, git repo, pre-commit hook
+export CAIRN_ROOT=$HOME/research-graph
 ```
 
-Three things happen: the pre-commit validation hook is installed, the interpreter
-is confirmed, and the slash commands are symlinked into `~/.claude/commands` so
-they work **from any repo** rather than only from a session rooted here. That last
-part is the point — `/log`'s whole job is to run inside a project repo and reach
-into the graph.
-
-Then export the path, and add it to your shell profile:
-
-```sh
-export CAIRN_PATH=$HOME/Cairn-graph
-export PATH=$CAIRN_PATH/bin:$PATH           # optional: plain `cairn` anywhere
-```
-
-`CAIRN_PATH` is **not** optional — the slash commands and the skills use it to
-find the graph. The `PATH` line is convenience only.
-
-```sh
-make doctor                                 # confirm all four steps took
-```
+Add those three `export` lines to your shell profile. Already have a graph (a
+colleague's, or your own from another machine)? Skip `cairn init`, clone it, and
+point `CAIRN_ROOT` at the clone.
 
 **Do this on every machine you work on.** Laptop and cluster both.
 
-## 4. Point your project repos at it
+## 4. Set up this machine, and commit your first nodes
+
+```sh
+make setup                                  # hook, interpreter check, slash commands
+make doctor                                 # confirm every step took
+```
+
+The pre-commit validation hook is installed, the interpreter is confirmed, and
+the slash commands are symlinked into `~/.claude/commands` so they work **from
+any repo** rather than only from a session rooted here. That last part is the
+point — `/log`'s whole job is to run inside a project repo and reach into the
+graph.
+
+Then make a first node or two and **commit them**:
+
+```sh
+cairn new_node direction "Does X predict Y?" --project demo
+cd $CAIRN_ROOT && git add nodes && git commit -m "first nodes"
+```
+
+(The first project in an empty graph needs no `--new-project`; after that an
+unrecognised key is refused, because it is usually a typo.)
+
+Commit them yourself, after reading them. `cairn sync` never commits a node on
+purpose, and `cairn note` and `cairn review` each commit one node's change with
+`git commit --only`, which git refuses for a file it has never seen. An
+uncommitted node is also invisible to your other machine and to anyone you share
+the graph with. So the habit is: draft, read, commit; after that, notes and
+reviews commit themselves.
+
+## 5. Point your project repos at it
 
 This is the step that is easy to skip and makes the difference between a graph
 you maintain and a graph that maintains itself. An agent working in a project
