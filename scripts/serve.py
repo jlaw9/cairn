@@ -15,8 +15,9 @@ code path `/log` and the terminal use, so the node file stays the only copy and
 no schema of its own and invents no policy: it reports whatever the command
 said, including that `cairn note` commits and `new_node --update` does not.
 
-The line, from the node: the view may **create** a node, append a **note**, and
-propose a **status change**. It may never hand-edit frontmatter. There is no
+The line, from the node: the view may **create** a node, append a **note**,
+propose a **status change**, and **edit** a node's body and a whitelist of its
+fields through `cairn edit`. It may never hand-edit frontmatter. There is no
 endpoint that writes YAML, and adding one would be the bug.
 
 **`build/graph.html` still works with the server off.** That constraint is the
@@ -104,15 +105,17 @@ class Refused(Exception):
         self.code = code
 
 
-def run_cairn(args: list[str]) -> dict:
+def run_cairn(args: list[str], stdin: str | None = None) -> dict:
     """Shell out to `bin/cairn`, and report exactly what it said.
 
     List form, never a shell string: a note is arbitrary human text and the
     whole reason this is safe is that it never becomes part of a command line.
+    `stdin` is for text too long or too free to be an argument — a node body —
+    and it goes over the pipe, never through a temp file in the repo.
     """
     try:
         done = subprocess.run(
-            [str(CAIRN), *args],
+            [str(CAIRN), *args], input=stdin,
             capture_output=True, text=True, timeout=180, cwd=str(lib.REPO_ROOT),
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -226,7 +229,111 @@ def do_create(payload: dict) -> dict:
     return run_cairn(args)
 
 
-ACTIONS = {"note": do_note, "status": do_status, "create": do_create}
+#: The payload keys `edit` takes, so a misspelt one (`relations`, `parent`) is
+#: refused instead of silently doing nothing.
+EDIT_KEYS = {"action", "id", "set", "clear", "parents", "refs", "artifacts",
+             "relates", "body"}
+
+
+def do_edit(payload: dict) -> dict:
+    """Correct a node through `cairn edit` — body and whitelisted fields only.
+
+    Payload, every key optional except `id`:
+
+        {"id": ..., "set": {"title": ..., "due": "2026-11-01"}, "clear": ["due"],
+         "parents": {"add": [...], "drop": [...]}, "refs": {...},
+         "artifacts": {...},
+         "relates": {"add": [{"type": "supports", "id": ..., "note": "why"}],
+                     "drop": [{"type": ..., "id": ...}]},
+         "body": "the whole markdown body"}
+
+    This checks only shape — ids against ID_RE, field names against edit's own
+    whitelist — and leaves every judgement about the node to the command, so
+    there is still one answer to what an edit may do.
+    """
+    import edit
+    node_id = want(payload, "id", ID_RE)
+    known_node(node_id)
+    unknown = sorted(set(payload) - EDIT_KEYS)
+    if unknown:
+        raise Refused(f"unknown edit key(s): {', '.join(unknown)}; expected "
+                      f"{', '.join(sorted(EDIT_KEYS - {'action'}))}")
+
+    def field_name(key) -> str:
+        key = str(key)
+        if key in edit.FORBIDDEN:
+            raise Refused(edit.FORBIDDEN[key])
+        if key not in edit.SCALARS:
+            raise Refused(f"'{key}' is not a field edit can set: "
+                          f"{', '.join(edit.SCALARS)}")
+        return key
+
+    def shaped(key, kind):
+        value = payload.get(key)
+        if value is None:
+            return kind()
+        if not isinstance(value, kind):
+            raise Refused(f"{key} must be a JSON {'object' if kind is dict else 'list'}")
+        return value
+
+    def ops(key) -> dict:
+        found = shaped(key, dict)
+        for verb in sorted(set(found) - {"add", "drop"}):
+            raise Refused(f"{key}.{verb}: expected add or drop")
+        for verb in ("add", "drop"):
+            if not isinstance(found.get(verb) or [], list):
+                raise Refused(f"{key}.{verb} must be a list")
+        return found
+
+    # `--flag=value`, never `--flag value`: a value that opens with a dash is
+    # then still a value, whatever it says.
+    args = ["edit", node_id]
+    for key, value in shaped("set", dict).items():
+        key = field_name(key)
+        if value is None or not str(value).strip():
+            raise Refused(f"set.{key} is empty — to remove it, list it in clear")
+        args.append(f"--{key}={value}")
+    for key in shaped("clear", list):
+        args.append(f"--clear={field_name(key)}")
+
+    for key, flag in (("parents", "parent"), ("refs", "ref"), ("artifacts", "artifact")):
+        found = ops(key)
+        for verb, prefix in (("drop", "--drop-"), ("add", "--")):
+            for item in found.get(verb) or []:
+                item = str(item).strip()
+                if key == "parents" and not ID_RE.match(item):
+                    raise Refused(f"parent is not a node id: {item!r}")
+                args.append(f"{prefix}{flag}={item}")
+
+    relates = ops("relates")
+    for verb in ("drop", "add"):
+        for rel in relates.get(verb) or []:
+            if not isinstance(rel, dict):
+                raise Refused("a relation is {type, id, note}")
+            kind = str(rel.get("type", "")).strip()
+            target = str(rel.get("id", "")).strip()
+            if kind not in lib.RELATIONS:
+                raise Refused(f"'{kind}' is not a relation: "
+                              f"{', '.join(sorted(lib.RELATIONS))}")
+            if not ID_RE.match(target):
+                raise Refused(f"relation target is not a node id: {target!r}")
+            if verb == "drop":
+                args.append(f"--unrelate={kind}:{target}")
+                continue
+            why = " ".join(str(rel.get("note", "") or "").split())
+            args.append(f"--relate={kind}:{target}:{why}" if why
+                        else f"--relate={kind}:{target}")
+
+    body = payload.get("body")
+    if body is not None:
+        if not isinstance(body, str):
+            raise Refused("body must be a string")
+        args.append("--body=-")
+    return run_cairn(args, stdin=body)
+
+
+ACTIONS = {"note": do_note, "status": do_status, "create": do_create,
+           "edit": do_edit}
 
 
 def node_path(out: str) -> str:

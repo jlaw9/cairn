@@ -26,6 +26,12 @@ history:
 `id`, `type`, `title`, `project`, `status`, `created`, `updated` are required.
 `history` must have at least the creation entry.
 
+After creation, `bin/cairn edit <id>` is how any of this changes: the body,
+`title`, `project`, the type's own scalars below, and `parents`/`relates`/`refs`/
+`artifacts` one entry at a time. `id`, `type` and `created` never change, and
+`status`/`updated`/`history` change only together through `new_node --update` —
+an edit is a correction, so it leaves `updated` where it was.
+
 ### Why both `status` and `history`
 
 They're the same fact, and storing a fact twice invites drift. `history` is the
