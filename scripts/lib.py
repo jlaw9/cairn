@@ -382,7 +382,11 @@ def as_date(value) -> dt.date | None:
 
 
 def parse_file(path: Path) -> Node:
-    text = path.read_text(encoding="utf-8")
+    return parse_text(path.read_text(encoding="utf-8"), path)
+
+
+def parse_text(text: str, path: Path) -> Node:
+    """`parse_file` on text already in hand — for checking a write before it lands."""
     match = FRONTMATTER_RE.match(text)
     if not match:
         raise ValueError(f"{path}: no YAML frontmatter (file must start with '---')")
@@ -423,10 +427,27 @@ def _scalar(value, flow: bool = False) -> str:
         or " #" in text          # starts a trailing comment mid-value
         or (flow and any(c in text for c in ",{}[]"))
         or text.lower() in {"true", "false", "null", "yes", "no", "on", "off", "~"}
+        or _resolves_to_non_string(text)
     )
     if needs_quotes:
         return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
     return text
+
+
+_RESOLVER = yaml.resolver.Resolver()
+_STR_TAG = "tag:yaml.org,2002:str"
+
+
+def _resolves_to_non_string(text: str) -> bool:
+    """Would YAML read this bare string back as something else?
+
+    The keyword list above misses every number. A commit SHA that happens to be
+    all digits — about one short SHA in twenty-seven — went out as
+    `commit: 1234567` and came back as the integer 1234567; `0123456` came back
+    as an octal 42798, and `1:30` as sexagesimal 90. Asking PyYAML's own
+    resolver is the only check that cannot fall behind the resolver.
+    """
+    return _RESOLVER.resolve(yaml.ScalarNode, text, (True, False)) != _STR_TAG
 
 
 def _flow_map(mapping: dict) -> str:
@@ -891,17 +912,28 @@ def validate(root: Path | None = None) -> list[Issue]:
     papers, paper_errors = load_papers(root)
     issues += [Issue("error", "nodes/", message) for message in node_errors]
     issues += [Issue("error", "papers/", message) for message in paper_errors]
+    issues += check_nodes(nodes)
+    _check_refs(nodes, papers, issues)
+    _check_assets(nodes, issues, root)
+    return issues
 
+
+def check_nodes(nodes: dict[str, Node]) -> list[Issue]:
+    """The node and edge checks, on a graph held in memory.
+
+    Split out of `validate` so a writer can check a node *before* it touches the
+    disk — `cairn edit` swaps its modified node into the loaded graph and refuses
+    on any error the swap introduces, which is how a parent that closes a cycle is
+    refused with nothing written rather than caught by the pre-commit hook after.
+    """
+    issues: list[Issue] = []
     for node in nodes.values():
         _check_common(node, issues)
         _check_history(node, issues)
         _check_type_extras(node, issues)
-
     _check_edges(nodes, issues)
     _check_relations(nodes, issues)
-    _check_refs(nodes, papers, issues)
     _check_body_links(nodes, issues)
-    _check_assets(nodes, issues, root)
     return issues
 
 
