@@ -100,9 +100,12 @@ WRITE_LOCK = threading.Lock()
 class Refused(Exception):
     """A request that is wrong in a way worth naming, rather than a 500."""
 
-    def __init__(self, message: str, code: int = 400):
+    def __init__(self, message: str, code: int = 400, **extra):
         super().__init__(message)
         self.code = code
+        #: Sent alongside `error`, for a refusal the page can act on — the
+        #: near-match list on a 409 is what lets the form offer "use polyid".
+        self.extra = extra
 
 
 def run_cairn(args: list[str], stdin: str | None = None) -> dict:
@@ -174,11 +177,22 @@ def do_status(payload: dict) -> dict:
             f"{', '.join(spec.statuses)}")
     if status == node.status:
         raise Refused(f"{node_id} is already {status}")
+    note = " ".join(str(payload.get("note", "") or "").split())
+    # A closing failure is a refuted claim, and a refuted claim is only worth
+    # keeping with the reason attached — the reason is what someone six months
+    # from now cites instead of re-running it. Every other move stays free, so
+    # capture still wins: `running` with no note costs nothing to correct.
+    if status in CLOSING and not note:
+        raise Refused(f"a move to {status} needs a reason — it becomes the "
+                      f"history note, and it is what makes the dead end citable")
     args = ["new_node", "--update", node_id, "--status", status]
-    note = str(payload.get("note", "")).strip()
     if note:
-        args += ["--note", note]
+        args.append(f"--note={note}")
     return run_cairn(args)
+
+
+#: Statuses that close a thread as a failure. Only these require a reason.
+CLOSING = {"dead", "dropped", "killed", "closed"}
 
 
 def known_projects() -> set:
@@ -214,19 +228,104 @@ def do_create(payload: dict) -> dict:
         if not ID_RE.match(parent):
             raise Refused(f"parent is not a node id: {parent!r}")
         args += ["--parent", parent]
+
+    # The one sentence you had at the moment you had it (CLAUDE.md: pass --note
+    # at creation too). Without it the first history entry reads `created`.
+    note = " ".join(str(payload.get("note", "") or "").split())
+    if note:
+        args.append(f"--note={note}")
+    slug = want(payload, "slug", SLUG_RE, required=False)
+    if slug:
+        args.append(f"--slug={slug}")
+
+    # The type's own fields. Checked against lib.TYPES here rather than left to
+    # new_node, because new_node writes the file before validation says
+    # "unknown field" — and a node on disk is the wrong time to find out.
+    spec = lib.TYPES[node_type]
+    own = set(spec.required) | set(spec.optional)
+    # `date` travels as --when: new_node's --date is the creation date.
+    for key, flag in (("due", "due"), ("date", "when"), ("venue", "venue"),
+                      ("repo", "repo"), ("commit", "commit"), ("host", "host")):
+        value = str(payload.get(key, "") or "").strip()
+        if not value:
+            continue
+        if key not in own:
+            raise Refused(f"a {node_type} has no '{key}' field "
+                          f"(its own fields: {', '.join(spec.optional) or 'none'})")
+        if "\n" in value or "\r" in value:
+            raise Refused(f"{key} must be one line")
+        if key in ("due", "date") and (not ISO_RE.match(value)
+                                       or lib.as_date(value) is None):
+            raise Refused(f"{key} is not an ISO date: {value!r}")
+        if key == "commit" and not lib.SHA_RE.match(value):
+            raise Refused(f"commit {value!r} is not a git SHA — reference "
+                          f"commits, never branches")
+        args.append(f"--{flag}={value}")
+    refs = payload.get("refs") or []
+    if not isinstance(refs, list):
+        raise Refused("refs must be a JSON list of DOIs")
+    for ref in refs:
+        ref = str(ref).strip()
+        if not lib.DOI_RE.match(ref):
+            raise Refused(f"not a DOI: {ref!r} (want 10.xxxx/...)")
+        args.append(f"--ref={ref}")
+
     # `--new-project` only where it means something. A key the graph already has
     # is not new however the form was filled in, and passing the flag anyway
     # would switch off `check_project` — the guard that catches `photpoly` for
     # `photopoly`, which is the one typo that validates cleanly and silently
     # splits a project in two.
-    if payload.get("newProject") and project not in known_projects():
+    known = known_projects()
+    if payload.get("newProject") and project not in known:
         if not PROJECT_RE.match(project):
             raise Refused(
                 f"'{project}' will not do as a project key: it is the first word "
                 f"of every id in the project, permanently. Lowercase letters, "
                 f"digits and dashes.")
+        # And because the flag switches the guard off, the guard runs here
+        # first. From the map this is the only way a typo can arrive, so
+        # skipping it here would mean it never runs at all.
+        import new_node
+        near = new_node.near_projects(project, sorted(known))
+        if near and payload.get("confirmNew") is not True:
+            raise Refused(
+                f"'{project}' is not a project in this graph — did you mean "
+                f"{' or '.join(near)}? A new key splits the lane in two if it "
+                f"is a typo.", 409, suggest=near)
         args.append("--new-project")
     return run_cairn(args)
+
+
+#: An id slug, as new_node's --slug takes it (the date is prefixed for you).
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def do_review(payload: dict) -> dict:
+    """Mark a node read through `cairn review`, committing it if it is a draft.
+
+    This is how a node made on the map gets into git at all — `sync` never
+    commits a node (design decision 6), so the button that says "I read this"
+    is the one that admits it.
+    """
+    node_id = want(payload, "id", ID_RE)
+    known_node(node_id)
+    note = " ".join(str(payload.get("note", "") or "").split())
+    # `--` so a note that opens with a dash is text, as in do_note.
+    return run_cairn(["review", node_id, "--", note] if note
+                     else ["review", node_id])
+
+
+def do_discard(payload: dict) -> dict:
+    """Throw away a draft through `cairn discard`.
+
+    No exception to "never delete a node": the command refuses any file git has
+    seen, so only a draft that never entered the graph can go. The judgement is
+    the command's — this checks the id's shape and that the node exists.
+    """
+    node_id = want(payload, "id", ID_RE)
+    known_node(node_id)
+    return run_cairn(["discard", node_id])
 
 
 #: The payload keys `edit` takes, so a misspelt one (`relations`, `parent`) is
@@ -333,7 +432,11 @@ def do_edit(payload: dict) -> dict:
 
 
 ACTIONS = {"note": do_note, "status": do_status, "create": do_create,
-           "edit": do_edit}
+           "edit": do_edit, "review": do_review}
+# Offered only where the command exists, so /api/health's list is what the page
+# reads to decide whether to show the button.
+if (TOOL_ROOT / "scripts" / "discard.py").exists():
+    ACTIONS["discard"] = do_discard
 
 
 def node_path(out: str) -> str:
@@ -528,7 +631,7 @@ class Handler(BaseHTTPRequestHandler):
                 # so a reload shows the graph as it actually still is.
                 result["rebuilt"] = bool(result["ok"] and rebuild()["ok"])
         except Refused as exc:
-            return self.send_json({"error": str(exc)}, exc.code)
+            return self.send_json({**exc.extra, "error": str(exc)}, exc.code)
         except Exception as exc:                          # noqa: BLE001
             return self.send_json({"error": f"{type(exc).__name__}: {exc}"}, 500)
         return self.send_json(result, 200 if result["ok"] else 422)
