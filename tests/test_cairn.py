@@ -519,6 +519,15 @@ class RenderTest(unittest.TestCase):
         self.assertIn("```mermaid", markdown)
         self.assertIn(CHILD_ID, markdown)
 
+    def test_without_git_the_state_is_unknown_not_clean(self):
+        """The fixture is no git repo: `git` must be null, so the map draws no
+        not-committed mark on every node. The raw body still ships."""
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        for node in payload["nodes"]:
+            self.assertIsNone(node["git"], node["id"])
+            self.assertEqual(node["bodyRaw"], nodes[node["id"]].body)
+
     def test_empty_graph_still_builds(self):
         clear()
         self.assertEqual(build_graph.main(), 0)
@@ -2049,7 +2058,11 @@ class Serve(unittest.TestCase):
         info = _json.loads(body)
         self.assertEqual(info["cairn"], "serve")
         self.assertEqual(info["root"], str(lib.REPO_ROOT))
-        self.assertEqual(sorted(info["actions"]), ["create", "edit", "note", "status"])
+        # `discard` is offered only where the command exists.
+        expected = ["create", "edit", "note", "review", "status"]
+        if (Path(serve.TOOL_ROOT) / "scripts" / "discard.py").exists():
+            expected = sorted(expected + ["discard"])
+        self.assertEqual(sorted(info["actions"]), expected)
 
     def test_root_redirects_to_the_map_under_the_graph_root(self):
         """`/build/graph.html`, not `/`: the panel links `../nodes/<id>.md` and
@@ -2205,6 +2218,93 @@ class Serve(unittest.TestCase):
         self.assertEqual(code, 200, out)
         self.assertNotIn("--new-project", out["cmd"])
 
+    # -- create: the type's fields, the note, the slug ---------------------
+
+    def test_create_takes_a_note_a_slug_and_a_due_date(self):
+        """The note is the first history entry (otherwise it reads `created`),
+        the slug replaces the generated id, and `due` belongs to a task."""
+        code, out = self.post({"action": "create", "type": "task",
+                               "title": "Read the tether paper again",
+                               "project": "prekd", "note": "-0.4 eV looked off",
+                               "slug": "prekd-reread-tether", "due": "2026-11-01"})
+        self.assertEqual(code, 200, out)
+        self.assertTrue(out["node"].endswith("-prekd-reread-tether"), out["node"])
+        node = lib.parse_file(FIXTURE / "nodes" / f"{out['node']}.md")
+        self.assertEqual(lib.as_date(node.meta["due"]), dt.date(2026, 11, 1))
+        self.assertEqual(node.history[0]["note"], "-0.4 eV looked off")
+
+    def test_a_milestone_date_travels_as_when_not_as_the_creation_date(self):
+        code, out = self.post({"action": "create", "type": "milestone",
+                               "title": "Submit the tether paper", "project": "prekd",
+                               "date": "2026-12-15", "venue": "JCTC"})
+        self.assertEqual(code, 200, out)
+        self.assertIn("--when=2026-12-15", out["cmd"])
+        node = lib.parse_file(FIXTURE / "nodes" / f"{out['node']}.md")
+        self.assertEqual(lib.as_date(node.meta["date"]), dt.date(2026, 12, 15))
+        self.assertEqual(node.meta["venue"], "JCTC")
+        self.assertEqual(node.created, dt.date.today())
+
+    def test_an_experiment_records_its_provenance(self):
+        code, out = self.post({"action": "create", "type": "experiment",
+                               "title": "Does the tether hold at 300 K?",
+                               "project": "prekd", "status": "planned",
+                               "body": "It holds.", "repo": "git@github.com:jlaw9/prekd.git",
+                               "commit": "a3f9c21", "host": "kestrel",
+                               "refs": ["10.1021/acs.jctc.5b00001"]})
+        self.assertEqual(code, 200, out)
+        node = lib.parse_file(FIXTURE / "nodes" / f"{out['node']}.md")
+        self.assertEqual((node.meta["repo"], str(node.meta["commit"]), node.meta["host"]),
+                         ("git@github.com:jlaw9/prekd.git", "a3f9c21", "kestrel"))
+        self.assertEqual(node.refs, ["10.1021/acs.jctc.5b00001"])
+
+    def test_create_refuses_fields_that_would_land_wrong(self):
+        """Each of these would otherwise be written first and flagged after."""
+        before = len(list((FIXTURE / "nodes").glob("*.md")))
+        base = {"action": "create", "type": "experiment", "title": "A refused one",
+                "project": "prekd", "body": "claim"}
+        for extra, says in (({"due": "2026-11-01"}, "has no 'due' field"),
+                            ({"commit": "main"}, "not a git SHA"),
+                            ({"type": "task", "due": "next week"}, "not an ISO date"),
+                            ({"refs": ["not-a-doi"]}, "not a DOI"),
+                            ({"slug": "Bad Slug"}, "expected form")):
+            code, out = self.post({**base, **extra})
+            self.assertEqual(code, 400, (extra, out))
+            self.assertIn(says, out["error"])
+        self.assertEqual(len(list((FIXTURE / "nodes").glob("*.md"))), before)
+
+    def test_a_near_miss_new_project_is_a_409_with_the_suggestion(self):
+        """`--new-project` switches the typo guard off, so the map runs it first
+        — and says which existing key was probably meant."""
+        before = len(list((FIXTURE / "nodes").glob("*.md")))
+        payload = {"action": "create", "type": "direction", "title": "A typo'd lane",
+                   "project": "prekx", "newProject": True}
+        code, out = self.post(payload)
+        self.assertEqual(code, 409, out)
+        self.assertEqual(out["suggest"], ["prekd"])
+        self.assertIn("did you mean prekd", out["error"])
+        self.assertEqual(len(list((FIXTURE / "nodes").glob("*.md"))), before)
+        code, out = self.post({**payload, "confirmNew": True})
+        self.assertEqual(code, 200, out)
+        self.assertIn("--new-project", out["cmd"])
+
+    def test_a_closing_failure_needs_a_reason(self):
+        """A dead node is a refuted claim, and only worth keeping with the
+        reason attached. Other moves stay free."""
+        node_id = "2026-08-04-prekd-closeme"
+        write(f"{node_id}.md", node_text(node_id, created="2026-08-04"))
+        before = (FIXTURE / "nodes" / f"{node_id}.md").read_bytes()
+        code, out = self.post({"action": "status", "id": node_id, "status": "dead",
+                               "note": "   "})
+        self.assertEqual(code, 400, out)
+        self.assertIn("needs a reason", out["error"])
+        self.assertEqual((FIXTURE / "nodes" / f"{node_id}.md").read_bytes(), before)
+        code, out = self.post({"action": "status", "id": node_id, "status": "parked"})
+        self.assertEqual(code, 200, out)
+
+    def test_review_of_an_unknown_node_is_a_404(self):
+        code, out = self.post({"action": "review", "id": "2026-08-02-prekd-ghost"})
+        self.assertEqual(code, 404, out)
+
     def test_an_unknown_node_is_a_404_not_a_new_file(self):
         code, out = self.post({"action": "note", "id": "2026-08-02-prekd-ghost",
                                "text": "x"})
@@ -2342,12 +2442,16 @@ class Serve(unittest.TestCase):
         before this feature existed. Every write control is rendered only when
         `server.up`, and `server.up` is false until /api/health answers."""
         html = (FIXTURE / "build" / "graph.html").read_text()
-        self.assertIn("const server = { up: false };", html)
+        self.assertIn("const server = { up: false, actions: new Set() };", html)
         self.assertIn("probeServer();", html)
         # Not merely hidden with CSS — not emitted at all.
         self.assertRegex(html, r"\(server\.up\s*\n\s*\?\s*`<div class=\"wr\"><button data-save")
         self.assertRegex(html, r"server\.up && isLive\(\) \? statusBox\(n\)")
         self.assertRegex(html, r"server\.up \? `<span data-newchild")
+        self.assertRegex(html, r"server\.up && isLive\(\) \? `<span data-edit")
+        # The banner's buttons need the server; without it, the commands.
+        self.assertRegex(html, r"if \(server\.up && isLive\(\) && server\.actions\.has\('review'\)\)")
+        self.assertIn("<code>cairn review ${esc(n.id)}</code>", html)
         # The header button ships hidden and is unhidden by the probe, never by CSS.
         self.assertRegex(html, r'<button id="newNode"[^>]*hidden>')
         self.assertIn("$('#newNode').hidden = false;", html)
@@ -2358,6 +2462,140 @@ class Serve(unittest.TestCase):
         html = (FIXTURE / "build" / "graph.html").read_text()
         self.assertIn("copy command", html)
         self.assertIn("function noteCommand(", html)
+
+
+class ServeInGit(unittest.TestCase):
+    """The serve actions that only mean something in a git repo — review and
+    discard — and the working-tree state the map draws from. Handlers are called
+    directly against a throwaway repo; the HTTP layer is covered by `Serve`."""
+
+    ROOT_ID = "2026-08-01-demo-root"
+    DRAFT_ID = "2026-08-02-demo-draft"
+
+    def setUp(self):
+        global serve
+        import serve                                    # noqa: PLW0603
+        self.tmp = Path(tempfile.mkdtemp(prefix="cairn-servegit-"))
+        (self.tmp / "nodes").mkdir()
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "jlaw@example.gov")
+        self.git("config", "user.name", "Jeff Law")
+        self.put(self.ROOT_ID, node_text(self.ROOT_ID, "direction", "open",
+                                         project="demo", created="2026-08-01"))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "seed")
+        self.put(self.DRAFT_ID, node_text(self.DRAFT_ID, project="demo",
+                                          created="2026-08-02"))
+        self.saved = (lib.REPO_ROOT, os.environ.get("CAIRN_ROOT"))
+        lib.REPO_ROOT = self.tmp
+        os.environ["CAIRN_ROOT"] = str(self.tmp)
+
+    def tearDown(self):
+        lib.REPO_ROOT, root = self.saved
+        os.environ["CAIRN_ROOT"] = root
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args):
+        import subprocess
+        return subprocess.run(["git", "-C", str(self.tmp), *args],
+                              capture_output=True, text=True, timeout=30)
+
+    def put(self, node_id, text):
+        (self.tmp / "nodes" / f"{node_id}.md").write_text(text.lstrip("\n"))
+
+    def porcelain(self):
+        return self.git("status", "--porcelain", "--", "nodes").stdout
+
+    def test_review_commits_a_draft_with_its_note(self):
+        """The button that admits a node made on the map. A note opening with a
+        dash is text, not a flag."""
+        out = serve.do_review({"id": self.DRAFT_ID, "note": "-0.4 eV, fine"})
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["cmd"], ["cairn", "review", self.DRAFT_ID, "--", "-0.4 eV, fine"])
+        self.assertNotIn(self.DRAFT_ID, self.porcelain())
+        self.assertTrue(serve.committed(out["out"]))
+        body = (self.tmp / "nodes" / f"{self.DRAFT_ID}.md").read_text()
+        self.assertIn("-0.4 eV, fine", body)
+
+    def test_review_without_a_note_is_still_a_review(self):
+        out = serve.do_review({"id": self.ROOT_ID})
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["cmd"], ["cairn", "review", self.ROOT_ID])
+
+    def test_review_refuses_an_id_it_does_not_know(self):
+        with self.assertRaises(serve.Refused) as caught:
+            serve.do_review({"id": "2026-08-09-demo-ghost"})
+        self.assertEqual(caught.exception.code, 404)
+
+    @unittest.skipUnless(
+        (Path(__file__).resolve().parent.parent / "scripts" / "discard.py").exists(),
+        "scripts/discard.py is not in this tree yet — `cairn discard` is a separate change")
+    def test_discard_removes_a_draft_and_refuses_a_tracked_node(self):
+        self.assertIn("discard", serve.ACTIONS)
+        out = serve.do_discard({"id": self.DRAFT_ID})
+        self.assertTrue(out["ok"], out)
+        self.assertFalse((self.tmp / "nodes" / f"{self.DRAFT_ID}.md").exists())
+        out = serve.do_discard({"id": self.ROOT_ID})
+        self.assertFalse(out["ok"], out)
+        self.assertTrue((self.tmp / "nodes" / f"{self.ROOT_ID}.md").exists())
+
+    def test_the_payload_says_what_git_has(self):
+        """clean / modified / untracked, from one status call — and the raw body
+        the edit form posts back."""
+        other = "2026-08-03-demo-other"
+        self.put(other, node_text(other, project="demo", created="2026-08-03"))
+        self.git("add", f"nodes/{other}.md")
+        self.git("commit", "-q", "-m", "other")
+        root = self.tmp / "nodes" / f"{self.ROOT_ID}.md"
+        root.write_text(root.read_text() + "\nA correction.\n")
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        by_id = {n["id"]: n for n in payload["nodes"]}
+        self.assertEqual(by_id[self.DRAFT_ID]["git"], "untracked")
+        self.assertEqual(by_id[self.ROOT_ID]["git"], "modified")
+        self.assertEqual(by_id[other]["git"], "clean")
+        self.assertEqual(by_id[self.ROOT_ID]["bodyRaw"], nodes[self.ROOT_ID].body)
+        self.assertIn("A correction.", by_id[self.ROOT_ID]["bodyRaw"])
+
+
+class SlugPreview(unittest.TestCase):
+    """The create form previews the id with a JS copy of new_node's slug rule.
+    If the copy drifts, the preview lies about a permanent name."""
+
+    TEMPLATE = Path(__file__).resolve().parent.parent / "scripts" / "graph_template.html"
+    TITLES = [
+        ("polyid", "Can hyperparameter tuning on cluster-CV folds rescue the wD-MPNN?"),
+        ("cairn", "Log-and-restart is cheaper than continuing at high context"),
+        ("prekd", "COSMO-RS baseline on the 40-solvent set"),
+        ("mplastic", "Does a separate Tg lane change the k5means split?"),
+    ]
+
+    def block(self) -> str:
+        text = self.TEMPLATE.read_text(encoding="utf-8")
+        return text.split("/* slug:begin */")[1].split("/* slug:end */")[0]
+
+    def js_set(self, name: str) -> set:
+        body = re.search(rf"const {name} = new Set\(\[(.*?)\]\);", self.block(), re.S).group(1)
+        return set(re.findall(r"'([a-z]+)'", body))
+
+    def test_the_word_lists_and_the_limit_match_new_node(self):
+        self.assertEqual(self.js_set("STOPWORDS"), new_node.STOPWORDS)
+        self.assertEqual(self.js_set("DANGLING"), new_node.DANGLING)
+        limit = int(re.search(r"const SLUG_MAX = (\d+);", self.block()).group(1))
+        self.assertEqual(limit, new_node.SLUG_MAX)
+
+    @unittest.skipUnless(shutil.which("node"), "no JS engine (node) on this machine")
+    def test_the_preview_gives_the_id_new_node_writes(self):
+        import json as _json
+        import subprocess
+        script = self.block() + (
+            "\nconsole.log(JSON.stringify(%s.map(([p, t]) => shorten(slugify(p + '-' + t)))));"
+            % _json.dumps(self.TITLES))
+        done = subprocess.run(["node", "-e", script], capture_output=True, text=True,
+                              timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        want = [new_node.shorten(new_node.slugify(f"{p}-{t}")) for p, t in self.TITLES]
+        self.assertEqual(_json.loads(done.stdout), want)
 
 
 class Edit(unittest.TestCase):
