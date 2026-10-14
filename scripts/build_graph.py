@@ -511,11 +511,11 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
             "x": round(x, 1),
             "y": round(y, 1),
             "shape": TYPE_SHAPE.get(node.type, "circle"),
+            # Rendered only. The edit form needs the markdown as written, and
+            # fetches `../nodes/<id>.md` for it when it opens: edit exists only
+            # under `cairn serve`, which serves nodes/, and shipping a raw copy
+            # of every body made the page 68% larger for a form few opens use.
             "body": md_to_html(node.body, titles),
-            # The markdown as written, for the edit form: it posts the whole body
-            # back through `cairn edit --body -`, and the rendered HTML above
-            # cannot be turned back into what the file said.
-            "bodyRaw": node.body,
             "extra": {
                 key: (lib.as_date(value).isoformat() if isinstance(value, (dt.date, dt.datetime)) else value)
                 for key, value in node.meta.items()
@@ -557,6 +557,8 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
         "height": height,
         "dates": all_dates,
         "types": sorted(lib.TYPES),
+        # type -> glyph, so the legend draws the shapes the map draws.
+        "shapes": {name: TYPE_SHAPE.get(name, "circle") for name in sorted(lib.TYPES)},
         # Sorted with `uncommitted` last, so a review-in-progress bucket never
         # sits above the people in the author filter.
         "authors": sorted({n["author"] for n in payload_nodes},

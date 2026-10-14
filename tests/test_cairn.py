@@ -521,12 +521,27 @@ class RenderTest(unittest.TestCase):
 
     def test_without_git_the_state_is_unknown_not_clean(self):
         """The fixture is no git repo: `git` must be null, so the map draws no
-        not-committed mark on every node. The raw body still ships."""
+        not-committed mark on every node."""
         nodes, _ = lib.load_nodes()
         payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
         for node in payload["nodes"]:
             self.assertIsNone(node["git"], node["id"])
-            self.assertEqual(node["bodyRaw"], nodes[node["id"]].body)
+
+    def test_the_payload_ships_no_raw_body(self):
+        """The edit form fetches `../nodes/<id>.md` when it opens. A raw copy of
+        every body made the page 68% larger for a form only `cairn serve` has."""
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        self.assertTrue(payload["nodes"])
+        for node in payload["nodes"]:
+            self.assertNotIn("bodyRaw", node, node["id"])
+            self.assertIn("body", node)
+
+    def test_the_legend_gets_every_type_its_glyph(self):
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        self.assertEqual(set(payload["shapes"]), set(lib.TYPES))
+        self.assertEqual(payload["shapes"]["direction"], "rect")
 
     def test_empty_graph_still_builds(self):
         clear()
@@ -3036,8 +3051,8 @@ class ServeInGit(unittest.TestCase):
         self.assertTrue((self.tmp / "nodes" / f"{self.ROOT_ID}.md").exists())
 
     def test_the_payload_says_what_git_has(self):
-        """clean / modified / untracked, from one status call — and the raw body
-        the edit form posts back."""
+        """clean / modified / untracked, from one status call. The raw body is
+        not in the payload: the edit form fetches nodes/<id>.md."""
         other = "2026-08-03-demo-other"
         self.put(other, node_text(other, project="demo", created="2026-08-03"))
         self.git("add", f"nodes/{other}.md")
@@ -3050,8 +3065,8 @@ class ServeInGit(unittest.TestCase):
         self.assertEqual(by_id[self.DRAFT_ID]["git"], "untracked")
         self.assertEqual(by_id[self.ROOT_ID]["git"], "modified")
         self.assertEqual(by_id[other]["git"], "clean")
-        self.assertEqual(by_id[self.ROOT_ID]["bodyRaw"], nodes[self.ROOT_ID].body)
-        self.assertIn("A correction.", by_id[self.ROOT_ID]["bodyRaw"])
+        self.assertNotIn("bodyRaw", by_id[self.ROOT_ID])
+        self.assertIn("A correction.", by_id[self.ROOT_ID]["body"])
 
 
 class SlugPreview(unittest.TestCase):
@@ -3092,6 +3107,49 @@ class SlugPreview(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         want = [new_node.shorten(new_node.slugify(f"{p}-{t}")) for p, t in self.TITLES]
         self.assertEqual(_json.loads(done.stdout), want)
+
+
+def run_template_block(name: str, tail: str):
+    """Run one `/* <name>:begin */ … /* <name>:end */` block of the map's JS
+    under node, with `tail` appended, and return what it printed as JSON."""
+    import json as _json
+    import subprocess
+    text = SlugPreview.TEMPLATE.read_text(encoding="utf-8")
+    block = text.split(f"/* {name}:begin */")[1].split(f"/* {name}:end */")[0]
+    done = subprocess.run(["node", "-e", block + "\n" + tail], capture_output=True,
+                          text=True, timeout=60)
+    if done.returncode != 0:
+        raise AssertionError(done.stderr)
+    return _json.loads(done.stdout)
+
+
+class BodyFetch(unittest.TestCase):
+    """The edit form fetches nodes/<id>.md and strips the frontmatter in JS. If
+    that strip disagrees with lib.parse_text, an untouched body reads as edited
+    and Save posts it back."""
+
+    TEXTS = [
+        "---\nid: a\ntype: task\n---\n\n## What\n\nDo it.\n",
+        "---\nid: a\n---\n## Claim\nno blank line\n",
+        "---\nid: a\n---\n\n\n\n  indented first line\n",
+        "---   \nid: a\nnote: \"x --- y\"\n---\nbody with --- inside\n---\nand a rule\n",
+        "---\nid: a\n---",
+    ]
+
+    @unittest.skipUnless(shutil.which("node"), "no JS engine (node) on this machine")
+    def test_the_strip_gives_the_body_lib_reads(self):
+        import json as _json
+        got = run_template_block(
+            "front", "console.log(JSON.stringify(%s.map(stripFrontmatter)));"
+            % _json.dumps(self.TEXTS))
+        want = [lib.parse_text(t, Path("x.md")).body for t in self.TEXTS]
+        self.assertEqual(got, want)
+
+    @unittest.skipUnless(shutil.which("node"), "no JS engine (node) on this machine")
+    def test_no_frontmatter_is_null_not_the_whole_file(self):
+        got = run_template_block(
+            "front", "console.log(JSON.stringify(stripFrontmatter('# just a heading\\n')));")
+        self.assertIsNone(got)
 
 
 class Edit(unittest.TestCase):
