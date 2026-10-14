@@ -2055,6 +2055,481 @@ class Serve(unittest.TestCase):
         self.assertIn("function noteCommand(", html)
 
 
+CHAT_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "chat"
+
+#: A fake CLI. It records its argv and cwd beside itself, takes the session id
+#: from `--resume <id>` (claude) or the first positional after `--` following
+#: `resume` (codex), and replays the canned capture with that id substituted.
+#: CAIRN_FAKE_MODE=fail exits non-zero with a stderr line; =hang prints one line
+#: and then sleeps, recording its pid, so a disconnect can be shown to kill it.
+FAKE_CLI = r"""#!/bin/sh
+dir=$(dirname "$0")
+name=$(basename "$0")
+printf '%s\n' "$@" > "$dir/$name.argv"
+pwd -P > "$dir/$name.cwd"
+session=@DEFAULT@
+prev=
+resume=
+dashes=
+for a in "$@"; do
+  if [ "$name" = claude ] && [ "$prev" = "--resume" ]; then session=$a; fi
+  if [ "$name" = codex ] && [ "$a" = resume ]; then resume=1; fi
+  if [ -n "$resume" ] && [ -n "$dashes" ] && [ "$dashes" = 1 ]; then session=$a; dashes=2; fi
+  if [ "$a" = "--" ] && [ -z "$dashes" ]; then dashes=1; fi
+  prev=$a
+done
+case "${CAIRN_FAKE_MODE:-ok}" in
+  fail) echo "boom: not signed in" >&2; exit 3 ;;
+  hang) echo '{"type":"system","subtype":"init","session_id":"'"$session"'"}'
+        echo $$ > "$dir/$name.pid"
+        exec sleep 60 ;;
+esac
+sed "s/@SESSION@/$session/g" "@FIXTURE@"
+"""
+
+
+def write_fake_cli(folder: Path, name: str, default_session: str) -> Path:
+    path = folder / name
+    path.write_text(FAKE_CLI.replace("@DEFAULT@", default_session)
+                    .replace("@FIXTURE@", str(CHAT_FIXTURES / f"{name}-turn.jsonl")))
+    path.chmod(0o755)
+    return path
+
+
+def canned(name: str, session: str = "s-1") -> list[str]:
+    return (CHAT_FIXTURES / f"{name}-turn.jsonl").read_text().replace(
+        "@SESSION@", session).splitlines()
+
+
+class ChatTranslation(unittest.TestCase):
+    """The captures in tests/fixtures/chat are real CLI output (Claude Code
+    2.1.300, trimmed; Codex 0.162.1, see docs/chat-backends.md). If either CLI
+    changes its stream, this is where it shows — not as a blank panel."""
+
+    @classmethod
+    def setUpClass(cls):
+        global chat_backends
+        import chat_backends                            # noqa: PLW0603
+
+    def translate(self, backend, lines):
+        state, out = {}, []
+        for line in lines:
+            out += backend.events(line, state)
+        return out
+
+    def test_claude_text_streams_once_not_twice(self):
+        """With --include-partial-messages the reply arrives as deltas *and* as
+        a complete message. Printing both would double every answer."""
+        out = self.translate(chat_backends.Claude, canned("claude"))
+        text = "".join(e["delta"] for e in out if e["type"] == "text")
+        self.assertTrue(text.startswith("The `cairn standup` command printed"))
+        self.assertEqual(text.count("The `cairn standup`"), 1)
+
+    def test_claude_tool_calls_and_refusals_are_one_liners(self):
+        out = self.translate(chat_backends.Claude, canned("claude"))
+        tools = [e for e in out if e["type"] == "tool"]
+        self.assertEqual(tools[0], {"type": "tool", "name": "Bash",
+                                    "summary": "/tool/bin/cairn standup --project x"})
+        self.assertEqual(tools[1]["summary"], "ls /")
+        self.assertTrue(tools[2]["denied"])
+
+    def test_claude_result_is_done_with_the_session(self):
+        out = self.translate(chat_backends.Claude, canned("claude", "abc-1"))
+        self.assertEqual(out[-1], {"type": "done", "session": "abc-1", "backend": "claude"})
+        self.assertFalse([e for e in out if e["type"] == "error"])
+
+    def test_claude_unreachable_api_is_an_error_not_a_reply(self):
+        """Observed with the network down: a "<synthetic>" assistant message
+        carrying the error text, then a result whose subtype is "success" and
+        whose is_error is true. The verdict is is_error."""
+        import json as _json
+        lines = [
+            _json.dumps({"type": "assistant", "session_id": "s", "message": {
+                "model": "<synthetic>", "id": "x", "role": "assistant",
+                "content": [{"type": "text", "text": "API Error: Can't reach the API server"}]}}),
+            _json.dumps({"type": "result", "subtype": "success", "is_error": True,
+                         "terminal_reason": "api_error", "session_id": "s",
+                         "result": "API Error: Can't reach the API server"}),
+        ]
+        out = self.translate(chat_backends.Claude, lines)
+        self.assertEqual([e["type"] for e in out], ["error", "done"])
+        self.assertIn("API Error", out[0]["message"])
+
+    def test_codex_translation(self):
+        out = self.translate(chat_backends.Codex, canned("codex", "0199-th"))
+        self.assertEqual(out[0], {"type": "tool", "name": "shell", "summary":
+                                  "/bin/zsh -lc '/tool/bin/cairn standup --project prekd'"})
+        # Started and completed is one tool event, not two; a declined one is news.
+        shells = [e for e in out if e.get("name") == "shell"]
+        self.assertEqual(len(shells), 2)
+        self.assertTrue(shells[1]["denied"])
+        self.assertIn({"type": "tool", "name": "edit",
+                       "summary": "add /graph/inbox/2026-10-14-1200.md"}, out)
+        self.assertIn({"type": "text", "delta": "prekd has one open question."}, out)
+        self.assertEqual(out[-1], {"type": "done", "session": "0199-th", "backend": "codex"})
+
+    def test_codex_retries_are_not_errors(self):
+        """Codex prints its own reconnect attempts as top-level `error` lines,
+        and a WebSockets fallback as an error *item*. Neither is a failure."""
+        out = self.translate(chat_backends.Codex, canned("codex"))
+        self.assertFalse([e for e in out if e["type"] == "error"])
+
+    def test_codex_turn_failed_is_an_error_then_done(self):
+        out = self.translate(chat_backends.Codex, [
+            '{"type":"thread.started","thread_id":"t-1"}',
+            '{"type":"turn.failed","error":{"message":"usage limit reached"}}'])
+        self.assertEqual(out, [{"type": "error", "message": "usage limit reached"},
+                               {"type": "done", "session": "t-1", "backend": "codex"}])
+
+    def test_junk_lines_are_ignored(self):
+        for backend in chat_backends.BACKENDS.values():
+            self.assertEqual(backend.events("Reading prompt from stdin...", {}), [])
+            self.assertEqual(backend.events("[1, 2]", {}), [])
+
+
+class ChatArgv(unittest.TestCase):
+    """What each CLI is allowed to do is decided here, so it is asserted
+    explicitly rather than trusted."""
+
+    @classmethod
+    def setUpClass(cls):
+        global chat_backends
+        import chat_backends                            # noqa: PLW0603
+
+    def test_claude_bash_is_bin_cairn_only(self):
+        tool = Path("/opt/cairn")
+        argv = chat_backends.Claude.argv("hi", system="S", cwd=Path("/g"), tool=tool)
+        start = argv.index("--allowedTools")
+        self.assertEqual(argv[start + 1:argv.index("--")],
+                         ["Bash(/opt/cairn/bin/cairn *)", "Read", "Grep", "Glob", "Skill"])
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
+        self.assertEqual(argv[argv.index("--append-system-prompt") + 1], "S")
+        self.assertIn("stream-json", argv)
+        self.assertIn("--verbose", argv)
+        self.assertNotIn("--resume", argv)
+
+    def test_claude_prompt_is_last_and_cannot_be_a_flag(self):
+        argv = chat_backends.Claude.argv("--dangerously-skip-permissions", session="s-1")
+        self.assertEqual(argv[-2:], ["--", "--dangerously-skip-permissions"])
+        self.assertEqual(argv[argv.index("--resume") + 1], "s-1")
+        self.assertNotIn("--dangerously-skip-permissions", argv[:-1])
+
+    def test_codex_writes_only_in_the_graph_root_and_asks_nobody(self):
+        argv = chat_backends.Codex.argv("hi", system="S", cwd=Path("/graph"))
+        self.assertEqual(argv[:3], ["codex", "exec", "--json"])
+        self.assertEqual(argv[argv.index("-C") + 1], "/graph")
+        self.assertIn('sandbox_mode="workspace-write"', argv)
+        self.assertIn('approval_policy="never"', argv)
+        self.assertIn('developer_instructions="S"', argv)
+        self.assertEqual(argv[-2:], ["--", "hi"])
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", argv)
+
+    def test_codex_resume_keeps_the_same_policy(self):
+        """`codex exec resume` takes neither -s nor -C, so the policy rides on
+        -c and the working directory on the process — never dropped."""
+        argv = chat_backends.Codex.argv("hi", session="t-1", cwd=Path("/graph"))
+        self.assertEqual(argv[:4], ["codex", "exec", "resume", "--json"])
+        self.assertIn('sandbox_mode="workspace-write"', argv)
+        self.assertEqual(argv[-3:], ["--", "t-1", "hi"])
+
+    def test_system_prompt_names_the_root_and_the_only_writer(self):
+        text = chat_backends.system_prompt(Path("/graph"), Path("/opt/cairn"))
+        self.assertIn("/graph", text)
+        self.assertIn("/opt/cairn/bin/cairn", text)
+        self.assertIn("git commit", text)
+        self.assertIn("standup --project", text)
+        self.assertNotIn(".git read-only", text)
+        self.assertIn(".git read-only",
+                      chat_backends.system_prompt(Path("/g"), Path("/t"), "codex"))
+
+    def test_the_open_node_rides_on_the_turn_not_the_system_prompt(self):
+        """Claude Code reuses a conversation's first system prompt on every
+        --resume, so a node named there would go stale on the next click."""
+        prompt = chat_backends.turn_prompt("why dead?", ("2026-08-02-prekd-probe", "Probe"))
+        self.assertIn("2026-08-02-prekd-probe", prompt)
+        self.assertIn('"Probe"', prompt)
+        self.assertTrue(prompt.endswith("why dead?"))
+        self.assertEqual(chat_backends.turn_prompt("hi"), "hi")
+
+
+class ChatServe(unittest.TestCase):
+    """`/api/chat` end to end, against fake `claude` and `codex` executables
+    first on PATH. The real CLIs are never run by the suite."""
+
+    @classmethod
+    def setUpClass(cls):
+        import threading
+        global serve
+        import serve                                    # noqa: PLW0603
+        clear()
+        write("2026-08-02-prekd-probe.md",
+              node_text("2026-08-02-prekd-probe", project="prekd"))
+        build_graph.main()
+        cls.bin = Path(tempfile.mkdtemp(prefix="cairn-fakecli-"))
+        write_fake_cli(cls.bin, "claude", "11111111-2222-4333-8444-555555555555")
+        write_fake_cli(cls.bin, "codex", "0199e0aa-0000-7000-8000-000000000001")
+        cls.old_path = os.environ["PATH"]
+        os.environ["PATH"] = f"{cls.bin}{os.pathsep}{cls.old_path}"
+        cls.servers = []
+        cls.port = cls.start(chat=True)
+        cls.off_port = cls.start(chat=False)
+
+    @classmethod
+    def start(cls, chat):
+        import threading
+        httpd = serve.serve(0, quiet=True, chat=chat)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        cls.servers.append((httpd, thread))
+        return httpd.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        os.environ["PATH"] = cls.old_path
+        os.environ.pop("CAIRN_FAKE_MODE", None)
+        for httpd, thread in cls.servers:
+            httpd.shutdown()
+            thread.join(timeout=5)
+            httpd.server_close()
+        shutil.rmtree(cls.bin, ignore_errors=True)
+
+    def tearDown(self):
+        os.environ.pop("CAIRN_FAKE_MODE", None)
+
+    def chat(self, payload, headers=None, port=None, raw=None):
+        """(status, content-type, [events]) — events parsed line by line."""
+        import json as _json
+        import urllib.error, urllib.request
+        head = {"Content-Type": "application/json"}
+        head.update(headers or {})
+        body = raw if raw is not None else _json.dumps(payload).encode()
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port or self.port}/api/chat", data=body,
+            headers=head, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as res:
+                lines = [l for l in res.read().decode().splitlines() if l.strip()]
+                return res.status, res.headers, [_json.loads(l) for l in lines]
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.headers, [_json.loads(exc.read())]
+
+    def argv(self, name):
+        return (self.bin / f"{name}.argv").read_text().splitlines()
+
+    # -- the stream ------------------------------------------------------
+
+    def test_claude_turn_streams_as_ndjson_and_ends_with_done(self):
+        code, headers, events = self.chat({"backend": "claude", "message": "what is open?"})
+        self.assertEqual(code, 200, events)
+        self.assertEqual(headers["Content-Type"], "application/x-ndjson")
+        self.assertEqual(headers["Transfer-Encoding"], "chunked")
+        self.assertIsNone(headers.get("Access-Control-Allow-Origin"))
+        kinds = [e["type"] for e in events]
+        self.assertIn("text", kinds)
+        self.assertIn("tool", kinds)
+        self.assertEqual(kinds.count("done"), 1)
+        done = events[-1]
+        self.assertEqual(done["type"], "done")
+        self.assertEqual(done["backend"], "claude")
+        self.assertEqual(done["session"], "11111111-2222-4333-8444-555555555555")
+        self.assertTrue(done["ok"])
+        self.assertTrue(done["rebuilt"], "a clean exit rebuilds the map")
+
+    def test_the_cli_runs_in_the_graph_root_against_this_graph(self):
+        self.chat({"backend": "claude", "message": "hi"})
+        self.assertEqual((self.bin / "claude.cwd").read_text().strip(),
+                         str(FIXTURE.resolve()))
+        argv = self.argv("claude")
+        self.assertIn(f"Bash({serve.TOOL_ROOT}/bin/cairn *)", argv)
+
+    def test_session_round_trips(self):
+        code, _, events = self.chat({"backend": "claude", "message": "and then?",
+                                     "session": "aaaa-bbbb"})
+        self.assertEqual(code, 200, events)
+        self.assertEqual(events[-1]["session"], "aaaa-bbbb")
+        argv = self.argv("claude")
+        self.assertEqual(argv[argv.index("--resume") + 1], "aaaa-bbbb")
+
+    def test_codex_turn_and_resume(self):
+        code, _, events = self.chat({"backend": "codex", "message": "hi"})
+        self.assertEqual(code, 200, events)
+        self.assertEqual(events[-1]["session"], "0199e0aa-0000-7000-8000-000000000001")
+        self.assertIn({"type": "text", "delta": "prekd has one open question."}, events)
+        code, _, events = self.chat({"backend": "codex", "message": "more",
+                                     "session": "0199e0aa-0000-7000-8000-00000000beef"})
+        self.assertEqual(events[-1]["session"], "0199e0aa-0000-7000-8000-00000000beef")
+        self.assertIn("resume", self.argv("codex"))
+
+    def test_the_open_node_reaches_the_prompt_by_id_and_title(self):
+        code, _, events = self.chat({"backend": "claude", "message": "why?",
+                                     "node": "2026-08-02-prekd-probe"})
+        self.assertEqual(code, 200, events)
+        # The prompt is the last argument; it spans lines, so read it whole.
+        argv = (self.bin / "claude.argv").read_text()
+        prompt = argv.rsplit("\n--\n", 1)[1]
+        self.assertIn("2026-08-02-prekd-probe", prompt)
+        self.assertIn("why?", prompt)
+
+    def test_an_unknown_node_is_404_before_anything_runs(self):
+        code, _, out = self.chat({"backend": "claude", "message": "x",
+                                  "node": "2026-08-02-prekd-ghost"})
+        self.assertEqual(code, 404)
+
+    def test_a_failed_turn_says_why_and_does_not_rebuild(self):
+        os.environ["CAIRN_FAKE_MODE"] = "fail"
+        code, _, events = self.chat({"backend": "claude", "message": "hi"})
+        self.assertEqual(code, 200)
+        errors = [e for e in events if e["type"] == "error"]
+        self.assertTrue(errors and "not signed in" in errors[0]["message"], events)
+        self.assertFalse(events[-1]["ok"])
+        self.assertFalse(events[-1]["rebuilt"])
+
+    def test_a_closed_tab_stops_the_cli(self):
+        """The CLI must not keep thinking — and spending — after the browser
+        has gone. The fake sleeps; the disconnect has to kill it."""
+        import socket, time
+        os.environ["CAIRN_FAKE_MODE"] = "hang"
+        pidfile = self.bin / "claude.pid"
+        if pidfile.exists():
+            pidfile.unlink()
+        body = b'{"backend":"claude","message":"hi"}'
+        sock = socket.create_connection(("127.0.0.1", self.port), timeout=30)
+        sock.sendall(b"POST /api/chat HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                     b"Content-Type: application/json\r\n"
+                     b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+        self.assertIn(b"200", sock.recv(4096))
+        deadline = time.time() + 15
+        while not pidfile.exists() and time.time() < deadline:
+            time.sleep(0.1)
+        pid = int(pidfile.read_text())
+        sock.close()
+        while time.time() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.2)
+        self.fail("the CLI was still running after the client hung up")
+
+    # -- refusals --------------------------------------------------------
+
+    def test_unknown_backend_is_400(self):
+        code, _, out = self.chat({"backend": "gpt", "message": "hi"})
+        self.assertEqual(code, 400)
+        self.assertIn("claude", out[0]["error"])
+
+    def test_empty_message_and_flag_shaped_session_are_400(self):
+        self.assertEqual(self.chat({"backend": "claude", "message": " "})[0], 400)
+        self.assertEqual(self.chat({"backend": "claude", "message": "x",
+                                    "session": "--help"})[0], 400)
+
+    def test_a_missing_cli_is_503_and_names_the_install_step(self):
+        os.environ["PATH"] = "/usr/bin:/bin"
+        try:
+            for name, hint in (("claude", "sign in"), ("codex", "codex login")):
+                code, _, out = self.chat({"backend": name, "message": "hi"})
+                self.assertEqual(code, 503, name)
+                self.assertIn(hint, out[0]["error"])
+        finally:
+            os.environ["PATH"] = f"{self.bin}{os.pathsep}{self.old_path}"
+
+    def test_cross_origin_and_form_posts_are_refused(self):
+        for origin in ("https://evil.example", "null"):
+            code, _, out = self.chat({"backend": "claude", "message": "hi"},
+                                     headers={"Origin": origin})
+            self.assertEqual(code, 403, origin)
+        code, _, _ = self.chat(None, raw=b"backend=claude",
+                               headers={"Content-Type": "application/x-www-form-urlencoded"})
+        self.assertEqual(code, 415)
+        code, _, _ = self.chat({"backend": "claude", "message": "hi"},
+                               headers={"Host": "evil.example"})
+        self.assertEqual(code, 403)
+
+    # -- health and --no-chat --------------------------------------------
+
+    def health(self, port):
+        import json as _json
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=30) as res:
+            return _json.loads(res.read())
+
+    def test_health_reports_which_clis_are_on_path(self):
+        chat = self.health(self.port)["chat"]
+        self.assertEqual(chat, {"claude": str(self.bin / "claude"),
+                                "codex": str(self.bin / "codex")})
+
+    def test_no_chat_hides_both_and_refuses_the_endpoint(self):
+        self.assertEqual(self.health(self.off_port)["chat"], {})
+        code, _, out = self.chat({"backend": "claude", "message": "hi"}, port=self.off_port)
+        self.assertEqual(code, 404)
+        self.assertIn("--no-chat", out[0]["error"])
+
+
+class InstallCodex(unittest.TestCase):
+    """`install_context --codex` writes into $HOME and into the graph repo, so
+    the tests are about idempotence and about not touching what it did not write."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp(prefix="cairn-home-"))
+        self.graph = Path(tempfile.mkdtemp(prefix="cairn-graph-"))
+        (self.graph / "nodes").mkdir()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.addCleanup(shutil.rmtree, self.graph, ignore_errors=True)
+        self.skills = self.home / ".agents" / "skills"
+
+    def run_install(self, *args):
+        import subprocess
+        return subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "install_context", "--codex", *args],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "HOME": str(self.home), "CAIRN_ROOT": str(self.graph),
+                 "CAIRN_PYTHON": sys.executable})
+
+    def test_dry_run_writes_nothing(self):
+        for args in ((), ("--dry-run",), ("--dry-run", "--apply")):
+            result = self.run_install(*args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Dry run", result.stdout)
+            self.assertFalse(self.skills.exists(), args)
+            self.assertFalse((self.graph / "AGENTS.md").exists(), args)
+
+    def test_apply_links_every_skill_and_writes_the_pointer(self):
+        result = self.run_install("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for skill in ("cairn-capture", "cairn-log", "cairn-resume"):
+            link = self.skills / skill
+            self.assertTrue(link.is_symlink(), skill)
+            self.assertEqual(link.resolve(), (self.ROOT / "skills" / skill).resolve())
+        self.assertIn("CLAUDE.md", (self.graph / "AGENTS.md").read_text())
+
+    def test_apply_is_idempotent_and_keeps_an_existing_agents_md(self):
+        (self.graph / "AGENTS.md").write_text("# Ours\n\nKeep this.\n")
+        self.run_install("--apply")
+        first = (self.graph / "AGENTS.md").read_text()
+        self.assertTrue(first.startswith("# Ours\n\nKeep this.\n"))
+        again = self.run_install("--apply")
+        self.assertIn("Nothing to change", again.stdout)
+        self.assertEqual(first, (self.graph / "AGENTS.md").read_text())
+
+    def test_remove_takes_back_exactly_what_it_wrote(self):
+        (self.graph / "AGENTS.md").write_text("# Ours\n")
+        self.run_install("--apply")
+        self.run_install("--remove", "--apply")
+        self.assertEqual((self.graph / "AGENTS.md").read_text(), "# Ours\n")
+        self.assertEqual(list(self.skills.iterdir()), [])
+
+    def test_a_real_skill_directory_of_the_same_name_is_left_alone(self):
+        mine = self.skills / "cairn-log"
+        mine.mkdir(parents=True)
+        (mine / "SKILL.md").write_text("mine")
+        result = self.run_install("--apply")
+        self.assertIn("CONFLICT", result.stdout)
+        self.assertEqual((mine / "SKILL.md").read_text(), "mine")
+        self.assertTrue((self.skills / "cairn-capture").is_symlink())
+
+
 class DocumentedCommands(unittest.TestCase):
     """Docs must not tell anyone to run scripts/*.py directly — it fails on the
     machine most likely to be reading them."""
