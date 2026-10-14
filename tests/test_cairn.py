@@ -390,6 +390,53 @@ class RenderTest(unittest.TestCase):
         self.assertIn("<code>code</code>", out)
         self.assertIn("<strong>bold</strong>", out)
 
+    def test_wrapped_ordered_list_is_one_ol(self):
+        out = build_graph.md_to_html("1. first line\n   wrapped on\n2. second\n   also wrapped\n3. third")
+        self.assertEqual(out.count("<ol>"), 1)
+        self.assertEqual(out.count("<li>"), 3)
+        self.assertIn("first line wrapped on", out)
+        self.assertNotIn("<p>", out)
+
+    def test_nested_list_stays_inside_its_item(self):
+        out = build_graph.md_to_html("- a\n  - inner\n- b")
+        self.assertEqual(out.count("<ul>"), 2)
+        self.assertEqual(out.count("<li>"), 3)
+        self.assertEqual(out.count("</ul>"), 2)
+
+    def test_blank_line_between_numbered_items_keeps_one_list(self):
+        out = build_graph.md_to_html("1. a\n\n2. b")
+        self.assertEqual(out.count("<ol>"), 1)
+
+    def test_pipe_table(self):
+        out = build_graph.md_to_html("| a | b |\n|---|:-:|\n| 1 | `x` |\n| 2 | 3 |\n\nafter")
+        self.assertIn('<thead><tr><th>a</th><th style="text-align:center">b</th></tr></thead>', out)
+        self.assertEqual(out.count("<tr>"), 3)
+        self.assertIn("<code>x</code>", out)
+        self.assertIn("<p>after</p>", out)
+        self.assertNotIn("|", out)
+
+    def test_pipes_without_a_separator_row_are_a_paragraph(self):
+        self.assertIn("<p>", build_graph.md_to_html("| a | b |\n| 1 | 2 |"))
+
+    def test_empty_section_heading_is_omitted_but_filled_one_stays(self):
+        body = "## Claim\n\nreal text\n\n## What I did\n\n## Result\n\n## Next\n\n- go\n\n## Open questions\n"
+        out = build_graph.md_to_html(body)
+        self.assertIn("<h4>Claim</h4>", out)
+        self.assertIn("<h4>Next</h4>", out)
+        self.assertNotIn("What I did", out)
+        self.assertNotIn("Result", out)
+        self.assertNotIn("Open questions", out)
+
+    def test_heading_with_only_a_subsection_is_not_empty(self):
+        out = build_graph.md_to_html("## A\n\n### B\n\ntext")
+        self.assertIn("<h4>A</h4>", out)
+
+    def test_empty_heading_omission_leaves_notes_parsing_alone(self):
+        # Render-time only: lib reads the stored body, which this never touches.
+        body = "## Result\n\n## Notes\n\n- **2026-08-26** (jlaw) hi\n"
+        self.assertIn("<h4>Notes</h4>", build_graph.md_to_html(body))
+        self.assertIn("hi", lib.body_section(body, [lib.NOTES_HEADING]))
+
     def test_markdown_escapes_html(self):
         self.assertIn("&lt;script&gt;", build_graph.md_to_html("<script>alert(1)</script>"))
 
