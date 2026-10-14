@@ -647,7 +647,17 @@ stays memorable.
 
 It's a full interactive app, just one served from disk instead of a server:
 
-- **hover** a node → card with its status, date and latest history note
+- **lane names and months stay on screen** — project names sit in a gutter on
+  the left and month labels in a strip along the top, and both follow the map
+  as you pan and zoom. Click a lane name to fold the lane
+- **hover** a node → card with its status, date and latest history note, plus
+  why it needs you ("todo, quiet 73 d", "overdue 29 d", "unanswered note from
+  2026-10-14"). While a search is active, the card shows the matching line
+  instead, with the match in bold
+- **one project in one gesture** → hover a project in the rail and click
+  `only`, or alt/⌘-click the row. The same click on the lone project shows
+  everything again. The filters are written to the URL (`?project=polyid`) as
+  you change them, and hidden projects' lanes take no room
 - **click** → side panel: rendered body, the node's figure if it has one,
   clickable commit link, DOI links, artifacts split into host and path (click to
   copy the path), parent/child links you can navigate, and a link to the node's
@@ -657,15 +667,25 @@ It's a full interactive app, just one served from disk instead of a server:
 - **typed relations** → grey arrows are lineage; coloured, dashed ones carry
   meaning (`supports` / `contradicts` / `supersedes` / `resolves`), each with a
   one-line reason, backlinked so a contradiction is findable from both ends
-- **copy link** → deep link to a node (`graph.html#<node-id>`)
+- **copy link** → deep link to a node (`graph.html#<node-id>`). Back and Forward
+  walk the nodes you opened, and a `#<node-id>` typed into the address bar opens
+  that node
 - **the "as of" slider replays history** from the `history` log — drag it back
   and the graph shows what was known then, with that date's statuses. **`▶`
   plays it**: nobody drags a slider to watch a shape change, and the animation
   is what makes five months legible at once
 - **needs you** → collapse to what is actually waiting: a thread whose status
-  asserts activity but which has gone quiet, or a node carrying a note nobody has
-  answered. Same rule as `cairn standup`, evaluated against the slider's date, so
-  "needs you as of June" means what it meant in June
+  asserts activity but which has gone quiet, a node carrying a note nobody has
+  answered, or a deadline that is missed or a week away. Same rule as
+  `cairn standup`, evaluated against the slider's date, so "needs you as of
+  June" means what it meant in June. The panel says why under the status
+- **deadlines** → a task's `due` and a milestone's `date`, read against the
+  slider's date. An open task or milestone (not done, dropped or accepted) is
+  overdue once its date has passed. The rail's Deadlines section lists the
+  overdue ones, then those due within 7 days, then milestones within 30 days
+  (`date · title`, click to open), and it disappears when there are none. The
+  panel's date row says how far off the date is ("2026-09-15, 29 d ago —
+  overdue"). All of it is computed in the page; nothing is written
 - **leave a note** → type it in the panel and copy the exact `cairn note` command.
   Opened as a `file://`, the page cannot write to the repo — and a comment in one
   browser's localStorage, invisible from the other machine, is the failure this
@@ -675,17 +695,23 @@ It's a full interactive app, just one served from disk instead of a server:
   and the history notes where a `dead` node keeps *why* it died
 - **size is descent** → a glyph grows with how much work hangs off it, counted as
   of the slider's date
-- **colour by** status, needs-you, age or author — fill changes meaning, the
-  legend says which, and nothing else is repainted
+- **colour by** status, needs-you, age, author or deadline — fill changes
+  meaning, the legend says which, and nothing else is repainted. The status key
+  lists the five colours with the statuses that share each. The deadline fill
+  shows overdue, due within 7 days, due within 30 days, and no open deadline
 - **fold a lane** to a strip of ticks at their real dates, keeping the time axis
   and every edge that leaves the lane
 - **keyboard navigation** — arrow keys walk the layout (x is time, y is a project
   lane), `p`/`c` walk the edges, `i` isolates, `n` writes a note, `w` toggles
-  needs-you, `space` plays the replay, `/` searches, `Esc` closes
+  needs-you, `space` plays the replay, `/` searches, `k` opens the chat (under
+  `cairn serve`), `Esc` closes, and `?` lists every key
 - a ring marks a node that needs you; a dot marks one carrying a note —
-  decorations on the glyph, because shape already means type and fill status
-- filter by project / type / status / author, pan, wheel-zoom
-- URL params: `?since=YYYY-MM-DD`, `?project=<key>`, `?colour=`, `?folded=a,b`,
+  decorations on the glyph, because shape already means type and fill status.
+  The legend draws the map's own glyphs
+- filter by project / type / status / author (statuses nobody holds are left
+  out of the list), pan, wheel-zoom
+- URL params: `?since=YYYY-MM-DD`, `?project=a,b` (and `type`, `status`,
+  `author`), `?q=`, `?colour=`, `?folded=a,b`, `?needs=1`, `?iso=<id>`,
   `#<node-id>`
 
 `build/graph.md` is a Mermaid fallback that renders in GitHub, an editor, or a
@@ -732,7 +758,9 @@ not exist. `cairn serve` is a localhost writer that closes that gap:
   the scalar fields its type carries, parents, typed relations (with a required
   why), refs, artifacts and the markdown body, through `cairn edit`, which
   validates the result before writing and refuses `status` (that is the select
-  above, because it moves `history` with it). Only what changed is sent. An edit
+  above, because it moves `history` with it). The body is read from
+  `nodes/<id>.md` when the form opens rather than shipped in the page. Only
+  what changed is sent. An edit
   leaves `updated` alone: fixing a typo is not news. A mistake in a committed
   node is not deleted: add a `supersedes` relation from the corrected node, then
   close this one
@@ -824,13 +852,30 @@ Codex cannot commit at all. Either way, **a node the chat creates is a draft**:
 it sits uncommitted, the answer names the file, and you read it in the panel
 before it is committed. Design decision 6 holds with a model in the loop.
 
-The turn streams back as it happens: text, a one-line note for each command
-run, then a final line that says whether `build/` was regenerated so the map can
-reload. Conversations resume by session id. What each CLI emits, and what was
-verified about it, is in [docs/chat-backends.md](docs/chat-backends.md).
+In the map it is a drawer under the canvas, beside the panel. `chat` in the
+header or `k` opens it. It has a select of the CLIs it found, a transcript, and
+a box where Enter sends and Shift+Enter starts a new line. It also has **stop**
+and **new conversation**. Each message carries the open node, if there is one.
+The answer streams in as it arrives. Each command the CLI ran shows as a grey
+line (`▸ cairn standup --project polyid`, marked if it was denied), errors show
+in red, and `[[node-id]]` references become links that open the node.
+Conversations resume by session id, which the page keeps per CLI for the tab.
+A reload, which every write triggers, continues the same conversation with the
+drawer open and the last 50 messages in place. **new conversation** forgets it.
+**stop** ends the request, and the server ends the CLI turn.
 
-`cairn serve --no-chat` switches it off: `/api/health` reports `chat: {}` and
-`/api/chat` refuses.
+The turn ends with a line that says whether `build/` was regenerated. The
+server rebuilds after every clean turn, so the page compares the new build with
+the one it shows. It reloads, keeping the view, only when the graph actually
+changed, and then says "the chat wrote to the graph — reloaded". A node the chat
+drafted then shows the hollow not-committed dot until you review it.
+
+What each CLI emits, and what was verified about it, is in
+[docs/chat-backends.md](docs/chat-backends.md).
+
+`cairn serve --no-chat` switches it off: `/api/health` reports `chat: {}`,
+`/api/chat` refuses, and the map draws no chat control at all. Neither does the
+`file://` copy or a page from any other static server.
 
 ## Design decisions
 

@@ -92,7 +92,58 @@
   }
   aside button:hover { color: var(--ink); }
 
-  #stage { flex: 1; position: relative; overflow: hidden; }
+  #mapcol { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  #stage { flex: 1; position: relative; overflow: hidden; min-height: 0; }
+
+  /* The chat drawer. Built only when /api/health names an installed backend;
+     over file:// or under --no-chat none of this exists in the DOM. */
+  #chat {
+    flex: none; height: min(340px, 44vh); display: flex; flex-direction: column;
+    border-top: 1px solid var(--line); background: var(--panel); min-height: 0;
+  }
+  #chat[hidden] { display: none; }
+  #chat .chd {
+    display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+    border-bottom: 1px solid var(--line); font-size: 12px; flex: none;
+  }
+  #chat .chd strong { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); }
+  #chat select {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px;
+  }
+  #chat .act { color: var(--accent); cursor: pointer; }
+  #chat .act:hover { text-decoration: underline; }
+  #chatLog { flex: 1; overflow-y: auto; padding: 10px 14px 4px; font-size: 13px; min-height: 0; }
+  #chatLog .hint { max-width: 640px; margin: 4px 0 10px; }
+  .msg { margin: 0 0 12px; max-width: 760px; }
+  .msg .who { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 2px; }
+  .msg.you .txt { background: var(--panel-2); border-radius: 8px; padding: 6px 10px; display: inline-block; white-space: pre-wrap; }
+  .msg p { margin: 0 0 7px; }
+  .msg ul { margin: 0 0 7px; padding-left: 18px; }
+  .msg li { margin-bottom: 2px; }
+  .msg code { background: var(--panel-2); border-radius: 3px; padding: 0 3px; overflow-wrap: anywhere; }
+  .msg .lnk { display: inline; padding: 0; font-size: inherit; }
+  .msg .tl {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--ink-faint);
+    margin: 2px 0 5px; overflow-wrap: anywhere;
+  }
+  .msg .tl.denied { color: var(--pending); }
+  .msg .er { color: var(--bad); font-size: 12px; margin: 3px 0 6px; white-space: pre-wrap; }
+  .msg .nt { color: var(--ink-faint); font-size: 11.5px; font-style: italic; margin: 3px 0 6px; }
+  .msg .typing { color: var(--ink-faint); }
+  #chat .cin { display: flex; gap: 8px; padding: 8px 12px 10px; border-top: 1px solid var(--line); flex: none; }
+  #chat textarea {
+    flex: 1; resize: none; height: 54px; background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 13px;
+  }
+  #chat textarea:focus { outline: 1px solid var(--accent); }
+  #chat .cbtns { display: flex; flex-direction: column; gap: 6px; }
+  #chat .cbtns button {
+    background: var(--accent); color: var(--bg); border: 0; border-radius: 6px;
+    padding: 5px 14px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  #chat .cbtns button.ghost { background: var(--panel-2); color: var(--ink-dim); border: 1px solid var(--line); }
+  #chat .cbtns button:disabled { opacity: .45; cursor: default; }
   svg { width: 100%; height: 100%; display: block; cursor: grab; }
   svg.dragging { cursor: grabbing; }
   .lane-band { fill: var(--panel); opacity: .45; }
@@ -127,6 +178,34 @@
   .strip-rule { stroke: var(--line); stroke-width: 1; }
   .strip-tick { stroke: var(--bg); stroke-width: .5; }
   .strip-note { fill: var(--ink-faint); font-size: 10.5px; }
+  /* Orientation chrome: lane names in a gutter on the left, months in a strip
+     along the top. Both are HTML laid over the stage and positioned on one axis
+     from the current pan and zoom, so they stay readable however far the map is
+     dragged. Neither takes pointer events except on its labels, so a drag that
+     starts over them still pans the map underneath. `fit()` reserves their room. */
+  #gutter, #axis { position: absolute; pointer-events: none; overflow: hidden; }
+  #gutter {
+    left: 0; top: 0; bottom: 0; z-index: 5; width: var(--gutter, 118px);
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    border-right: 1px solid var(--line);
+  }
+  #axis {
+    left: 0; right: 0; top: 0; height: 22px; z-index: 6;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .glane {
+    position: absolute; left: 0; right: 0; padding: 0 8px 0 10px; height: 16px; line-height: 16px;
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    pointer-events: auto; cursor: pointer; user-select: none;
+  }
+  .glane:hover { color: var(--ink); }
+  .gsep { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line); }
+  .gtick {
+    position: absolute; top: 3px; font-size: 10px; color: var(--ink-faint); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
   .node { cursor: pointer; }
   .node .glyph { stroke: var(--bg); stroke-width: 1.5; }
   /* Clickable: the label is a bigger target than the glyph, and people aim at words. */
@@ -147,6 +226,9 @@
   #panel h4, #panel h5, #panel h6 { margin: 18px 0 5px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); }
   #panel p, #panel li { color: var(--ink); }
   #panel pre { background: var(--panel-2); padding: 10px; border-radius: 6px; overflow-x: auto; }
+  /* A `host:/long/path` in running text has no spaces to break at. */
+  #panel code { overflow-wrap: anywhere; }
+  #panel pre code { overflow-wrap: normal; }
   #panel blockquote { border-left: 2px solid var(--line); margin: 8px 0; padding-left: 12px; color: var(--ink-dim); }
   #panel a { color: var(--accent); }
   #panel hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
@@ -237,12 +319,38 @@
   #fillKey { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--ink-dim); }
   #fillKey .row { display: flex; align-items: center; gap: 6px; }
   #fillKey .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  #fillKey .row { align-items: flex-start; }
+  #fillKey .row .sw { margin-top: 2px; }
+  /* The shape key draws the map's own glyphs, in a neutral fill, so the wide
+     direction rectangle reads as the thing on the map and not as a bar. */
+  #shapeKey { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 11px; color: var(--ink-dim); }
+  #shapeKey .row { display: flex; align-items: center; gap: 5px; }
+  #shapeKey svg { width: 24px; height: 18px; flex: none; fill: var(--ink-faint); cursor: default; }
+  #shapeKey .glyph { stroke: var(--bg); stroke-width: 1.5; }
   .chk .fold {
     margin-left: 6px; color: var(--ink-faint); cursor: pointer; font-size: 10px;
     padding: 0 3px; border-radius: 3px;
   }
   .chk .fold:hover { color: var(--ink); background: var(--panel-2); }
   .chk .fold.on { color: var(--accent); }
+  /* "only": one project in one gesture. Shown on hover, and kept visible on the
+     one row that is already alone, where it reads "all" and undoes itself. */
+  .chk .only {
+    display: none; margin-left: 6px; font-size: 10.5px; color: var(--accent); cursor: pointer;
+  }
+  .chk:hover .only, .chk .only.alone { display: inline; }
+  .chk .only:hover { text-decoration: underline; }
+  .chk[hidden] { display: none; }
+  /* Deadlines: date · title, one line each, overdue first. */
+  #deadlines .sub { font-size: 10.5px; color: var(--ink-faint); margin: 7px 0 2px; }
+  #deadlines .dl {
+    font-size: 12px; padding: 2px 0; cursor: pointer; color: var(--ink-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #deadlines .dl:hover { color: var(--ink); }
+  #deadlines .dl span { pointer-events: none; font-variant-numeric: tabular-nums; }
+  #deadlines .dl.overdue span { color: var(--bad); }
+  #deadlines .dl.soon span { color: var(--pending); }
 
   /* A note is a human sentence someone added after the fact. It gets a marker on
      the glyph rather than a colour, because colour already means status and
@@ -345,10 +453,28 @@
   #flash .xbtn { position: absolute; right: 6px; top: 5px; }
 
   .keys { font-size: 11px; color: var(--ink-faint); line-height: 1.9; }
-  .keys kbd {
+  .keys kbd, #help kbd {
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px;
     padding: 0 4px; font-family: inherit; font-size: 10.5px;
   }
+  .keys .more { color: var(--accent); cursor: pointer; }
+
+  /* The keyboard help: `?` opens it, Esc or a click outside closes it. */
+  #help {
+    position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.45);
+  }
+  #help[hidden] { display: none; }
+  #help .box {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 22px 16px; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
+    overflow-y: auto; box-shadow: 0 14px 40px rgba(0,0,0,.4);
+  }
+  #help h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-dim); }
+  #help dl { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; margin: 0; font-size: 12.5px; }
+  #help dt { text-align: right; white-space: nowrap; }
+  #help dd { margin: 0; color: var(--ink-dim); }
+  #help .foot { margin-top: 12px; font-size: 11px; color: var(--ink-faint); }
 
   #hover {
     position: fixed; z-index: 20; max-width: 330px; pointer-events: none;
@@ -360,6 +486,10 @@
   #hover .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   #hover .note { font-size: 12px; color: var(--ink); margin-top: 6px; font-style: italic; }
   #hover .hint { font-size: 10.5px; color: var(--ink-faint); margin-top: 6px; }
+  #hover .why, .needs-why { font-size: 11.5px; color: var(--pending); margin-top: 5px; }
+  .needs-why { margin: -6px 0 12px; }
+  #hover .hit { font-size: 12px; color: var(--ink-dim); margin-top: 6px; }
+  #hover .hit b { color: var(--ink); background: color-mix(in srgb, var(--pending) 30%, transparent); font-weight: 600; }
 
   /* Narrow viewports: the filter rail and the detail panel can't both keep a
      fixed width or the graph disappears between them. */
@@ -393,6 +523,7 @@
     <option value="needs">needs you</option>
     <option value="age">age</option>
     <option value="author">author</option>
+    <option value="deadline">deadline</option>
   </select>
   <div class="timebar">
     <label class="muted" for="time">as of</label>
@@ -410,10 +541,18 @@
     <h2>Author</h2><div id="fAuthor"></div>
     <button id="reset">Reset filters</button>
     <button id="foldAll">Collapse all lanes</button>
-    <h2>Legend</h2>
-    <div class="muted" style="line-height:1.9">
-      ● experiment &nbsp; ◆ seed<br>▮ direction &nbsp; ■ task<br>⬢ milestone
+    <div id="deadlines" hidden></div>
+    <h2>Keys</h2>
+    <div class="keys">
+      <kbd>&larr;</kbd><kbd>&rarr;</kbd> along time ·
+      <kbd>&uarr;</kbd><kbd>&darr;</kbd> across lanes<br>
+      <kbd>p</kbd> parent · <kbd>c</kbd> child · <kbd>i</kbd> isolate<br>
+      <kbd>n</kbd> write a note · <kbd>w</kbd> needs you<br>
+      <kbd>space</kbd> replay · <kbd>/</kbd> search · <kbd>esc</kbd> close<br>
+      <span class="more" data-help="1"><kbd>?</kbd> every key</span>
     </div>
+    <h2>Legend</h2>
+    <div id="shapeKey"></div>
     <div class="muted" style="line-height:1.6;margin-top:8px">
       shape = type · size = work downstream<br>
       ring = needs you · dot = open note<br>
@@ -423,29 +562,29 @@
     <div id="fillKey"></div>
     <h2>Edges</h2>
     <div id="relKey"></div>
-    <h2>Keys</h2>
-    <div class="keys">
-      <kbd>&larr;</kbd><kbd>&rarr;</kbd> along time ·
-      <kbd>&uarr;</kbd><kbd>&darr;</kbd> across lanes<br>
-      <kbd>p</kbd> parent · <kbd>c</kbd> child · <kbd>i</kbd> isolate<br>
-      <kbd>n</kbd> write a note · <kbd>w</kbd> needs you<br>
-      <kbd>space</kbd> replay · <kbd>/</kbd> search · <kbd>esc</kbd> close
-    </div>
   </aside>
 
+  <!-- The map, and under it the chat drawer when `cairn serve` offers one. A
+       column, so the drawer takes height from the map and never covers the
+       panel: both stay usable side by side. -->
+  <div id="mapcol">
   <div id="stage">
     <svg id="svg"><g id="view"></g></svg>
+    <div id="gutter"></div>
+    <div id="axis"></div>
     <div id="empty" class="empty" hidden>
       <p>No nodes yet.</p>
       <p>Create one with <code>cairn new_node</code>, then <code>cairn build</code>.</p>
     </div>
     <div id="flash" hidden></div>
   </div>
+  </div>
 
   <div id="panel"></div>
 </main>
 
 <div id="hover" hidden></div>
+<div id="help" hidden></div>
 
 <script>
 const DATA = /*__CAIRN_DATA__*/null;
@@ -527,12 +666,74 @@ function openNotes(n, when) {
   return (n.notes || []).filter(x => x.date && x.date <= when && x.date >= floor);
 }
 
+/* ---------- deadlines ----------
+   A task's `due` and a milestone's `date`, read against the slider's date so a
+   replay shows what was overdue *then*. Nothing here is stored: it is the same
+   rule `cairn standup` and `cairn digest` apply at the terminal — a date before
+   today on a node that is not terminal is overdue — computed in the page so it
+   works over file:// too. "Soon" is a week for both types; a milestone is also
+   worth listing a month out, because a paper is not written in a week.
+
+   Pure, and fenced, so tests/test_cairn.py can run it under node. */
+/* deadline:begin */
+const DUE_SOON_DAYS = 7;
+const AHEAD_DAYS = 30;
+//: The statuses in which a date still binds: everything not terminal in lib.TYPES.
+const DEADLINE_OPEN = { task: ['todo', 'doing'], milestone: ['planned', 'submitted'] };
+
+/** {kind, days, date} for one node's date as of `when` (YYYY-MM-DD), or null
+    when it has none that binds. `days` is date minus when: negative is late.
+    kind: 'overdue' | 'soon' (0–7 d) | 'month' (8–30 d) | 'later'. */
+function deadline(type, status, date, when) {
+  const open = DEADLINE_OPEN[type];
+  if (!open || !open.includes(status)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || !when) return null;
+  const days = Math.round((Date.parse(date) - Date.parse(when)) / 86400000);
+  const kind = days < 0 ? 'overdue' : days <= DUE_SOON_DAYS ? 'soon'
+             : days <= AHEAD_DAYS ? 'month' : 'later';
+  return { kind, days, date };
+}
+
+/** "overdue 29 d", "due today", "due in 3 d"; a milestone says "date passed". */
+function deadlinePhrase(type, d) {
+  if (!d) return '';
+  const word = type === 'milestone' ? 'milestone' : 'due';
+  if (d.days < 0) return type === 'milestone' ? `milestone date passed ${-d.days} d` : `overdue ${-d.days} d`;
+  if (d.days === 0) return `${word} today`;
+  return `${word} in ${d.days} d`;
+}
+
+/** "in 18 d", "today", "29 d ago" — the panel's relative date. */
+function relDays(days) {
+  return days === 0 ? 'today' : days > 0 ? `in ${days} d` : `${-days} d ago`;
+}
+/* deadline:end */
+
+const dateOf = n => n.type === 'task' ? n.extra.due : n.type === 'milestone' ? n.extra.date : null;
+const nodeDeadline = (n, when = cutoff()) =>
+  deadline(n.type, statusAt(n, when), dateOf(n), ageRef());
+
+/** Why this node needs a human, as one line — or '' when it does not. A string
+    rather than a boolean so the ring can say what it means: "needs you" with
+    no reason is a nag, and a nag gets ignored. Every caller that only asks
+    yes/no still works, because '' is falsy and a reason is not. */
 function needsYou(n, when) {
-  if (openNotes(n, when).length) return true;
+  const why = [];
+  // A missed or imminent date first: standup ranks an overdue deadline above
+  // everything else, because it is the most expensive thing to miss.
+  const dl = nodeDeadline(n, when);
+  if (dl && (dl.kind === 'overdue' || dl.kind === 'soon')) why.push(deadlinePhrase(n.type, dl));
+  const notes = openNotes(n, when);
+  if (notes.length) {
+    why.push(`unanswered note from ${notes.map(x => x.date).sort().pop()}`);
+  }
   const s = statusAt(n, when);
-  if (!ACTIVE_STATUS.has(s)) return false;
-  const last = [...(n.history || [])].filter(h => h.date <= when).pop();
-  return daysSince(last ? last.date : n.created, ageRef()) >= QUIET_DAYS;
+  if (ACTIVE_STATUS.has(s)) {
+    const last = [...(n.history || [])].filter(h => h.date <= when).pop();
+    const quiet = daysSince(last ? last.date : n.created, ageRef());
+    if (quiet >= QUIET_DAYS) why.push(`${s}, quiet ${quiet} d`);
+  }
+  return why.join(' · ');
 }
 
 function statusAt(n, when) {
@@ -580,15 +781,28 @@ const COLLAPSED_H = 30;
 //: without knowing which lanes above it are folded.
 let laneNow = new Map();
 
-function laneGeometry(collapsedSet) {
+/* A lane whose project is filtered out takes no room at all. Otherwise showing
+   one project of thirteen leaves one strip of nodes in a canvas of empty bands,
+   and `fit()` has to choose between the strip and the bands. */
+let laneBottom = 0;
+
+function laneGeometry(collapsedSet, hiddenSet = new Set()) {
   const out = new Map();
   let cursor = DATA.lanes.length ? DATA.lanes[0].top : 0;
+  let last = cursor;
   for (const lane of DATA.lanes) {
+    if (hiddenSet.has(lane.project)) {
+      out.set(lane.project, { top: cursor, height: 0, dy: cursor - lane.top,
+                              collapsed: false, hidden: true });
+      continue;
+    }
     const collapsed = collapsedSet.has(lane.project);
     const height = collapsed ? COLLAPSED_H : lane.height;
-    out.set(lane.project, { top: cursor, height, dy: cursor - lane.top, collapsed });
+    out.set(lane.project, { top: cursor, height, dy: cursor - lane.top, collapsed, hidden: false });
+    last = cursor + height;
     cursor += height + LANE_GAP;
   }
+  laneBottom = last;
   return out;
 }
 
@@ -645,18 +859,30 @@ function fillVar(n, when) {
   if (state.colour === 'needs') return needsYou(n, when) ? 'pending' : 'idle';
   if (state.colour === 'age') return ageBucket(n, when)[1];
   if (state.colour === 'author') return WHO.get(n.author) || 'who-other';
+  if (state.colour === 'deadline') return DEADLINE_FILL[nodeDeadline(n, when)?.kind] || 'idle';
   return null;
 }
+
+/** The deadline fill reuses the status palette, in the order of urgency. */
+const DEADLINE_FILL = { overdue: 'bad', soon: 'pending', month: 'active' };
 
 function fillLegend() {
   const rows = [];
   if (state.colour === 'status') {
-    // The status filter already carries this key, swatch for swatch.
-    rows.push(['', 'each status has its own colour — see the Status filter above']);
+    // Five colours, not one per status: say which statuses share each.
+    for (const cls of ['good', 'bad', 'active', 'pending', 'idle']) {
+      const members = DATA.statuses.filter(s => (CLS[s] || 'idle') === cls);
+      if (members.length) rows.push([cls, members.join(' · ')]);
+    }
   } else if (state.colour === 'needs') {
     rows.push(['pending', 'needs you'], ['idle', 'quiet, or answered']);
   } else if (state.colour === 'age') {
     for (const [, token, label] of AGE_BUCKETS) rows.push([token, label]);
+  } else if (state.colour === 'deadline') {
+    rows.push(['bad', 'overdue — an open task or milestone past its date'],
+              ['pending', `due within ${DUE_SOON_DAYS} d`],
+              ['active', `due within ${AHEAD_DAYS} d`],
+              ['idle', 'no open deadline (or later)']);
   } else {
     for (const [who, token] of WHO) rows.push([token, whoLabel(who)]);
   }
@@ -806,22 +1032,21 @@ function draw() {
   }
   const folded = new Set([...state.collapsed].filter(
     p => !(state.isolate && (inLane.get(p) || []).length)));
-  laneNow = laneGeometry(folded);
+  const hiddenLanes = new Set(DATA.lanes.map(l => l.project).filter(p => !state.project.has(p)));
+  laneNow = laneGeometry(folded, hiddenLanes);
 
-  const bottom = DATA.lanes.length
-    ? laneNow.get(DATA.lanes[DATA.lanes.length - 1].project).top +
-      laneNow.get(DATA.lanes[DATA.lanes.length - 1].project).height + 20
-    : DATA.height;
+  const bottom = DATA.lanes.length ? laneBottom + 20 : DATA.height;
 
+  // Lane names and month labels are drawn in the gutter and the axis strip
+  // (drawChrome), which stay put while the map pans; the canvas keeps the bands
+  // and the tick rules.
   for (const lane of DATA.lanes) {
     const g = laneNow.get(lane.project);
+    if (g.hidden) continue;
     parts.push(`<rect class="lane-band" x="0" y="${g.top}" width="${DATA.width}" height="${g.height}"></rect>`);
-    parts.push(`<text class="lane-label${g.collapsed ? ' folded' : ''}" x="14" y="${g.top + 16}" ` +
-      `data-lane="${esc(lane.project)}">${g.collapsed ? '▸' : '▾'} ${esc(lane.project)}</text>`);
   }
   for (const tick of DATA.ticks) {
     parts.push(`<line class="tick-line" x1="${tick.x}" y1="30" x2="${tick.x}" y2="${bottom}"></line>`);
-    parts.push(`<text class="tick-text" x="${tick.x + 4}" y="24">${esc(tick.label)}</text>`);
   }
   const sel = state.selected;
   const kin = sel && !state.isolate
@@ -916,6 +1141,89 @@ function draw() {
   refreshCounts();
   fillLegend();
   syncCarets();
+  buildChrome();
+  drawDeadlines();
+}
+
+/** The rail's Deadlines: overdue, then due within a week, then milestones within
+    a month — for the projects shown, as of the slider. Hidden when empty, which
+    on a healthy graph is most of the time. */
+function drawDeadlines() {
+  const when = cutoff();
+  const rows = [];
+  for (const n of DATA.nodes) {
+    if (!state.project.has(n.project) || (!isLive() && n.created > when)) continue;
+    const d = nodeDeadline(n, when);
+    if (!d) continue;
+    if (d.kind === 'overdue' || d.kind === 'soon' || (d.kind === 'month' && n.type === 'milestone')) {
+      rows.push({ n, d });
+    }
+  }
+  const box = $('#deadlines');
+  box.hidden = !rows.length;
+  if (!rows.length) { box.innerHTML = ''; return; }
+  rows.sort((a, b) => a.d.days - b.d.days || a.n.id.localeCompare(b.n.id));
+  const group = (label, kind, pick) => {
+    const hit = rows.filter(pick);
+    return hit.length ? `<div class="sub">${label}</div>` + hit.map(({ n, d }) =>
+      `<div class="dl ${kind}" data-goto="${esc(n.id)}" ` +
+      `title="${esc(n.title)} — ${esc(deadlinePhrase(n.type, d))}">` +
+      `<span>${esc(d.date.slice(5))}</span> · ${esc(n.title)}</div>`).join('') : '';
+  };
+  box.innerHTML = `<h2>Deadlines</h2>` +
+    group('overdue', 'overdue', r => r.d.kind === 'overdue') +
+    group(`due within ${DUE_SOON_DAYS} d`, 'soon', r => r.d.kind === 'soon') +
+    group(`milestones within ${AHEAD_DAYS} d`, 'month', r => r.d.kind === 'month');
+}
+
+/* ---------- the gutter and the axis ----------
+   Built once per draw (which lanes exist, folded or not), positioned on every
+   pan and zoom (positionChrome, from applyTransform). Each moves on one axis
+   only: a lane name follows its band up and down and sticks under the axis
+   while any of the band is on screen; a month label follows its rule left and
+   right and stays in the strip. */
+const AXIS_H = 22;
+const gutterW = () => (svg.clientWidth < 640 ? 84 : 118);
+
+function buildChrome() {
+  const gut = $('#gutter'), axis = $('#axis');
+  gut.style.setProperty('--gutter', gutterW() + 'px');
+  gut.innerHTML = DATA.lanes.map(lane => {
+    const g = laneNow.get(lane.project);
+    if (!g || g.hidden) return '';
+    return `<div class="gsep" data-sep="${esc(lane.project)}"></div>` +
+      `<div class="glane" data-lane="${esc(lane.project)}" ` +
+      `title="${esc(lane.project)} — click to ${g.collapsed ? 'unfold' : 'fold'} the lane">` +
+      `${g.collapsed ? '▸' : '▾'} ${esc(lane.project)}</div>`;
+  }).join('');
+  axis.innerHTML = DATA.ticks.map((t, i) =>
+    `<span class="gtick" data-tick="${i}">${esc(t.label)}</span>`).join('');
+  positionChrome();
+}
+
+function positionChrome() {
+  const gut = $('#gutter'), axis = $('#axis');
+  if (!gut || !laneNow.size) return;
+  const H = svg.clientHeight, W = svg.clientWidth, gw = gutterW();
+  for (const el of gut.querySelectorAll('.glane')) {
+    const g = laneNow.get(el.dataset.lane);
+    const top = g.top * scale + ty, h = g.height * scale;
+    const off = top + h < AXIS_H || top > H;
+    el.hidden = off;
+    const sep = gut.querySelector(`.gsep[data-sep="${CSS.escape(el.dataset.lane)}"]`);
+    if (sep) { sep.hidden = off || top < AXIS_H; sep.style.top = Math.round(top) + 'px'; }
+    if (off) continue;
+    // Sticky: at the band's top, or just under the axis while the band's top
+    // is above it, but never below the band's own bottom.
+    const y = h < 18 ? top + (h - 16) / 2
+                     : Math.min(Math.max(top + 3, AXIS_H + 3), top + h - 17);
+    el.style.top = Math.round(y) + 'px';
+  }
+  for (const el of axis.querySelectorAll('.gtick')) {
+    const sx = DATA.ticks[+el.dataset.tick].x * scale + tx;
+    el.hidden = sx < gw - 2 || sx > W - 20;
+    el.style.left = Math.round(sx + 4) + 'px';
+  }
 }
 
 /** Every ancestor and every descendant of `id`, plus `id` itself. */
@@ -975,6 +1283,41 @@ function haystack(n) {
   return hay;
 }
 
+/* Why a search matched, for the hover card: a window of text around the first
+   hit in the title, the body or a history note — the parts a person wrote. A
+   match only in the id or the project gets no excerpt; the card already shows
+   both. Original case, whitespace collapsed, the match bolded. */
+const readCache = new Map();
+function readable(n) {
+  let text = readCache.get(n.id);
+  if (text === undefined) {
+    scratch.innerHTML = n.body || '';
+    text = [n.title, scratch.content.textContent || '',
+            ...(n.history || []).map(h => h.note).filter(Boolean)]
+      .join(' — ').replace(/\s+/g, ' ').trim();
+    readCache.set(n.id, text);
+  }
+  return text;
+}
+
+function matchExcerpt(n, q, span = 60) {
+  if (!q) return '';
+  const text = readable(n);
+  const low = text.toLowerCase();
+  // The title is already the card's heading, so a hit in the body or a history
+  // note says more; the title's own hit is the fallback.
+  const afterTitle = low.indexOf(q, n.title.length);
+  const at = afterTitle > -1 ? afterTitle : low.indexOf(q);
+  if (at < 0) return '';
+  let start = Math.max(0, at - span), end = Math.min(text.length, at + q.length + span);
+  // Snap to word edges so the excerpt does not open on half a word.
+  if (start > 0) { const sp = text.indexOf(' ', start); if (sp > -1 && sp < at) start = sp + 1; }
+  if (end < text.length) { const sp = text.lastIndexOf(' ', end); if (sp > at + q.length) end = sp; }
+  return (start > 0 ? '…' : '') + esc(text.slice(start, at)) +
+    `<b>${esc(text.slice(at, at + q.length))}</b>` +
+    esc(text.slice(at + q.length, end)) + (end < text.length ? '…' : '');
+}
+
 /* `host:/path`, split so the machine and the filename are both readable, and
    clickable so the path lands on the clipboard instead of being re-typed.
 
@@ -1017,10 +1360,9 @@ function artifactRow(value) {
 
 
 /* ---------- filters ---------- */
-/* `fold` adds a per-row fold toggle, which only the Project rail gets. The lane
-   label on the canvas does the same job, but `fit()` zooms to the shown nodes and
-   the labels sit in the gutter at x=14, so at most pans they are off screen — a
-   control you cannot reach is not a control. The rail is always visible. */
+/* `fold` adds a per-row fold toggle and an "only", which only the Project rail
+   gets. The lane name in the gutter folds too; the rail is the list of every
+   project, shown or not. */
 function chk(container, values, key, colour, fold) {
   container.innerHTML = values.map(v =>
     `<label class="chk">` +
@@ -1029,19 +1371,49 @@ function chk(container, values, key, colour, fold) {
     (key === 'author' && v === 'uncommitted'
       ? `<span class="muted" title="nodes git has never seen — no author yet">not committed</span>`
       : `<span>${esc(v)}</span>`) +
+    (fold ? `<span class="only" data-only="${esc(v)}" title="Show only this project (alt- or ⌘-click the row)">only</span>` : '') +
     `<span class="n" data-count="${key}:${esc(v)}"></span>` +
     (fold ? `<span class="fold" data-lane="${esc(v)}" title="Fold this lane to a strip">▾</span>` : '') +
     `</label>`
   ).join('');
 }
 
-/** Keep the rail's carets agreeing with the map. */
+/** Keep the rail's carets, and its one "all", agreeing with the map. */
 function syncCarets() {
   document.querySelectorAll('.fold[data-lane]').forEach(el => {
     const on = state.collapsed.has(el.dataset.lane);
     el.textContent = on ? '\u25b8' : '\u25be';
     el.classList.toggle('on', on);
   });
+  document.querySelectorAll('.only[data-only]').forEach(el => {
+    const alone = state.project.size === 1 && state.project.has(el.dataset.only);
+    el.textContent = alone ? 'all' : 'only';
+    el.title = alone ? 'Show every project again' : 'Show only this project (alt- or \u2318-click the row)';
+    el.classList.toggle('alone', alone);
+  });
+}
+
+/** One project, in one gesture; the same gesture on the lone project undoes it. */
+function setOnly(project) {
+  const alone = state.project.size === 1 && state.project.has(project);
+  state.project = alone ? ALL_VALUES.project() : new Set([project]);
+  document.querySelectorAll('[data-key=project]').forEach(i => { i.checked = state.project.has(i.value); });
+  draw();
+  if (DATA.nodes.some(visible)) fit();
+  syncFilterUrl();
+}
+
+/** The filters into the query string `initFromUrl` reads, so what the map shows
+    is a link \u2014 `?project=polyid` was always readable, now it is also written. */
+function syncFilterUrl() {
+  const p = new URLSearchParams(location.search);
+  for (const key of FILTER_KEYS) {
+    const all = ALL_VALUES[key]();
+    if ([...all].every(v => state[key].has(v))) p.delete(key);
+    else p.set(key, [...state[key]].filter(v => all.has(v)).join(','));
+  }
+  const q = p.toString();
+  history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
 }
 
 function refreshCounts() {
@@ -1056,6 +1428,9 @@ function refreshCounts() {
   }
   document.querySelectorAll('[data-count]').forEach(el => {
     el.textContent = tally[el.dataset.count] || '';
+    // Seventeen statuses, several of them empty on any given graph (or date):
+    // a status nobody holds is a row of noise in the filter.
+    if (el.dataset.count.startsWith('status:')) el.closest('.chk').hidden = !tally[el.dataset.count];
   });
 }
 
@@ -1100,6 +1475,8 @@ function noteBox(n) {
    `actions` is the server's own list, so a button for a command this server
    does not have (an older `cairn serve`, a tool without `discard`) never shows. */
 const server = { up: false, actions: new Set() };
+//: The chat drawer's state; `enabled` only once /api/health names a backend.
+const chat = { enabled: false };
 
 async function probeServer() {
   if (!location.protocol.startsWith('http')) return;
@@ -1113,7 +1490,308 @@ async function probeServer() {
   server.actions = new Set(info.actions || []);
   document.body.classList.add('serving');
   $('#newNode').hidden = false;
-  if (state.selected) open(state.selected, { pan: false });   // re-render, now with writes
+  initChat(info);
+  if (state.selected) open(state.selected, { pan: false, replace: true });   // re-render, now with writes
+}
+
+/* ---------- the chat drawer ----------
+   One turn of the user's own Claude Code or Codex CLI per message, run by
+   `cairn serve` (POST /api/chat) and streamed back as NDJSON: `text` deltas,
+   `tool` lines, `error`s, and one `done`. The page renders that and keeps
+   nothing of its own: the conversation lives in the CLI's session, which the
+   page names by id (per backend, in sessionStorage) so a reload continues it.
+
+   Everything the model writes goes through bin/cairn, so a node it drafts is
+   an ordinary uncommitted draft: the map shows it with the hollow dot after
+   the reload, and committing it is the panel's "review & commit", by a human. */
+const BACKEND_LABEL = { claude: 'Claude Code', codex: 'Codex' };
+const CHAT_LOG = 'cairn.chat.log', CHAT_OPEN = 'cairn.chat.open', CHAT_BACKEND = 'cairn.chat.backend';
+const chatSessionKey = b => `cairn.chat.session.${b}`;
+const CHAT_KEEP = 50;            // messages kept across a reload
+
+const ss = {
+  get(k) { try { return sessionStorage.getItem(k); } catch (err) { return null; } },
+  set(k, v) {
+    try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); }
+    catch (err) { /* no storage: the drawer just forgets on reload */ }
+  },
+};
+
+Object.assign(chat, { backends: [], log: [], busy: false, ctrl: null, baseline: null, timer: null });
+
+function initChat(info) {
+  const found = Object.entries(info.chat || {})
+    .filter(([name, path]) => path && BACKEND_LABEL[name]).map(([name]) => name);
+  if (!found.length) return;               // none installed, or --no-chat: no control at all
+  chat.enabled = true;
+  chat.backends = found;
+
+  const btn = document.createElement('button');
+  btn.id = 'chatBtn';
+  btn.className = 'hbtn';
+  btn.textContent = 'chat';
+  btn.title = 'Ask about the graph — your own CLI, through bin/cairn (k)';
+  btn.onclick = () => toggleChat();
+  $('#newNode').after(btn);
+
+  const remembered = ss.get(CHAT_BACKEND);
+  const drawer = document.createElement('section');
+  drawer.id = 'chat';
+  drawer.hidden = true;
+  drawer.innerHTML =
+    `<div class="chd"><strong>Chat</strong>` +
+      `<select id="chatBackend" title="Which CLI runs the turn">` +
+        found.map(b => `<option value="${b}"${b === remembered ? ' selected' : ''}>${BACKEND_LABEL[b]}</option>`).join('') +
+      `</select>` +
+      `<span class="muted" id="chatState"></span><span class="grow"></span>` +
+      `<span class="act" data-chatnew="1" title="Forget this conversation and start a new one">new conversation</span>` +
+      `<button class="xbtn" data-chatx="1" title="Close (k)">×</button></div>` +
+    `<div id="chatLog" aria-live="polite"></div>` +
+    `<div class="cin"><textarea id="chatText" ` +
+      `placeholder="Ask about the graph — Enter sends, Shift+Enter for a new line"></textarea>` +
+      `<div class="cbtns"><button id="chatSend">Send</button>` +
+      `<button id="chatStop" class="ghost" disabled>Stop</button></div></div>`;
+  $('#mapcol').appendChild(drawer);
+  $('#chatBackend').onchange = e => { ss.set(CHAT_BACKEND, e.target.value); renderChat(); };
+  $('#chatSend').onclick = () => chatSend();
+  $('#chatStop').onclick = () => chat.ctrl?.abort();
+  $('#chatText').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(); }
+  });
+
+  try { chat.log = JSON.parse(ss.get(CHAT_LOG) || '[]'); } catch (err) { chat.log = []; }
+  renderChat();
+  if (ss.get(CHAT_OPEN) === '1') toggleChat(true, false);
+}
+
+function toggleChat(on, focus = true) {
+  const drawer = $('#chat');
+  if (!drawer) return;
+  const show = on === undefined ? drawer.hidden : on;
+  drawer.hidden = !show;
+  $('#chatBtn').classList.toggle('on', show);
+  ss.set(CHAT_OPEN, show ? '1' : null);
+  positionChrome();                  // the stage just changed height
+  if (show) {
+    const log = $('#chatLog');
+    log.scrollTop = log.scrollHeight;
+    if (focus) $('#chatText').focus();
+  }
+}
+
+function saveChat() {
+  chat.log = chat.log.slice(-CHAT_KEEP);
+  ss.set(CHAT_LOG, JSON.stringify(chat.log));
+}
+
+/** Minimal markdown: paragraphs, line breaks, `code`, **bold**, and node links —
+    `[[id]]`, or an id alone in backticks. Escaped first, so model output can
+    never become markup. A node the turn just drafted is not in this build yet,
+    so its link is marked broken until the reload. */
+function chatInline(s) {
+  const link = id => byId.has(id)
+    ? `<span class="lnk" data-goto="${esc(id)}" title="${esc(id)}">${esc(byId.get(id).title)}</span>`
+    : `<span class="lnk broken" title="not in this build of the map">${esc(id)}</span>`;
+  return s.split(/(`[^`\n]+`)/).map(part => {
+    if (/^`[^`\n]+`$/.test(part)) {
+      const inner = part.slice(1, -1);
+      return byId.has(inner)
+        ? `<span class="lnk" data-goto="${esc(inner)}" title="${esc(byId.get(inner).title)}"><code>${esc(inner)}</code></span>`
+        : `<code>${esc(inner)}</code>`;
+    }
+    return esc(part)
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[\[(\d{4}-\d{2}-\d{2}-[a-z0-9-]+)\]\]/g, (m, id) => link(id));
+  }).join('');
+}
+
+function chatMarkdown(src) {
+  return String(src).replace(/\r/g, '').split(/\n{2,}/)
+    .filter(b => b.trim())
+    .map(block => {
+      // Within a paragraph, a run of "- " / "* " lines is a list; the rest are lines.
+      let out = '', para = [], list = [];
+      const flushP = () => { if (para.length) out += `<p>${para.map(chatInline).join('<br>')}</p>`; para = []; };
+      const flushL = () => { if (list.length) out += `<ul>${list.map(l => `<li>${chatInline(l)}</li>`).join('')}</ul>`; list = []; };
+      for (const line of block.trim().split('\n')) {
+        const item = /^\s*[-*]\s+(.*)$/.exec(line);
+        if (item) { flushP(); list.push(item[1]); } else { flushL(); para.push(line); }
+      }
+      flushP(); flushL();
+      return out;
+    }).join('');
+}
+
+function msgHtml(m) {
+  if (m.role === 'you') {
+    return `<div class="msg you"><div class="who">you${m.node && byId.has(m.node)
+        ? ` · on “${esc(byId.get(m.node).title)}”` : ''}</div>` +
+      `<div class="txt">${esc(m.text)}</div></div>`;
+  }
+  const body = (m.items || []).map(it =>
+    it.k === 'text' ? chatMarkdown(it.s)
+    // The allowlist makes the model call bin/cairn by absolute path; the line
+    // says `cairn`, which is what a person would have typed.
+    : it.k === 'tool' ? `<div class="tl${it.denied ? ' denied' : ''}" title="${esc(it.s)}">▸ ` +
+      `${esc(it.s.replace(/(^|[\s=;(|&])\/\S*\/bin\/cairn(?=\s|$)/g, '$1cairn'))}${it.denied ? ' — denied' : ''}</div>`
+    : it.k === 'error' ? `<div class="er">${esc(it.s)}</div>`
+    : `<div class="nt">${esc(it.s)}</div>`).join('');
+  return `<div class="msg bot"><div class="who">${esc(BACKEND_LABEL[m.backend] || m.backend)}</div>` +
+    (body || (m.live ? '<div class="typing">…</div>' : '')) + `</div>`;
+}
+
+function renderChat() {
+  const log = $('#chatLog');
+  if (!log) return;
+  const label = BACKEND_LABEL[$('#chatBackend').value] || 'the CLI';
+  log.innerHTML = chat.log.length ? chat.log.map(msgHtml).join('') :
+    `<div class="hint">Each message runs one turn of your own <strong>${esc(label)}</strong> in ` +
+    `this graph. It can read the graph, run <code>cairn standup</code> and the other ` +
+    `<code>bin/cairn</code> reads, and draft nodes, which you then read and review in ` +
+    `the panel. Its drafts are never committed: that stays your "review &amp; commit". ` +
+    `The open node, if any, goes with your message.</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+/** Re-render only the bubble being streamed into, keeping the reader's scroll
+    unless they were already at the bottom. */
+function renderLive(m) {
+  const log = $('#chatLog');
+  const atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  const last = log.lastElementChild;
+  if (last && last.classList.contains('bot')) last.outerHTML = msgHtml(m);
+  else renderChat();
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+
+function setChatBusy(on) {
+  chat.busy = on;
+  $('#chatSend').disabled = on;
+  $('#chatStop').disabled = !on;
+  $('#chatBackend').disabled = on;
+  clearInterval(chat.timer);
+  const st = $('#chatState');
+  if (!on) { st.textContent = ''; return; }
+  const t0 = Date.now();
+  const tick = () => { st.textContent = `working · ${Math.round((Date.now() - t0) / 1000)} s`; };
+  tick();
+  chat.timer = setInterval(tick, 1000);
+}
+
+/** The built page as the server has it now. A turn that only read the graph
+    still regenerates build/ (the server rebuilds after every clean turn), so
+    whether *this* page is stale is answered by comparing, not by `rebuilt`. */
+async function builtPage() {
+  try {
+    const res = await fetch(location.pathname, { cache: 'no-store' });
+    return res.ok ? await res.text() : null;
+  } catch (err) { return null; }
+}
+
+async function chatSend() {
+  if (chat.busy) return;
+  const box = $('#chatText');
+  const text = box.value.trim();
+  if (!text) return;
+  const backend = $('#chatBackend').value;
+  box.value = '';
+  chat.log.push({ role: 'you', text, node: state.selected || '' });
+  const bot = { role: 'bot', backend, items: [], live: true };
+  chat.log.push(bot);
+  renderChat();
+  setChatBusy(true);
+  if (chat.baseline === null) chat.baseline = await builtPage();
+
+  const add = item => {
+    const last = bot.items[bot.items.length - 1];
+    if (item.k === 'text' && last && last.k === 'text') last.s += item.s;
+    else bot.items.push(item);
+    renderLive(bot);
+  };
+  const body = { backend, message: text };
+  const session = ss.get(chatSessionKey(backend));
+  if (session) body.session = session;
+  if (state.selected) body.node = state.selected;
+
+  let done = null, stopped = false;
+  chat.ctrl = new AbortController();
+  const handle = line => {
+    let ev;
+    try { ev = JSON.parse(line); } catch (err) { return; }
+    if (ev.type === 'text') add({ k: 'text', s: ev.delta || '' });
+    else if (ev.type === 'tool') add({ k: 'tool', s: ev.summary || ev.name || '?', denied: !!ev.denied });
+    else if (ev.type === 'error') add({ k: 'error', s: ev.message || 'error' });
+    else if (ev.type === 'done') done = ev;
+  };
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: chat.ctrl.signal,
+    });
+    if (!res.ok) {
+      // 503 names the install step; 400/404 say what was wrong. Verbatim.
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch (err) { /* not JSON */ }
+      add({ k: 'error', s: msg });
+    } else {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done: end } = await reader.read();
+        if (end) break;
+        buf += dec.decode(value, { stream: true });
+        let cut;
+        while ((cut = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, cut).trim();
+          buf = buf.slice(cut + 1);
+          if (line) handle(line);
+        }
+      }
+      buf += dec.decode();
+      if (buf.trim()) handle(buf.trim());
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') { stopped = true; add({ k: 'note', s: 'stopped — the server ends the CLI turn' }); }
+    else add({ k: 'error', s: String(err) });
+  }
+  chat.ctrl = null;
+  if (done) {
+    if (done.session) ss.set(chatSessionKey(done.backend || backend), done.session);
+    if (!done.ok && !bot.items.some(i => i.k === 'error')) {
+      add({ k: 'error', s: `the turn ended without an answer (exit ${done.code ?? '?'})` });
+    }
+  } else if (!stopped && !bot.items.some(i => i.k === 'error')) {
+    add({ k: 'error', s: 'the stream ended without a result line' });
+  }
+  bot.live = false;
+  renderLive(bot);
+  saveChat();
+  setChatBusy(false);
+
+  if (done && done.rebuilt) {
+    const now = await builtPage();
+    if (now !== null && chat.baseline !== null && now === chat.baseline) return;   // read-only turn
+    // An open form is a half-typed thing a reload would throw away: say so, and wait.
+    if (state.editing || state.creating) {
+      add({ k: 'note', s: 'the chat wrote to the graph — reload to see it (your open form is kept until then)' });
+      bot.live = false; saveChat();
+      return;
+    }
+    saveChat();
+    stashFlash({ text: 'the chat wrote to the graph — reloaded', id: state.selected || '' });
+    ss.set(CHAT_OPEN, '1');
+    reloadKeepingView(state.selected);
+  }
+}
+
+function newConversation() {
+  chat.ctrl?.abort();
+  for (const b of Object.keys(BACKEND_LABEL)) ss.set(chatSessionKey(b), null);
+  chat.log = [];
+  saveChat();
+  renderChat();
+  $('#chatText')?.focus();
 }
 
 /** What to add to "written, not committed": the command that commits it.
@@ -1684,8 +2362,67 @@ function editOriginal(n) {
       .map(r => ({ type: r.type, id: r.id, note: r.note || '' })),
     refs: n.refs.map(r => r.doi),
     artifacts: (n.extra.artifacts || []).map(String),
-    body: n.bodyRaw || '',
+    // null until the file has been read: the payload carries the rendered body
+    // only, and a form that guessed the markdown would post the guess back.
+    body: bodyOf.has(n.id) ? bodyOf.get(n.id) : null,
   };
+}
+
+/* ---------- the body, as written ----------
+   Fetched rather than shipped. The edit form is the only reader of a node's raw
+   markdown, edit exists only while `cairn serve` is up, and the server already
+   serves nodes/ — so a raw copy of every body in the payload was most of a
+   megabyte that a read-only page never used. */
+const bodyOf = new Map();          // id -> markdown body, once read
+const bodyErr = new Map();         // id -> why it could not be read
+
+/* front:begin */
+/** The body `lib.parse_text` reads: everything after the frontmatter. A mirror
+    of lib.FRONTMATTER_RE, greedy whitespace and all — if the two disagree, an
+    untouched body reads as changed and Save posts it back. */
+const FRONTMATTER = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/;
+function stripFrontmatter(text) {
+  const m = FRONTMATTER.exec(String(text));
+  return m ? m[2] : null;
+}
+/* front:end */
+
+async function loadBody(id) {
+  if (bodyOf.has(id)) return;
+  bodyErr.delete(id);
+  let why = '';
+  try {
+    const res = await fetch(`../nodes/${encodeURIComponent(id)}.md`, { cache: 'no-store' });
+    if (res.ok) {
+      const body = stripFrontmatter(await res.text());
+      if (body === null) why = 'the file has no frontmatter';
+      else bodyOf.set(id, body);
+    } else {
+      why = `HTTP ${res.status}`;
+    }
+  } catch (err) { why = String(err); }
+  if (why) bodyErr.set(id, `could not read nodes/${id}.md (${why}) — the body is left as it is; the other fields still save`);
+  const e = state.edit;
+  if (!e || e.id !== id || state.editing !== id) return;
+  if (bodyOf.has(id) && e.body === null) e.body = bodyOf.get(id);
+  syncBodyBox();
+}
+
+/** Fill, enable or explain the body textarea without re-rendering the form. */
+function syncBodyBox() {
+  const box = $('#edBody'), msg = $('#edBodyErr'), e = state.edit;
+  if (!box || !e) return;
+  const err = bodyErr.get(e.id);
+  if (e.body !== null) {
+    if (box.disabled) { box.disabled = false; box.placeholder = ''; }
+    // Set rather than written into the markup: a <textarea> drops a leading
+    // newline from its source, and the body often starts with one.
+    if (box.value !== e.body) box.value = e.body;
+  } else {
+    box.disabled = true;
+    box.placeholder = err ? 'not loaded' : 'reading the markdown…';
+  }
+  if (msg) { msg.hidden = !err || e.body !== null; msg.textContent = err || ''; }
 }
 
 function openEdit(id) {
@@ -1703,6 +2440,7 @@ function openEdit(id) {
   panel.scrollTop = 0;
   $('#edTitle')?.focus();
   draw();
+  if (state.edit.body === null) loadBody(id);
 }
 
 const EDIT_PENDING = ['edAddParent', 'edRelType', 'edRelTarget', 'edRelWhy', 'edAddRef', 'edAddArt'];
@@ -1714,7 +2452,7 @@ function syncEdit() {
   if (v('edTitle') !== undefined) e.title = v('edTitle');
   if (v('edProject') !== undefined) e.project = v('edProject');
   for (const k of Object.keys(e.scal)) if (v('ed-' + k) !== undefined) e.scal[k] = v('ed-' + k);
-  if (v('edBody') !== undefined) e.body = v('edBody');
+  if (v('edBody') !== undefined && !$('#edBody').disabled) e.body = v('edBody');
   for (const id of EDIT_PENDING) if (v(id) !== undefined) e.pending[id] = v(id);
 }
 
@@ -1801,14 +2539,13 @@ function renderEdit(n) {
       addRow('artifacts', `<input id="edAddArt" value="${pend('edAddArt')}" placeholder="host:/path">`) +
     `</div>` : '') +
     `<div class="sect"><div class="hd">Body <span class="muted">— the markdown, as written</span></div>` +
-      `<textarea id="edBody" class="field src" spellcheck="false"></textarea></div>` +
+      `<textarea id="edBody" class="field src" spellcheck="false" disabled></textarea>` +
+      `<code class="said bad" id="edBodyErr" hidden></code></div>` +
     `<div class="wr" style="margin-top:14px"><button data-edsave="${esc(n.id)}">Save</button>` +
       `<button class="ghost" data-edcancel="${esc(n.id)}">Cancel</button>` +
       `<span class="muted">writes and commits, as <code>cairn edit</code> does</span></div>` +
     `<code class="said" id="edSaid" hidden></code>`;
-  // Set rather than written into the markup: a <textarea> drops a leading
-  // newline from its source, and the body usually starts with one.
-  $('#edBody').value = e.body;
+  syncBodyBox();
 }
 
 function editComplain(why) {
@@ -1889,7 +2626,9 @@ function editPayload(n) {
     if (radd.length) p.relates.add = radd;
     if (rdrop.length) p.relates.drop = rdrop;
   }
-  if (e.body.replace(/\s+$/, '') !== o.body.replace(/\s+$/, '')) {
+  // Not read (or not readable): the body is simply not part of this save.
+  if (e.body !== null && o.body !== null &&
+      e.body.replace(/\s+$/, '') !== o.body.replace(/\s+$/, '')) {
     if (!e.body.trim()) return { error: 'an empty body would erase the node — nodes are never deleted' };
     p.body = e.body;
   }
@@ -1945,6 +2684,14 @@ function open(id, opts = {}) {
       push(k, `<a href="${esc(n.commitUrl)}" target="_blank" rel="noopener"><code>${esc(v)}</code></a>`);
     } else if (k === 'url') {
       push(k, `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`);
+    } else if ((k === 'due' || k === 'date') && v === dateOf(n) && ISO_DAY.test(String(v))) {
+      // The date that binds this task or milestone, with how far off it is —
+      // measured from the slider's date, like everything else in the panel.
+      const days = Math.round((Date.parse(v) - Date.parse(ageRef())) / DAY);
+      const dl = nodeDeadline(n);
+      push(k, `${esc(v)}<span class="${dl?.kind === 'overdue' ? '' : 'muted'}"` +
+        `${dl?.kind === 'overdue' ? ' style="color:var(--bad)"' : ''}>, ${relDays(days)}` +
+        `${dl?.kind === 'overdue' ? ' — overdue' : ''}</span>`);
     } else {
       push(k, esc(v));
     }
@@ -1975,6 +2722,7 @@ function open(id, opts = {}) {
       `<span class="pill">${esc(n.type)}</span><span class="pill">${esc(n.project)}</span>` +
       (isLive() ? '' : `<span class="pill">as of ${esc(when)}</span>`) +
     `</div>` +
+    (needsYou(n, when) ? `<div class="needs-why">needs you — ${esc(needsYou(n, when))}</div>` : '') +
     gitBanner(n) +
     `<dl class="kv">${rows.join('')}</dl>` +
     `<div class="body">${n.body}</div>` +
@@ -2025,11 +2773,26 @@ function open(id, opts = {}) {
 
   panel.classList.add('open');
   panel.scrollTop = 0;
-  history.replaceState(null, '', '#' + id);
+  // An open you asked for is a history entry, so Back walks the nodes you
+  // visited. A re-render of the node already in the hash (the slider, the
+  // server probe, a restore after a reload) replaces, or Back would stutter.
+  const hash = '#' + id;
+  if (opts.replace || decodeURIComponent(location.hash) === hash) {
+    history.replaceState(null, '', hash);
+  } else {
+    history.pushState(null, '', hash);
+  }
   draw();
   syncStatusBox();
   if (opts.pan !== false) ensureVisible(id);
 }
+
+// Back, Forward, or a #<node-id> typed into the address bar.
+window.addEventListener('hashchange', () => {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id) { if (state.selected || state.creating) close(); return; }
+  if (id !== state.selected && byId.has(id)) open(id, { replace: true });
+});
 
 function close() {
   state.selected = null;
@@ -2042,7 +2805,10 @@ function close() {
 
 /* ---------- pan / zoom ---------- */
 let tx = 0, ty = 0, scale = 1;
-const applyTransform = () => view.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+const applyTransform = () => {
+  view.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+  positionChrome();
+};
 
 svg.addEventListener('wheel', e => {
   e.preventDefault();
@@ -2095,13 +2861,17 @@ function fit() {
     y1 = Math.max(...shown.map(n => Y(n) + radiusOf(n) + 14));
   }
   const w = Math.max(x1 - x0, 1), h = Math.max(y1 - y0, 1);
+  // The gutter and the axis strip sit over the stage; fit into what they leave.
+  const gw = gutterW(), freeW = rect.width - gw, freeH = rect.height - AXIS_H;
 
   // Floor the auto-fit: past a point, shrinking to fit just makes the labels
   // illegible. Content wider than the viewport is a job for panning.
-  scale = Math.max(0.5, Math.min(1, (rect.width - 40) / w, (rect.height - 40) / h));
-  // Centre the content rather than pinning it to the top-left corner.
-  tx = (rect.width - w * scale) / 2 - x0 * scale;
-  ty = (rect.height - h * scale) / 2 - y0 * scale;
+  scale = Math.max(0.5, Math.min(1, (freeW - 40) / w, (freeH - 40) / h));
+  // Centre the content in the free area rather than pinning it to a corner —
+  // unless it is wider than that even at the floor, when centring would push
+  // the oldest nodes under the gutter. Then it starts at the gutter's edge.
+  tx = w * scale > freeW ? gw + 12 - x0 * scale : gw + (freeW - w * scale) / 2 - x0 * scale;
+  ty = AXIS_H + (freeH - h * scale) / 2 - y0 * scale;
   applyTransform();
 }
 
@@ -2115,17 +2885,17 @@ function ensureVisible(id) {
   const rect = svg.getBoundingClientRect();
   if (rect.width < 120 || rect.height < 120) return;
   const sx = n.x * scale + tx, sy = Y(n) * scale + ty, m = 40;
-  if (sx < m || sx > rect.width - m || sy < m || sy > rect.height - m) centerOn(id);
+  if (sx < gutterW() + m || sx > rect.width - m || sy < AXIS_H + m || sy > rect.height - m) centerOn(id);
 }
 
-/** Pan a node to the middle of the stage without shrinking anything. */
+/** Pan a node to the middle of the free stage without shrinking anything. */
 function centerOn(id) {
   const n = byId.get(id);
   if (!n) return;
-  const rect = svg.getBoundingClientRect();
+  const rect = svg.getBoundingClientRect(), gw = gutterW();
   scale = Math.max(scale, 0.85);
-  tx = rect.width / 2 - n.x * scale;
-  ty = rect.height / 2 - Y(n) * scale;
+  tx = gw + (rect.width - gw) / 2 - n.x * scale;
+  ty = AXIS_H + (rect.height - AXIS_H) / 2 - Y(n) * scale;
   applyTransform();
 }
 
@@ -2134,6 +2904,11 @@ chk($('#fProject'), [...new Set(DATA.nodes.map(n => n.project))].sort(), 'projec
 chk($('#fType'), DATA.types, 'type', false);
 chk($('#fStatus'), DATA.statuses, 'status', true);
 chk($('#fAuthor'), DATA.authors, 'author', false);
+
+// Shape key: the glyph() the map uses, at the map's base radius.
+$('#shapeKey').innerHTML = DATA.types.map(t =>
+  `<div class="row"><svg viewBox="-20 -15 40 30" aria-hidden="true">` +
+  glyph((DATA.shapes || {})[t] || 'circle', R - 3) + `</svg>${esc(t)}</div>`).join('');
 
 // Edge key. Dash patterns mirror the CSS so the map is decodable without colour.
 const REL_DASH = {supports: 'solid', contradicts: 'dashed', supersedes: 'dashed', resolves: 'dotted'};
@@ -2166,6 +2941,7 @@ document.addEventListener('change', e => {
   e.target.checked ? state[key].add(e.target.value) : state[key].delete(e.target.value);
   draw();
   fitToMatchesSoon();
+  syncFilterUrl();
 });
 
 $('#reset').onclick = () => {
@@ -2174,6 +2950,7 @@ $('#reset').onclick = () => {
   state.isolate = null;
   $('#time').value = state.t = Math.max(0, DATA.dates.length - 1);
   updateTimeLabel(); draw(); fit();
+  syncFilterUrl();
 };
 
 $('#search').addEventListener('input', e => {
@@ -2198,13 +2975,28 @@ timeInput.addEventListener('input', e => {
 
 document.addEventListener('click', e => {
   if (e.target.id === 'close') return close();
+  if (e.target.id === 'help') return toggleHelp(false);       // the backdrop
   const d = e.target.dataset || {};
   if (d.goto) return open(d.goto);
+  if (d.helpx) return toggleHelp(false);
+  if (d.chatx) return toggleChat(false);
+  if (d.chatnew) return newConversation();
+  if (e.target.closest?.('[data-help]')) return toggleHelp(true);
+  // Alt- or ⌘-click a project row: that project alone. Checked before the
+  // label's own toggle runs, which preventDefault cancels.
+  const row = e.target.closest?.('#fProject .chk');
+  if (row && (e.altKey || e.metaKey)) {
+    e.preventDefault();
+    return setOnly(row.querySelector('input').value);
+  }
+  if (d.only) { e.preventDefault(); return setOnly(d.only); }
   if (d.isolate) {
     const on = state.isolate !== d.isolate;
     state.isolate = on ? d.isolate : null;
-    open(d.isolate);
-    return on ? centerOn(d.isolate) : fit();
+    open(d.isolate, { pan: false });
+    // Frame the whole lineage: centring on the node left its parents off to
+    // one side and its children under the panel.
+    return fit();
   }
   if (d.copy) {
     const link = location.origin + location.pathname + location.search + '#' + d.copy;
@@ -2379,31 +3171,6 @@ $('#colourBy').addEventListener('change', e => {
   draw();
 });
 
-function setFolded(project, on) {
-  if (on) state.collapsed.add(project); else state.collapsed.delete(project);
-  syncFoldButton();
-  draw();
-}
-
-function syncFoldButton() {
-  const all = DATA.lanes.length && state.collapsed.size >= DATA.lanes.length;
-  $('#foldAll').textContent = all ? 'Expand all lanes' : 'Collapse all lanes';
-}
-
-$('#foldAll').onclick = () => {
-  const all = DATA.lanes.length && state.collapsed.size >= DATA.lanes.length;
-  state.collapsed = all ? new Set() : new Set(DATA.lanes.map(l => l.project));
-  syncFoldButton();
-  draw();
-  fit();
-};
-
-$('#colourBy').addEventListener('change', e => {
-  state.colour = e.target.value;
-  document.body.dataset.colour = state.colour;
-  draw();
-});
-
 /* ---------- hover card ---------- */
 const hover = $('#hover');
 let hoverId = null;
@@ -2414,6 +3181,8 @@ function showHover(g, clientX, clientY) {
   const when = cutoff();
   const status = statusAt(n, when) || n.status;
   const note = [...n.history].reverse().find(h => h.date <= when && h.note);
+  const why = needsYou(n, when);
+  const hit = matchExcerpt(n, state.query);
   hover.innerHTML =
     `<strong>${esc(n.title)}</strong>` +
     `<div class="meta">` +
@@ -2422,7 +3191,10 @@ function showHover(g, clientX, clientY) {
       // Only worth the space once the graph actually has more than one
       // person in it; on a solo graph it is the same name every time.
       `${DATA.authors.length > 1 ? ' · ' + esc(whoLabel(n.author)) : ''}</div>` +
-    (note ? `<div class="note">${esc(note.note)}</div>` : '') +
+    (why ? `<div class="why">needs you — ${esc(why)}</div>` : '') +
+    // While searching, the line that matched beats the latest history note.
+    (hit ? `<div class="hit">${hit}</div>`
+         : note ? `<div class="note">${esc(note.note)}</div>` : '') +
     // A magnitude channel with no way to read the magnitude is decoration, and
     // the hover card is where the glyph's size gets its number.
     `<div class="hint">click to open${n.parents.length || n.children.length ? ' · ' + (n.parents.length + n.children.length) + ' linked' : ''}` +
@@ -2533,6 +3305,42 @@ function hop(key) {
   if (ids.length) open(ids[0]);
 }
 
+/* ---------- every key, in one place ----------
+   The shortcuts used to be findable only in button tooltips and a block at the
+   bottom of the rail. This is the list, and the only one that is complete. */
+function helpRows() {
+  const rows = [
+    ['<kbd>&larr;</kbd> <kbd>&rarr;</kbd>', 'previous / next node along time, in this lane'],
+    ['<kbd>&uarr;</kbd> <kbd>&darr;</kbd>', 'nearest node in the lane above / below'],
+    ['<kbd>p</kbd> <kbd>c</kbd>', 'walk to a parent / a child'],
+    ['<kbd>i</kbd>', 'isolate the open node’s lineage (again to show all)'],
+    ['<kbd>n</kbd>', 'write a note on the open node'],
+    ['<kbd>w</kbd>', 'the needs-you lens'],
+    ['<kbd>space</kbd>', 'play / pause the replay'],
+    ['<kbd>/</kbd>', 'search'],
+  ];
+  if (chat.enabled) rows.push(['<kbd>k</kbd>', 'open / close the chat']);
+  rows.push(
+    ['<kbd>esc</kbd>', 'leave a field, close this, close the panel'],
+    ['<kbd>?</kbd>', 'this list'],
+    ['alt / ⌘-click', 'a project in the rail: show only it'],
+    ['Back / Forward', 'the nodes you opened, in order'],
+  );
+  return rows;
+}
+
+function toggleHelp(on) {
+  const box = $('#help');
+  if (on) {
+    box.innerHTML = `<div class="box" role="dialog" aria-label="Keyboard shortcuts">` +
+      `<button class="xbtn" style="float:right" data-helpx="1" title="Close (Esc)">×</button>` +
+      `<h3>Keys</h3><dl>` +
+      helpRows().map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') +
+      `</dl><div class="foot">Keys are ignored while you type in a field.</div></div>`;
+  }
+  box.hidden = !on;
+}
+
 const TYPING = () => {
   const el = document.activeElement;
   return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
@@ -2540,6 +3348,7 @@ const TYPING = () => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    if (!$('#help').hidden) return toggleHelp(false);
     if (TYPING()) return document.activeElement.blur();
     stopPlay();
     return close();
@@ -2547,9 +3356,12 @@ document.addEventListener('keydown', e => {
   if (TYPING()) return;                        // never hijack a key mid-sentence
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+  if (e.key === '?') { e.preventDefault(); return toggleHelp($('#help').hidden); }
+  if (!$('#help').hidden) return;              // the overlay is up: keys are for reading it
   if (e.key === '/') { e.preventDefault(); return $('#search').focus(); }
   if (e.key === ' ') { e.preventDefault(); return togglePlay(); }
   if (e.key === 'w') { e.preventDefault(); return setNeeds(!state.needs); }
+  if (e.key === 'k' && chat.enabled) { e.preventDefault(); return toggleChat(); }
   if (e.key === 'n') {
     if (!state.selected) return;
     e.preventDefault();
@@ -2559,8 +3371,8 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const id = state.selected;
     state.isolate = state.isolate === id ? null : id;
-    open(id);
-    return state.isolate ? centerOn(id) : fit();
+    open(id, { pan: false });
+    return fit();
   }
   if (e.key === 'p' || e.key === 'c') { e.preventDefault(); return hop(e.key); }
 

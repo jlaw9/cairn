@@ -521,12 +521,27 @@ class RenderTest(unittest.TestCase):
 
     def test_without_git_the_state_is_unknown_not_clean(self):
         """The fixture is no git repo: `git` must be null, so the map draws no
-        not-committed mark on every node. The raw body still ships."""
+        not-committed mark on every node."""
         nodes, _ = lib.load_nodes()
         payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
         for node in payload["nodes"]:
             self.assertIsNone(node["git"], node["id"])
-            self.assertEqual(node["bodyRaw"], nodes[node["id"]].body)
+
+    def test_the_payload_ships_no_raw_body(self):
+        """The edit form fetches `../nodes/<id>.md` when it opens. A raw copy of
+        every body made the page 68% larger for a form only `cairn serve` has."""
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        self.assertTrue(payload["nodes"])
+        for node in payload["nodes"]:
+            self.assertNotIn("bodyRaw", node, node["id"])
+            self.assertIn("body", node)
+
+    def test_the_legend_gets_every_type_its_glyph(self):
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        self.assertEqual(set(payload["shapes"]), set(lib.TYPES))
+        self.assertEqual(payload["shapes"]["direction"], "rect")
 
     def test_empty_graph_still_builds(self):
         clear()
@@ -3053,8 +3068,8 @@ class ServeInGit(unittest.TestCase):
         self.assertTrue((self.tmp / "nodes" / f"{self.ROOT_ID}.md").exists())
 
     def test_the_payload_says_what_git_has(self):
-        """clean / modified / untracked, from one status call — and the raw body
-        the edit form posts back."""
+        """clean / modified / untracked, from one status call. The raw body is
+        not in the payload: the edit form fetches nodes/<id>.md."""
         other = "2026-08-03-demo-other"
         self.put(other, node_text(other, project="demo", created="2026-08-03"))
         self.git("add", f"nodes/{other}.md")
@@ -3067,8 +3082,8 @@ class ServeInGit(unittest.TestCase):
         self.assertEqual(by_id[self.DRAFT_ID]["git"], "untracked")
         self.assertEqual(by_id[self.ROOT_ID]["git"], "modified")
         self.assertEqual(by_id[other]["git"], "clean")
-        self.assertEqual(by_id[self.ROOT_ID]["bodyRaw"], nodes[self.ROOT_ID].body)
-        self.assertIn("A correction.", by_id[self.ROOT_ID]["bodyRaw"])
+        self.assertNotIn("bodyRaw", by_id[self.ROOT_ID])
+        self.assertIn("A correction.", by_id[self.ROOT_ID]["body"])
 
 
 class SlugPreview(unittest.TestCase):
@@ -3109,6 +3124,105 @@ class SlugPreview(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         want = [new_node.shorten(new_node.slugify(f"{p}-{t}")) for p, t in self.TITLES]
         self.assertEqual(_json.loads(done.stdout), want)
+
+
+def run_template_block(name: str, tail: str):
+    """Run one `/* <name>:begin */ … /* <name>:end */` block of the map's JS
+    under node, with `tail` appended, and return what it printed as JSON."""
+    import json as _json
+    import subprocess
+    text = SlugPreview.TEMPLATE.read_text(encoding="utf-8")
+    block = text.split(f"/* {name}:begin */")[1].split(f"/* {name}:end */")[0]
+    done = subprocess.run(["node", "-e", block + "\n" + tail], capture_output=True,
+                          text=True, timeout=60)
+    if done.returncode != 0:
+        raise AssertionError(done.stderr)
+    return _json.loads(done.stdout)
+
+
+class DeadlineClassification(unittest.TestCase):
+    """The map's deadline rule, run under node. It is the standup rule (a date
+    before today on a node that is not terminal is overdue) plus the page's two
+    windows, and it has to agree with lib.TYPES about which statuses are open."""
+
+    def block(self) -> str:
+        text = SlugPreview.TEMPLATE.read_text(encoding="utf-8")
+        return text.split("/* deadline:begin */")[1].split("/* deadline:end */")[0]
+
+    def test_open_statuses_are_the_non_terminal_ones(self):
+        for type_ in ("task", "milestone"):
+            body = re.search(rf"{type_}: \[(.*?)\]", self.block()).group(1)
+            spec = lib.TYPES[type_]
+            self.assertEqual(set(re.findall(r"'([a-z]+)'", body)),
+                             set(spec.statuses) - set(spec.terminal), type_)
+
+    @unittest.skipUnless(shutil.which("node"), "no JS engine (node) on this machine")
+    def test_the_classes_and_the_phrases(self):
+        import json as _json
+        cases = [
+            ("task", "todo", "2026-09-15", "2026-10-14"),       # overdue 29 d
+            ("task", "doing", "2026-10-14", "2026-10-14"),      # due today
+            ("task", "todo", "2026-10-21", "2026-10-14"),       # 7 d: still soon
+            ("task", "todo", "2026-10-22", "2026-10-14"),       # 8 d: month
+            ("task", "todo", "2026-11-13", "2026-10-14"),       # 30 d: month
+            ("task", "todo", "2026-11-14", "2026-10-14"),       # 31 d: later
+            ("task", "done", "2026-08-19", "2026-10-14"),       # closed: none
+            ("task", "dropped", "2026-08-19", "2026-10-14"),
+            ("task", "todo", None, "2026-10-14"),               # undated: none
+            ("task", "todo", "soon", "2026-10-14"),             # not a date: none
+            ("milestone", "submitted", "2026-10-09", "2026-10-14"),
+            ("milestone", "planned", "2026-11-01", "2026-10-14"),
+            ("milestone", "accepted", "2026-09-01", "2026-10-14"),
+            ("experiment", "running", "2026-09-01", "2026-10-14"),  # no deadline type
+            ("task", "todo", "2026-09-15", "2026-09-10"),       # replayed: was soon
+        ]
+        tail = ("console.log(JSON.stringify(%s.map(([t, s, d, w]) => {"
+                " const r = deadline(t, s, d, w);"
+                " return r ? [r.kind, r.days, deadlinePhrase(t, r)] : null; })));"
+                % _json.dumps(cases))
+        got = run_template_block("deadline", tail)
+        self.assertEqual(got, [
+            ["overdue", -29, "overdue 29 d"],
+            ["soon", 0, "due today"],
+            ["soon", 7, "due in 7 d"],
+            ["month", 8, "due in 8 d"],
+            ["month", 30, "due in 30 d"],
+            ["later", 31, "due in 31 d"],
+            None, None, None, None,
+            ["overdue", -5, "milestone date passed 5 d"],
+            ["month", 18, "milestone in 18 d"],
+            None, None,
+            ["soon", 5, "due in 5 d"],
+        ])
+
+
+class BodyFetch(unittest.TestCase):
+    """The edit form fetches nodes/<id>.md and strips the frontmatter in JS. If
+    that strip disagrees with lib.parse_text, an untouched body reads as edited
+    and Save posts it back."""
+
+    TEXTS = [
+        "---\nid: a\ntype: task\n---\n\n## What\n\nDo it.\n",
+        "---\nid: a\n---\n## Claim\nno blank line\n",
+        "---\nid: a\n---\n\n\n\n  indented first line\n",
+        "---   \nid: a\nnote: \"x --- y\"\n---\nbody with --- inside\n---\nand a rule\n",
+        "---\nid: a\n---",
+    ]
+
+    @unittest.skipUnless(shutil.which("node"), "no JS engine (node) on this machine")
+    def test_the_strip_gives_the_body_lib_reads(self):
+        import json as _json
+        got = run_template_block(
+            "front", "console.log(JSON.stringify(%s.map(stripFrontmatter)));"
+            % _json.dumps(self.TEXTS))
+        want = [lib.parse_text(t, Path("x.md")).body for t in self.TEXTS]
+        self.assertEqual(got, want)
+
+    @unittest.skipUnless(shutil.which("node"), "no JS engine (node) on this machine")
+    def test_no_frontmatter_is_null_not_the_whole_file(self):
+        got = run_template_block(
+            "front", "console.log(JSON.stringify(stripFrontmatter('# just a heading\\n')));")
+        self.assertIsNone(got)
 
 
 class Edit(unittest.TestCase):
