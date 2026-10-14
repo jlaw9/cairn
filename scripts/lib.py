@@ -538,6 +538,43 @@ def require_graph(root: Path | None = None) -> Path:
     )
 
 
+def asset_dir(root: Path | None = None) -> Path:
+    return (root or REPO_ROOT) / "assets"
+
+
+#: What counts as a figure. A closed list rather than "any file", because the
+#: panel puts it in an `<img>` and anything else would render as a broken image
+#: instead of as the mistake it is.
+ASSET_SUFFIXES = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+#: `assets/` is documented as "small figures only". This is that promise, in
+#: bytes. A warning rather than an error: it is a judgement about repo weight,
+#: not a schema violation, and blocking a commit over it would be the kind of
+#: friction that costs a capture.
+ASSET_MAX_BYTES = 100_000
+
+
+def find_assets(root: Path | None = None) -> dict[str, Path]:
+    """node id -> its figure, by filename convention: `assets/<node-id>.<ext>`.
+
+    Derived from the filesystem, never stored on the node. Same reasoning as
+    `author` being read out of git: a path recorded in frontmatter is a second
+    copy of the truth that can disagree with the first, and one more field that
+    stops getting filled in.
+
+    One per node. If a node has several, the first by sorted suffix wins and
+    `validate` says so — silently picking one would make the other invisible.
+    """
+    folder = asset_dir(root)
+    if not folder.is_dir():
+        return {}
+    found: dict[str, Path] = {}
+    for path in sorted(folder.iterdir()):
+        if path.is_file() and path.suffix.lower() in ASSET_SUFFIXES:
+            found.setdefault(path.stem, path)
+    return found
+
+
 def load_nodes(root: Path | None = None) -> tuple[dict[str, Node], list[str]]:
     """Load every node. Returns (by-id map, list of parse errors)."""
     require_graph(root)

@@ -814,6 +814,13 @@ class ScriptsUseTheFoundInterpreter(unittest.TestCase):
 
     SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 
+    def setUp(self):
+        # These tests validate the shared fixture graph from a subprocess, so
+        # whatever the previous test class left in it is what gets validated.
+        # Start from a known-good pair rather than inheriting someone's mess.
+        clear()
+        valid_pair()
+
     def yaml_less_interpreter(self):
         """A real >= 3.7 interpreter on this machine that cannot import yaml."""
         import subprocess
