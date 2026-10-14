@@ -2208,7 +2208,7 @@ document.addEventListener('click', e => {
   }
   if (d.copy) {
     const link = location.origin + location.pathname + location.search + '#' + d.copy;
-    navigator.clipboard?.writeText(link);
+    navigator.clipboard?.writeText(link).catch(() => {});   // refused when unfocused; harmless
     e.target.textContent = 'copied';
     setTimeout(() => { e.target.textContent = 'copy link'; }, 1200);
   }
@@ -2220,13 +2220,13 @@ document.addEventListener('click', e => {
   }
   const art = e.target.closest?.('.art[data-artifact]');
   if (art) {
-    navigator.clipboard?.writeText(art.dataset.artifact);
+    navigator.clipboard?.writeText(art.dataset.artifact).catch(() => {});   // refused when unfocused; harmless
     art.classList.add('copied');
     setTimeout(() => art.classList.remove('copied'), 1400);
   }
   if (d.note) {
     const cmd = noteCommand(d.note);
-    navigator.clipboard?.writeText(cmd);
+    navigator.clipboard?.writeText(cmd).catch(() => {});   // refused when unfocused; harmless
     $('#noteCmd').textContent = cmd;
     e.target.textContent = 'copied — paste in a terminal';
     setTimeout(() => { e.target.textContent = 'copy command'; }, 2000);
