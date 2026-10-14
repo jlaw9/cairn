@@ -447,6 +447,19 @@ class RenderTest(unittest.TestCase):
         same_day = [positions[n] for n in nodes if "same-" in n]
         self.assertEqual(len({round(y) for _, y in same_day}), len(same_day))
 
+    def test_the_payload_carries_each_types_own_fields(self):
+        """The edit form renders inputs from this rather than from a second copy
+        of the schema, so it has to be lib.TYPES exactly."""
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, *build_graph.compute_layout(nodes))
+        fields = payload["fieldsByType"]
+        self.assertEqual(set(fields), set(lib.TYPES))
+        for name, spec in lib.TYPES.items():
+            self.assertEqual(fields[name], {"required": spec.required,
+                                            "optional": spec.optional})
+        self.assertIn("artifacts", fields["experiment"]["optional"])
+        self.assertIn("due", fields["task"]["optional"])
+
     def test_build_writes_a_self_contained_page(self):
         self.assertEqual(build_graph.main(), 0)
         page = (FIXTURE / "build" / "graph.html").read_text(encoding="utf-8")
@@ -1799,7 +1812,7 @@ class Serve(unittest.TestCase):
         info = _json.loads(body)
         self.assertEqual(info["cairn"], "serve")
         self.assertEqual(info["root"], str(lib.REPO_ROOT))
-        self.assertEqual(sorted(info["actions"]), ["create", "note", "status"])
+        self.assertEqual(sorted(info["actions"]), ["create", "edit", "note", "status"])
 
     def test_root_redirects_to_the_map_under_the_graph_root(self):
         """`/build/graph.html`, not `/`: the panel links `../nodes/<id>.md` and
@@ -1968,8 +1981,8 @@ class Serve(unittest.TestCase):
             self.assertIn(code, (400, 404), (bad, out))
             self.assertIn("error", out)
 
-    def test_only_three_actions_exist(self):
-        for bad in ("delete", "edit", "frontmatter", ""):
+    def test_no_action_deletes_or_writes_raw_frontmatter(self):
+        for bad in ("delete", "frontmatter", "yaml", ""):
             code, out = self.post({"action": bad, "id": "2026-08-02-prekd-probe"})
             self.assertEqual(code, 400)
             self.assertIn("action", out["error"])
@@ -1978,6 +1991,61 @@ class Serve(unittest.TestCase):
         code, out = self.post({"action": "note", "id": "2026-08-02-prekd-probe",
                                "text": "   "})
         self.assertEqual(code, 400)
+
+    def test_an_edit_goes_through_cairn_edit(self):
+        """Title, body over stdin, a relation and a parent in one request — and
+        `updated`/`history` stay exactly where they were."""
+        node_id = "2026-08-03-prekd-editme"
+        write(f"{node_id}.md", node_text(node_id, created="2026-08-03"))
+        before = self.node(node_id)
+        body = ("## Claim\n\nThe tether holds.\n\n## Result\n\n-0.4 eV: it held.\n\n"
+                "## Notes\n\n- **2026-08-26** (jlaw) does it track the seed?\n")
+        code, out = self.post({
+            "action": "edit", "id": node_id,
+            "set": {"title": "--looks like a flag, is a title"},
+            "parents": {"add": ["2026-08-02-prekd-probe"]},
+            "relates": {"add": [{"type": "supports", "id": "2026-08-02-prekd-probe",
+                                 "note": "same sign: independent route"}]},
+            "body": body})
+        self.assertEqual(code, 200, out)
+        self.assertEqual(out["cmd"][:3], ["cairn", "edit", node_id])
+        self.assertEqual(out["node"], node_id)
+        node = self.node(node_id)
+        self.assertEqual(node.title, "--looks like a flag, is a title")
+        self.assertEqual(node.parents, ["2026-08-02-prekd-probe"])
+        self.assertEqual(node.relates, [{"to": "2026-08-02-prekd-probe", "type": "supports",
+                                         "note": "same sign: independent route"}])
+        self.assertEqual(node.body.strip(), body.strip())
+        self.assertEqual((node.meta["updated"], node.history),
+                         (before.meta["updated"], before.history))
+
+    def test_an_edit_to_a_field_outside_the_whitelist_is_refused(self):
+        node_id = "2026-08-02-prekd-probe"
+        before = (FIXTURE / "nodes" / f"{node_id}.md").read_bytes()
+        code, out = self.post({"action": "edit", "id": node_id,
+                               "set": {"colour": "red"}})
+        self.assertEqual(code, 400)
+        self.assertIn("not a field edit can set", out["error"])
+        code, out = self.post({"action": "edit", "id": node_id,
+                               "set": {"status": "dead"}})
+        self.assertEqual(code, 400)
+        self.assertIn("new_node --update", out["error"])
+        code, out = self.post({"action": "edit", "id": node_id,
+                               "relations": {"add": []}})
+        self.assertEqual(code, 400)
+        self.assertIn("unknown edit key", out["error"])
+        self.assertEqual((FIXTURE / "nodes" / f"{node_id}.md").read_bytes(), before)
+
+    def test_an_edit_to_a_path_like_id_is_refused(self):
+        for bad in ("../../etc/passwd", "nodes/2026-08-02-prekd-probe", "--help"):
+            code, out = self.post({"action": "edit", "id": bad,
+                                   "set": {"title": "x"}})
+            self.assertEqual(code, 400, (bad, out))
+            self.assertIn("expected form", out["error"])
+        code, out = self.post({"action": "edit", "id": "2026-08-02-prekd-probe",
+                               "parents": {"add": ["../escape"]}})
+        self.assertEqual(code, 400)
+        self.assertIn("not a node id", out["error"])
 
     # -- the security model ----------------------------------------------
 
@@ -2053,6 +2121,224 @@ class Serve(unittest.TestCase):
         html = (FIXTURE / "build" / "graph.html").read_text()
         self.assertIn("copy command", html)
         self.assertIn("function noteCommand(", html)
+
+
+class Edit(unittest.TestCase):
+    """`cairn edit` is the one sanctioned way to change a node after the fact, so
+    the tests that matter are the refusals: every one is a way a correction could
+    quietly become a status change, a rename, or a broken graph. Run through the
+    dispatcher, against a throwaway graph that is a real git repo, because the
+    commit is half of what the command does."""
+
+    CAIRN = Path(__file__).resolve().parent.parent / "bin" / "cairn"
+    ROOT_ID = "2026-08-01-demo-root"
+    RUN_ID = "2026-08-02-demo-run"
+    TASK_ID = "2026-08-03-demo-task"
+    NOTES = "## Notes\n\n- **2026-08-26** (jlaw) does it track the seed?\n"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cairn-edit-"))
+        (self.tmp / "nodes").mkdir()
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "jlaw@example.gov")
+        self.git("config", "user.name", "Jeff Law")
+        self.put(self.ROOT_ID, node_text(self.ROOT_ID, "direction", "open",
+                                         project="demo", created="2026-08-01"))
+        self.put(self.RUN_ID, node_text(
+            self.RUN_ID, project="demo", parents=f"[{self.ROOT_ID}]",
+            updated="2026-08-05",
+            history="  - {date: 2026-08-02, status: planned, note: created}\n"
+                    "  - {date: 2026-08-05, status: running, note: queued}",
+        ).rstrip("\n") + "\n\n" + self.NOTES)
+        self.put(self.TASK_ID, node_text(self.TASK_ID, "task", "todo", project="demo",
+                                         created="2026-08-03", extra="due: 2026-09-01\n"))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "seed")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args):
+        import subprocess
+        return subprocess.run(["git", "-C", str(self.tmp), *args],
+                              capture_output=True, text=True, timeout=30)
+
+    def put(self, node_id, text):
+        (self.tmp / "nodes" / f"{node_id}.md").write_text(text.lstrip("\n"))
+
+    def path(self, node_id):
+        return self.tmp / "nodes" / f"{node_id}.md"
+
+    def node(self, node_id):
+        return lib.parse_file(self.path(node_id))
+
+    def edit(self, *args, stdin=None):
+        import subprocess
+        return subprocess.run(
+            [str(self.CAIRN), "edit", *args], input=stdin,
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, CAIRN_ROOT=str(self.tmp)))
+
+    def refused(self, node_id, *args, says="", stdin=None):
+        """Assert a refusal that names its reason and leaves the file untouched."""
+        before = self.path(node_id).read_bytes()
+        done = self.edit(node_id, *args, stdin=stdin)
+        self.assertNotEqual(done.returncode, 0, done.stdout)
+        if says:
+            self.assertIn(says, done.stderr)
+        self.assertEqual(self.path(node_id).read_bytes(), before,
+                         "a refused edit wrote to the file")
+        return done
+
+    # -- what lands -------------------------------------------------------
+
+    def test_an_edit_commits_and_prints_the_path_first(self):
+        """serve.py derives `committed` from the first line, as for `note`."""
+        done = self.edit(self.RUN_ID, "--title", "A better title",
+                         "--parent", self.TASK_ID)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.splitlines()[0], f"nodes/{self.RUN_ID}.md")
+        self.assertEqual(self.node(self.RUN_ID).title, "A better title")
+        self.assertEqual(self.git("status", "--porcelain").stdout.strip(), "")
+        message = self.git("log", "-1", "--format=%B").stdout
+        self.assertIn(f"edit {self.RUN_ID}: title, +parent {self.TASK_ID}", message)
+        self.assertIn(lib.review_trailer("jlaw", self.RUN_ID), message)
+
+    def test_an_edit_moves_neither_updated_nor_history(self):
+        """An edit is a correction, not a claim about the state of the work. If it
+        moved `updated`, the replay slider would show a change that never happened."""
+        before = self.node(self.RUN_ID)
+        self.assertEqual(self.edit(self.RUN_ID, "--title", "Retitled",
+                                   "--host", "kestrel").returncode, 0)
+        after = self.node(self.RUN_ID)
+        self.assertEqual(after.meta["updated"], before.meta["updated"])
+        self.assertEqual(after.history, before.history)
+        self.assertEqual(after.status, before.status)
+
+    def test_a_body_sent_back_unchanged_round_trips_notes(self):
+        """The map sends the whole body back. `## Notes` lives there, and must
+        come out byte for byte what went in."""
+        before = self.node(self.RUN_ID)
+        done = self.edit(self.RUN_ID, "--title", "T2", "--body", "-", stdin=before.body)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("body", done.stdout.splitlines()[1])
+        after = self.node(self.RUN_ID)
+        self.assertEqual(after.body, before.body)
+        self.assertEqual(lib.read_notes(after), lib.read_notes(before))
+
+    def test_a_replaced_body_lands_verbatim(self):
+        body = ("## Claim\n\nThe tether holds.\n\n## Result\n\n"
+                "| run | MAE |\n|---|---|\n| a | 1.4 |\n\n" + self.NOTES)
+        src = self.tmp / "body.txt"
+        src.write_text(body)
+        self.assertEqual(self.edit(self.RUN_ID, "--body", str(src)).returncode, 0)
+        after = self.node(self.RUN_ID)
+        self.assertEqual(after.body.strip(), body.strip())
+        self.assertEqual([n["text"] for n in lib.read_notes(after)],
+                         ["does it track the seed?"])
+
+    def test_relations_can_be_added_and_dropped(self):
+        done = self.edit(self.RUN_ID, "--relate",
+                         f"supports:{self.TASK_ID}:same sign, independent route")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.node(self.RUN_ID).relates,
+                         [{"to": self.TASK_ID, "type": "supports",
+                           "note": "same sign, independent route"}])
+        self.assertEqual(self.edit(self.RUN_ID, "--unrelate",
+                                   f"supports:{self.TASK_ID}").returncode, 0)
+        self.assertNotIn("relates", self.node(self.RUN_ID).meta)
+
+    def test_an_optional_scalar_can_be_cleared(self):
+        self.assertEqual(self.edit(self.TASK_ID, "--clear", "due").returncode, 0)
+        self.assertNotIn("due", self.node(self.TASK_ID).meta)
+
+    def test_an_all_digit_sha_stays_a_string(self):
+        """`commit: 1234567` reads back as an integer. The serializer has to quote
+        it, and the round-trip check is what would have caught it if not."""
+        self.assertEqual(self.edit(self.RUN_ID, "--repo", "git@x:y.git",
+                                   "--commit", "1234567").returncode, 0)
+        self.assertEqual(self.node(self.RUN_ID).meta["commit"], "1234567")
+        self.assertEqual([str(i) for i in lib.validate(self.tmp) if i.level == "error"], [])
+
+    def test_a_dry_run_shows_the_diff_and_writes_nothing(self):
+        before = self.path(self.RUN_ID).read_bytes()
+        done = self.edit(self.RUN_ID, "--title", "Dry", "--dry-run")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("+title: Dry", done.stdout)
+        self.assertIn("-title: A title for", done.stdout)
+        self.assertEqual(self.path(self.RUN_ID).read_bytes(), before)
+        self.assertEqual(self.git("status", "--porcelain").stdout.strip(), "")
+
+    def test_no_commit_leaves_it_on_disk(self):
+        self.assertEqual(self.edit(self.RUN_ID, "--title", "Draft fix",
+                                   "--no-commit").returncode, 0)
+        self.assertIn(self.RUN_ID, self.git("status", "--porcelain").stdout)
+
+    # -- what is refused, with nothing written ---------------------------
+
+    def test_the_fields_that_move_with_history_are_refused_by_name(self):
+        for field, value in (("status", "dead"), ("updated", "2026-09-01"),
+                             ("history", "x"), ("id", "2026-08-02-demo-x"),
+                             ("type", "task"), ("created", "2026-08-01")):
+            done = self.refused(self.RUN_ID, f"--{field}", value, says=field)
+            if field in ("status", "updated", "history"):
+                self.assertIn("new_node --update", done.stderr)
+            self.refused(self.RUN_ID, "--clear", field, says=field)
+
+    def test_a_field_the_type_does_not_carry_is_refused(self):
+        self.refused(self.RUN_ID, "--due", "2026-11-01", says="experiment has no 'due'")
+        self.refused(self.ROOT_ID, "--artifact", "kestrel:/x", says="direction has no")
+        self.refused(self.TASK_ID, "--clear", "contacts", says="contacts")
+
+    def test_a_required_field_cannot_be_cleared(self):
+        self.refused(self.RUN_ID, "--clear", "title", says="required")
+        self.refused(self.RUN_ID, "--clear", "project", says="required")
+
+    def test_an_edit_that_changes_nothing_is_refused(self):
+        title = self.node(self.RUN_ID).title
+        self.refused(self.RUN_ID, "--title", title, says="nothing would change")
+        self.refused(self.RUN_ID, "--body", "-", stdin=self.node(self.RUN_ID).body,
+                     says="nothing would change")
+        self.refused(self.RUN_ID, says="nothing would change")
+
+    def test_a_list_operation_that_would_do_nothing_is_refused(self):
+        """It means the caller's picture of the node is out of date."""
+        self.refused(self.RUN_ID, "--parent", self.ROOT_ID, says="already a parent")
+        self.refused(self.RUN_ID, "--drop-ref", "10.1021/nope", says="not a ref")
+        self.refused(self.RUN_ID, "--unrelate", f"supports:{self.ROOT_ID}",
+                     says="no 'supports' relation")
+
+    def test_a_parent_that_closes_a_cycle_is_refused_with_nothing_written(self):
+        self.refused(self.ROOT_ID, "--parent", self.RUN_ID, says="cycle")
+        self.refused(self.RUN_ID, "--parent", self.RUN_ID, says="own parent")
+
+    def test_a_target_that_does_not_exist_is_refused(self):
+        self.refused(self.RUN_ID, "--parent", "2026-08-09-demo-ghost", says="dangling")
+        self.refused(self.RUN_ID, "--relate", "contradicts:2026-08-09-demo-ghost:x",
+                     says="dangling")
+
+    def test_the_validators_field_rules_hold(self):
+        self.refused(self.RUN_ID, "--commit", "main", says="not a git SHA")
+        self.refused(self.RUN_ID, "--artifact", "results.json", says="host:/")
+        self.refused(self.RUN_ID, "--ref", "doi.org/10.1/x", says="bare DOI")
+        self.refused(self.TASK_ID, "--due", "next week", says="ISO date")
+        self.refused(self.RUN_ID, "--title", "two\nlines", says="one line")
+
+    def test_an_unknown_project_is_refused_without_offering_a_new_one(self):
+        """Moving a node into a project the graph has never seen is a creation-time
+        decision; the refusal must not suggest a flag edit does not have."""
+        done = self.refused(self.RUN_ID, "--project", "demoo", says="did you mean: demo")
+        self.assertNotIn("--new-project", done.stderr)
+
+    def test_an_empty_body_is_refused(self):
+        self.refused(self.RUN_ID, "--body", "-", stdin="  \n", says="never deleted")
+
+    def test_an_id_must_be_exact(self):
+        """`note` accepts a fragment because a note is capture; an edit rewrites
+        a node, so a fragment that happens to match is not good enough."""
+        done = self.edit("demo-run", "--title", "x")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no such node", done.stderr)
 
 
 class DocumentedCommands(unittest.TestCase):

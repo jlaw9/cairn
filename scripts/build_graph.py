@@ -415,6 +415,12 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
         # type-blind.
         "statusesByType": {name: list(spec.statuses)
                            for name, spec in sorted(lib.TYPES.items())},
+        # The type's own fields, so the edit form renders the right inputs
+        # without a copy of the schema. Common fields are every type's and are
+        # not repeated here.
+        "fieldsByType": {name: {"required": list(spec.required),
+                                "optional": list(spec.optional)}
+                         for name, spec in sorted(lib.TYPES.items())},
         "relations": sorted(lib.RELATIONS),
         "generated": dt.date.today().isoformat(),
     }
