@@ -2484,6 +2484,144 @@ class ExportExampleExclude(unittest.TestCase):
         self.assertIn("not published here", body)
 
 
+class OnboardingFixes(unittest.TestCase):
+    """Things a collaborator with their own graph, outside the tool clone, hits first."""
+
+    TOOL = Path(__file__).resolve().parent.parent
+
+    def graph(self, committed=False):
+        """A throwaway git graph that is NOT the tool repo."""
+        import subprocess
+        root = Path(tempfile.mkdtemp(prefix="cairn-graph-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        for sub in ("nodes", "papers"):
+            (root / sub).mkdir()
+        node_id = "2026-08-02-demo-first"
+        (root / "nodes" / f"{node_id}.md").write_text(
+            node_text(node_id, "direction", "open", project="demo").lstrip("\n"))
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com")
+        subprocess.run(["git", "init", "-q", str(root)], check=True, env=env)
+        subprocess.run(["git", "-C", str(root), "config", "user.email", "t@example.com"], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
+        if committed:
+            subprocess.run(["git", "-C", str(root), "add", "nodes"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "first",
+                            "--no-verify"], check=True, env=env)
+        return root, node_id
+
+    def cairn(self, root, *args):
+        import subprocess
+        return subprocess.run(
+            [str(self.TOOL / "bin" / "cairn"), *args], capture_output=True, text=True,
+            env=dict(os.environ, CAIRN_ROOT=str(root)), cwd=str(root))
+
+    # -- sync ---------------------------------------------------------------
+
+    def test_sync_regenerates_build_for_a_graph_outside_the_tool(self):
+        import importlib
+        root, _ = self.graph()
+        old = os.environ.get("CAIRN_ROOT")
+        os.environ["CAIRN_ROOT"] = str(root)
+        try:
+            import sync
+            importlib.reload(sync)
+            self.assertEqual(sync.REPO_ROOT, root)
+            self.assertTrue((sync.TOOL_ROOT / "bin" / "cairn").exists())
+            self.assertTrue(sync.regenerate())
+        finally:
+            if old is None:
+                del os.environ["CAIRN_ROOT"]
+            else:
+                os.environ["CAIRN_ROOT"] = old
+        self.assertTrue((root / "build" / "graph.html").exists())
+
+    def test_sync_counts_node_files_not_directories(self):
+        import importlib
+        root, _ = self.graph()
+        second = "2026-08-03-demo-second"
+        (root / "nodes" / f"{second}.md").write_text(
+            node_text(second, "direction", "open", project="demo", created="2026-08-03").lstrip("\n"))
+        old = os.environ.get("CAIRN_ROOT")
+        os.environ["CAIRN_ROOT"] = str(root)
+        try:
+            import sync
+            importlib.reload(sync)
+            changed, new = sync.unreviewed()
+        finally:
+            if old is None:
+                del os.environ["CAIRN_ROOT"]
+            else:
+                os.environ["CAIRN_ROOT"] = old
+        self.assertEqual(new, [f"nodes/2026-08-02-demo-first.md", f"nodes/{second}.md"])
+
+    # -- note ---------------------------------------------------------------
+
+    def test_note_on_an_untracked_node_says_what_to_do_and_exits_nonzero(self):
+        root, node_id = self.graph(committed=False)
+        result = self.cairn(root, "note", node_id, "looks odd")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is not committed yet", result.stdout)
+        self.assertIn(f"git add nodes/{node_id}.md", result.stdout)
+        self.assertNotIn("pathspec", result.stdout + result.stderr)
+        # capture wins: the note is on disk regardless
+        self.assertIn("looks odd", (root / "nodes" / f"{node_id}.md").read_text())
+
+    def test_note_on_a_committed_node_commits_and_exits_zero(self):
+        root, node_id = self.graph(committed=True)
+        result = self.cairn(root, "note", node_id, "looks odd")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("committed", result.stdout)
+
+    # -- new_node dates -----------------------------------------------------
+
+    def args(self, type_, **kw):
+        import argparse
+        base = dict(type=type_, title="A probe", project="prekd", status=None, note="",
+                    date="2026-08-03", slug=None, parent=[], ref=[], repo=None,
+                    commit=None, host=None, artifact=[], origin=None, venue=None,
+                    url=None, due=None, source=None, when=None, new_project=True)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def test_an_invalid_due_is_refused_on_create(self):
+        with self.assertRaises(SystemExit) as caught:
+            new_node.build(self.args("task", due="next-friday"))
+        self.assertIn("--due: not an ISO date: next-friday", str(caught.exception))
+
+    def test_a_valid_due_is_stored_as_a_date(self):
+        node = new_node.build(self.args("task", due="2026-10-30"))
+        self.assertEqual(node.meta["due"], dt.date(2026, 10, 30))
+
+    def test_when_sets_a_milestones_date_field(self):
+        clear()
+        node = new_node.build(self.args("milestone", when="2026-11-15"))
+        node.write()
+        self.assertEqual(node.meta["date"], dt.date(2026, 11, 15))
+        self.assertNotIn("due", node.meta)
+        self.assertEqual(errors(), [], error_text())
+
+    def test_an_invalid_when_is_refused(self):
+        with self.assertRaises(SystemExit) as caught:
+            new_node.build(self.args("milestone", when="soon"))
+        self.assertIn("--when: not an ISO date", str(caught.exception))
+
+    def test_due_on_a_milestone_is_refused_and_names_when(self):
+        with self.assertRaises(SystemExit) as caught:
+            new_node.build(self.args("milestone", due="2026-11-15"))
+        self.assertIn("--when", str(caught.exception))
+
+    def test_when_on_a_task_is_refused_and_names_due(self):
+        with self.assertRaises(SystemExit) as caught:
+            new_node.build(self.args("task", when="2026-11-15"))
+        self.assertIn("--due", str(caught.exception))
+
+    def test_due_on_an_experiment_is_refused(self):
+        with self.assertRaises(SystemExit) as caught:
+            new_node.build(self.args("experiment", due="2026-11-15"))
+        self.assertIn("no 'due' field", str(caught.exception))
+
+
 if __name__ == "__main__":
     try:
         result = unittest.main(exit=False, verbosity=2).result
