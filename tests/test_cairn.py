@@ -2727,6 +2727,118 @@ class OnboardingFixes(unittest.TestCase):
         self.assertIn("loop", str(caught.exception))
 
 
+class Discard(unittest.TestCase):
+    """`cairn discard` deletes only what git has never seen."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+    TRACKED = "2026-08-01-demo-kept"
+    DRAFT = "2026-08-02-demo-draft"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cairn-discard-"))
+        (self.tmp / "nodes").mkdir()
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "jlaw@example.gov")
+        self.git("config", "user.name", "Jeff Law")
+        self.node(self.TRACKED)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "seed")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args):
+        import subprocess
+        return subprocess.run(["git", "-C", str(self.tmp), *args],
+                              capture_output=True, text=True, timeout=30)
+
+    def node(self, name, **kw):
+        path = self.tmp / "nodes" / f"{name}.md"
+        path.write_text(node_text(name, project="demo", **kw).lstrip("\n"))
+        return path
+
+    def discard(self, *args):
+        import subprocess
+        return subprocess.run([str(self.ROOT / "bin" / "cairn"), "discard", *args],
+                              capture_output=True, text=True, timeout=60,
+                              env={**os.environ, "CAIRN_ROOT": str(self.tmp)})
+
+    def test_an_untracked_draft_is_deleted_with_its_untracked_asset(self):
+        path = self.node(self.DRAFT)
+        (self.tmp / "assets").mkdir()
+        asset = self.tmp / "assets" / f"{self.DRAFT}.png"
+        asset.write_bytes(b"x")
+        done = self.discard(self.DRAFT)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(path.exists())
+        self.assertFalse(asset.exists())
+        self.assertIn(f"nodes/{self.DRAFT}.md", done.stdout)
+
+    def test_a_tracked_node_is_refused(self):
+        done = self.discard(self.TRACKED)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("tracked", done.stderr)
+        self.assertTrue((self.tmp / "nodes" / f"{self.TRACKED}.md").exists())
+
+    def test_a_modified_tracked_node_is_refused(self):
+        path = self.tmp / "nodes" / f"{self.TRACKED}.md"
+        path.write_text(path.read_text() + "\nmore\n")
+        self.assertNotEqual(self.discard(self.TRACKED).returncode, 0)
+        self.assertTrue(path.exists())
+
+    def test_a_draft_that_is_someones_parent_is_refused_and_named(self):
+        path = self.node(self.DRAFT)
+        self.node("2026-08-03-demo-child", parents=f"[{self.DRAFT}]")
+        done = self.discard(self.DRAFT)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("2026-08-03-demo-child (parent)", done.stderr)
+        self.assertTrue(path.exists())
+
+    def test_a_draft_listed_in_relates_is_refused(self):
+        path = self.node(self.DRAFT)
+        self.node("2026-08-03-demo-other",
+                  extra=f"relates:\n  - {{to: {self.DRAFT}, type: supports, note: why}}\n")
+        done = self.discard(self.DRAFT)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("(relates)", done.stderr)
+        self.assertTrue(path.exists())
+
+    def test_anything_that_is_not_a_bare_node_id_is_refused(self):
+        outside = self.tmp / "keep.md"
+        outside.write_text("x")
+        for bad in ("../keep", "nodes/" + self.DRAFT, self.DRAFT + ".md", "demo-draft"):
+            self.node(self.DRAFT)
+            done = self.discard(bad)
+            self.assertNotEqual(done.returncode, 0, bad)
+            self.assertIn("bare node id", done.stderr)
+        self.assertTrue(outside.exists())
+        self.assertTrue((self.tmp / "nodes" / f"{self.DRAFT}.md").exists())
+
+    def test_a_graph_that_is_not_a_git_repo_is_refused(self):
+        plain = Path(tempfile.mkdtemp(prefix="cairn-discard-plain-"))
+        try:
+            (plain / "nodes").mkdir()
+            path = plain / "nodes" / f"{self.DRAFT}.md"
+            path.write_text(node_text(self.DRAFT, project="demo").lstrip("\n"))
+            import subprocess
+            done = subprocess.run([str(self.ROOT / "bin" / "cairn"), "discard", self.DRAFT],
+                                  capture_output=True, text=True, timeout=60,
+                                  env={**os.environ, "CAIRN_ROOT": str(plain),
+                                       "GIT_CEILING_DIRECTORIES": str(plain.parent)})
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn("not a git repo", done.stderr)
+            self.assertTrue(path.exists())
+        finally:
+            shutil.rmtree(plain, ignore_errors=True)
+
+    def test_dry_run_prints_and_removes_nothing(self):
+        path = self.node(self.DRAFT)
+        done = self.discard(self.DRAFT, "--dry-run")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"would remove nodes/{self.DRAFT}.md", done.stdout)
+        self.assertTrue(path.exists())
+
+
 if __name__ == "__main__":
     try:
         result = unittest.main(exit=False, verbosity=2).result

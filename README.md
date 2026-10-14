@@ -489,6 +489,8 @@ cairn review polyid-run-variance "the seeds explain it"
 cairn review polyid-run-variance       # read it, nothing to add
 ```
 
+A draft you decide not to keep is `cairn discard <id>`: it deletes a node file git has never seen, and refuses anything committed or modified, or any node another node points at. A node that has been committed is never deleted; change its status.
+
 `reviewed` is **derived from git, never a field**. A commit that carries a
 `Cairn-Review: <who> <node-id>` trailer says a human read that node; a node whose
 last write came after its last stamp is one nobody has read since.

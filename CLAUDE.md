@@ -219,6 +219,12 @@ hook — write to `inbox/` instead and let `/triage` handle it later. `inbox/`
 is explicitly a junk drawer: unstructured text, no schema, no validation.
 That's what makes it safe to write to unprompted.
 
+A draft nobody wants is the other outcome of that review, and `bin/cairn
+discard <id>` is how to say so: it deletes a node file git has never seen (and
+its untracked asset). It refuses anything committed or modified, a non-git
+graph, and a node another node lists in `parents` or `relates` — so it is not
+an exception to "never delete a node", only to a draft that never became one.
+
 Use `bin/cairn capture` for that rather than writing the file yourself: it
 records host, cwd, repo and commit, which is the context you can't reconstruct
 weeks later and can't infer from the text. It deliberately does not commit —
