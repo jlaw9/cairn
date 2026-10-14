@@ -19,8 +19,8 @@ an untrusted graph gets abandoned.
 $CAIRN_PATH/bin/cairn capture --project <hint> --title "<one line>" "<the note>"
 ```
 
-If `$CAIRN_PATH` is unset, use the absolute path to the Cairn clone. On a shared
-filesystem that is `/kfs2/projects/bpms/jlaw/tools/Cairn-graph`.
+If `$CAIRN_PATH` is unset, stop and say so — it must point at the Cairn clone
+(the tool), and `$CAIRN_ROOT` at the graph. Do not guess a path.
 
 Other input forms, when the note isn't a single string:
 
@@ -73,7 +73,7 @@ change `status`, `updated` or `history` — a note is not a claim about the stat
 of the work. `standup` and `digest` surface it, and a note dated after the node's
 last status change is reported as unanswered until the thread moves.
 
-**Write a note in Jeff's voice only when he said it.** If the observation is
+**Write a note in the user's voice only when they said it.** If the observation is
 yours, it belongs in the history note of a status change (`/log`'s job) or in
 `inbox/`. A `## Notes` bullet reads as the human's word, and quietly putting your
 inference there makes the graph less trustworthy, not more.

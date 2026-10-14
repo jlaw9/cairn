@@ -17,8 +17,8 @@ has.
 $CAIRN_PATH/bin/cairn standup --project <key>
 ```
 
-If `$CAIRN_PATH` is unset, use the absolute path to the Cairn clone — on a shared
-filesystem, `/kfs2/projects/bpms/jlaw/tools/Cairn-graph`. If you don't know the
+If `$CAIRN_PATH` is unset, stop and say so — it must point at the Cairn clone
+(the tool), and `$CAIRN_ROOT` at the graph. Do not guess a path. If you don't know the
 project key, run `$CAIRN_PATH/bin/cairn standup` with no arguments; it lists
 every project, ordered by what most needs attention.
 

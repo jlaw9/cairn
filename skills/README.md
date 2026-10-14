@@ -49,11 +49,12 @@ already worked this way for everything else — nodes by `id`, artifacts by
 here, just one applied to procedures instead of data.
 
 If `$CAIRN_PATH` is not set in the environment the agent is running in, the
-absolute path works and is the more reliable form on a shared filesystem:
+absolute path to your Cairn clone works and is the more reliable form on a shared
+filesystem:
 
 ```markdown
 … read the matching skill under
-/kfs2/projects/bpms/jlaw/tools/Cairn-graph/skills/.
+<path to your cairn clone>/skills/.
 ```
 
 **Not vendored, not copied.** A copy in each project repo is a copy that drifts,

@@ -13,8 +13,8 @@ unreviewed assertion is exactly the failure Cairn exists to prevent — the grap
 value is that everything in it has been read by a human. If nobody can confirm
 the interpretation, use `cairn-capture` and let triage handle it.
 
-`$CAIRN_PATH` below is the Cairn clone; on a shared filesystem,
-`/kfs2/projects/bpms/jlaw/tools/Cairn-graph`. Always invoke through
+`$CAIRN_PATH` below is the Cairn clone (the tool) and `$CAIRN_ROOT` is the graph.
+If either is unset, stop and say so rather than guessing a path. Always invoke through
 `bin/cairn`, never `scripts/*.py` — the dispatcher picks a Python that can
 actually run the scripts, and on an HPC login node the default `python3` often
 cannot even compile them.
@@ -131,12 +131,12 @@ $CAIRN_PATH/bin/cairn sync --push
 
 That regenerates `build/`, commits **only** `build/`, and pushes. It never
 commits a node — so if it reports uncommitted drafts, those are yours to show
-Jeff and commit, not for it to sweep in.
+the user and commit, not for it to sweep in.
 
 ## Do not
 
-- **Do not write a `## Notes` bullet.** That section is where *Jeff* reacts to a
-  node, and `cairn note` stamps his handle on it. Your observations go in the
+- **Do not write a `## Notes` bullet.** That section is where the *user* reacts to a
+  node, and `cairn note` stamps their handle on it. Your observations go in the
   history note of the status change, where they are correctly attributed.
 
 - Do not commit a node the user hasn't seen.
