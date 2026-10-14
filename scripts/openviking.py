@@ -41,13 +41,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 TOOL_ROOT = Path(__file__).resolve().parent.parent
-GRAPH_ROOT = Path(os.environ.get("CAIRN_ROOT") or TOOL_ROOT).expanduser()
+GRAPH_ROOT = Path(os.environ.get("CAIRN_ROOT") or TOOL_ROOT).expanduser().resolve()
 
 #: What gets registered, and in what order. nodes/ first because it is the
 #: record; the two build/ files second because they are the record read back,
@@ -152,7 +153,7 @@ def push(graph: Path, apply: bool) -> int:
 
 
 def _quote(s: str) -> str:
-    return s if all(c.isalnum() or c in "-_./:=" for c in s) else repr(s)
+    return shlex.quote(s)
 
 
 def main() -> int:

@@ -57,9 +57,13 @@ deleted, so the user can read the diff instead of a form.
 Then, in the graph repo:
 
 ```sh
-cd $CAIRN_ROOT && git add nodes/ inbox/ \
+cd $CAIRN_ROOT && git add nodes/<id>.md ... inbox/<file>.md ... meetings/<file>.md \
   && git commit -m "triage: <n> notes" && $CAIRN_PATH/bin/cairn sync --push
 ```
+
+Name the files. `git add nodes/` would sweep in every other uncommitted draft
+sitting in the graph — someone else's unreviewed node, under `ask` — and a
+meeting record that `import_note` wrote stays uncommitted unless you add it.
 
 Remove the inbox files you filed, in the same commit as the nodes they became —
 so the diff shows the junk turning into structure, which is the one place that

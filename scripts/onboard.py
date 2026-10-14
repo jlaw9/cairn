@@ -99,6 +99,8 @@ def main() -> int:
                    help="which sessions see the graph; project defaults to the cwd")
     p.add_argument("--openviking", choices=("yes", "no"),
                    help="register the graph with OpenViking if `ov` is installed")
+    p.add_argument("--allow-nested", action="store_true",
+                   help="let the graph sit inside another git repo (passed to cairn init)")
     p.add_argument("--yes", action="store_true", help="take every default; ask nothing")
     args = p.parse_args()
     a = Answers(args.yes)
@@ -138,7 +140,12 @@ def main() -> int:
         # Hooks, in case this clone predates them or was cloned rather than init'd.
         run(CAIRN, "install_hooks", graph, env=env)
     else:
-        if run(CAIRN, "init", graph, "--commit-mode", mode) != 0:
+        init_args = [CAIRN, "init", graph, "--commit-mode", mode]
+        if args.allow_nested:
+            init_args.append("--allow-nested")
+        if run(*init_args) != 0:
+            print("  (a graph inside another git repo is refused; --allow-nested overrides,")
+            print("   but keeping it outside every project repo is the point)")
             return 1
 
     # 3. Scope.
@@ -149,6 +156,7 @@ def main() -> int:
     print("   project  — only sessions started in one project directory (the same three,")
     print("              inside that project; nothing outside it changes)")
     scope = args.scope or a.ask("   machine or project?", "machine")
+    doctor_cwd = None
     if scope == "machine":
         code = run(CAIRN, "install_context", "--apply", env=env)
     elif scope.startswith("project"):
@@ -156,6 +164,10 @@ def main() -> int:
         if not where and not args.scope:
             where = a.ask("   Which project directory?", os.getcwd())
         project = Path(where or os.getcwd()).expanduser().resolve()
+        if project == TOOL_ROOT:
+            sys.exit("cairn onboard: the project directory is the Cairn tool itself — run this "
+                     "from the project you want wired, or pass --scope project=<path>")
+        doctor_cwd = project
         code = run(CAIRN, "install_context", "--project", project, "--apply", env=env)
     else:
         sys.exit(f"cairn onboard: --scope must be machine or project[=PATH], not {scope!r}")
@@ -189,6 +201,9 @@ def main() -> int:
     print("had not started', not 'not tried'. Backfill before trusting a gap:")
     print(f"  {TOOL_ROOT}/docs/backfill.md")
     print()
+    # doctor reads a project-scoped hook from the cwd, so run it where it landed.
+    if doctor_cwd is not None:
+        os.chdir(doctor_cwd)
     run(TOOL_ROOT / "scripts" / "doctor.sh", env=env)
     return 0
 

@@ -144,7 +144,9 @@ def main() -> int:
     # warns about this after the fact; here, at the moment of the mistake, a
     # refusal costs nothing.
     if not args.allow_nested:
-        probe = root if root.exists() else root.parent
+        probe = root
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
         try:
             parent = subprocess.run(
                 ["git", "-C", str(probe), "rev-parse", "--show-toplevel"],

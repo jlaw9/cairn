@@ -28,9 +28,10 @@ Three machine-level installs fix that once, and none of them is per-project:
 **Scope is a fact on disk, not a setting.** Machine-wide, the three installs
 land under `~/.claude` and every session on the machine sees the graph. With
 `--project <path>` the same three land inside that project instead — its
-`CLAUDE.md`, its `.claude/settings.local.json` (local, so the hook's absolute
-paths never reach collaborators through git) and its `.claude/commands/` — and
-only sessions started there see it. `doctor` reads both back; nothing has to
+`CLAUDE.local.md` and `.claude/settings.local.json` (the two files Claude Code
+reads but git convention leaves untracked, so this machine's absolute paths
+never reach collaborators) and its `.claude/commands/` — and only sessions
+started there see it. `doctor` reads both back; nothing has to
 remember which was chosen.
 
 **Dry run by default, like `sync_issues`.** These are files outside the repo
@@ -76,7 +77,10 @@ def scope_to(project: Path | None) -> None:
     if project is None:
         return
     CLAUDE_DIR = project / ".claude"
-    MEMORY = project / "CLAUDE.md"
+    # CLAUDE.local.md, not CLAUDE.md: the block carries this machine's absolute
+    # paths, and Claude Code reads the .local file while git convention keeps it
+    # out of the shared repo — the same reason the hooks go to settings.local.json.
+    MEMORY = project / "CLAUDE.local.md"
     SETTINGS = CLAUDE_DIR / "settings.local.json"
     COMMANDS = CLAUDE_DIR / "commands"
 
@@ -267,7 +271,13 @@ def plan_commands(root: Path) -> list[tuple[str, Path, Path]]:
     out = []
     for source in sorted((root / ".claude" / "commands").glob("*.md")):
         link = COMMANDS / source.name
-        if link.is_symlink() and link.resolve() == source.resolve():
+        try:
+            same = link.resolve() == source.resolve()
+        except (OSError, RuntimeError):        # a dangling or looping link
+            same = False
+        if same:
+            # Either already linked, or the target *is* the source file — never
+            # unlink that, or the command is gone and a self-loop is left behind.
             out.append(("ok", link, source))
         elif link.exists() or link.is_symlink():
             out.append(("update", link, source))
@@ -297,6 +307,11 @@ def main() -> int:
         project = Path(args.project).expanduser().resolve()
         if not project.is_dir():
             print(f"cairn install_context: {project} is not a directory", file=sys.stderr)
+            return 2
+        if project == TOOL_ROOT.resolve():
+            print("cairn install_context: --project points at the Cairn tool itself. The tool\n"
+                  "  already holds the commands; wire a *project* repo, or use machine scope.",
+                  file=sys.stderr)
             return 2
         scope_to(project)
 
@@ -362,6 +377,10 @@ def main() -> int:
         link.symlink_to(source)
         print(f"linked {link.name}")
 
+    if not args.remove and project is not None:
+        print(f"\nKeep {MEMORY.name}, .claude/settings.local.json and .claude/commands/ out of")
+        print("that repo's git (they carry this machine's paths); CLAUDE.local.md and")
+        print("settings.local.json are conventionally ignored already.")
     if not args.remove:
         print("\nThe hooks are read when a session starts, so this takes effect in the")
         print("next session, not this one. `cairn session_hook --dry-run` shows exactly")

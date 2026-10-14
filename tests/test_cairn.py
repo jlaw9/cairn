@@ -2379,6 +2379,13 @@ class CommitPolicy(unittest.TestCase):
         self.assertEqual(text2.count("## Commit policy"), 1)
         self.assertEqual(text2.count("commit_mode:"), 1)
         self.assertEqual(self.policy.read_commit_mode(self.graph), "ask")
+        # A toggle is a one-word diff: the blank line after the setting survives.
+        self.assertEqual(text2.replace("commit_mode: ask", "commit_mode: auto"), text)
+        self.assertIn("commit_mode: ask\n\n", text2)
+
+    def test_a_non_utf8_claude_md_reads_as_ask_not_a_traceback(self):
+        (self.graph / "CLAUDE.md").write_bytes(b"# A graph\n\xff\xfe\n")
+        self.assertEqual(self.policy.read_commit_mode(self.graph), "ask")
 
     def test_malformed_value_is_refused(self):
         with self.assertRaises(ValueError):
@@ -2417,6 +2424,11 @@ class CommitPolicy(unittest.TestCase):
         self.assertEqual(refused.returncode, 2, refused.stderr)
         self.assertIn("inside the git repo", refused.stderr)
         self.assertFalse(fresh.exists())
+        # Two missing levels deep is still nested.
+        deep = subprocess.run([cairn, "init", str(self.graph / "a" / "b" / "graph")],
+                              capture_output=True, text=True)
+        self.assertEqual(deep.returncode, 2, deep.stderr)
+        self.assertFalse((self.graph / "a").exists())
         allowed = subprocess.run([cairn, "init", str(fresh), "--commit-mode", "auto",
                                   "--allow-nested", "--no-git"],
                                  capture_output=True, text=True)
@@ -2448,8 +2460,10 @@ class InstallContextScope(unittest.TestCase):
         (self.project / "CLAUDE.md").write_text("# Project\n\nTheirs.\n")
         result = self.run_install("--project", str(self.project), "--apply")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertIn("Theirs.", (self.project / "CLAUDE.md").read_text())
-        self.assertIn("cairn:begin", (self.project / "CLAUDE.md").read_text())
+        # The shared CLAUDE.md is left alone; the block (with this machine's
+        # absolute paths) goes to CLAUDE.local.md, which git convention ignores.
+        self.assertEqual((self.project / "CLAUDE.md").read_text(), "# Project\n\nTheirs.\n")
+        self.assertIn("cairn:begin", (self.project / "CLAUDE.local.md").read_text())
         local = self.project / ".claude" / "settings.local.json"
         self.assertTrue(local.exists(), "hooks belong in settings.local.json, not settings.json")
         self.assertIn("session_hook", json.dumps(json.loads(local.read_text())))
@@ -2460,11 +2474,21 @@ class InstallContextScope(unittest.TestCase):
         self.assertFalse((self.home / "CLAUDE.md").exists())
         self.assertFalse((self.home / "commands").exists())
 
+    def test_the_tool_itself_is_refused_as_a_project(self):
+        """Pointing --project at the Cairn clone would make each command's link
+        target the source file itself: unlink it, and the command is gone."""
+        result = self.run_install("--project", str(self.ROOT), "--apply")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("tool itself", result.stderr)
+        for cmd in (self.ROOT / ".claude" / "commands").glob("*.md"):
+            self.assertFalse(cmd.is_symlink(), f"{cmd.name} was turned into a link")
+            self.assertTrue(cmd.read_text().startswith("---"))
+
     def test_project_scope_removes_cleanly(self):
-        (self.project / "CLAUDE.md").write_text("# Project\n\nTheirs.\n")
+        (self.project / "CLAUDE.local.md").write_text("# Local\n\nTheirs.\n")
         self.run_install("--project", str(self.project), "--apply")
         self.run_install("--project", str(self.project), "--remove", "--apply")
-        self.assertEqual((self.project / "CLAUDE.md").read_text(), "# Project\n\nTheirs.\n")
+        self.assertEqual((self.project / "CLAUDE.local.md").read_text(), "# Local\n\nTheirs.\n")
         local = self.project / ".claude" / "settings.local.json"
         self.assertNotIn("session_hook", local.read_text() if local.exists() else "")
 
@@ -2491,8 +2515,10 @@ class Onboard(unittest.TestCase):
         import subprocess
         env = {k: v for k, v in os.environ.items() if k not in ("CAIRN_ROOT", "CAIRN_PATH")}
         env["CLAUDE_CONFIG_DIR"] = str(self.home)
-        env["PATH"] = str(self.base / "nobin") + os.pathsep + env.get("PATH", "")
         env.update(env_extra or {})
+        # Never let a test reach a real OpenViking server: every run says no.
+        if "--openviking" not in args:
+            args = (*args, "--openviking", "no")
         return subprocess.run(
             [str(self.ROOT / "bin" / "cairn"), "onboard", *args],
             capture_output=True, text=True, timeout=180, stdin=subprocess.DEVNULL, env=env)

@@ -42,7 +42,7 @@ DEFAULT = "ask"
 #: The one machine-readable line. Flush-left, lowercase, nothing else on it, so
 #: a sentence that happens to mention `commit_mode: auto` in passing is not read
 #: as the setting.
-LINE_RE = re.compile(r"(?m)^commit_mode:\s*(ask|auto)\s*$")
+LINE_RE = re.compile(r"(?m)^commit_mode:[ \t]*(ask|auto)[ \t]*$")
 
 MEANING = {
     "ask": "an agent drafts a node, shows it, and commits only after you confirm",
@@ -78,7 +78,7 @@ def read_commit_mode(root: Path | None = None) -> str:
     `ask`, because the conservative reading is the one that cannot surprise."""
     try:
         text = policy_file(root).read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, ValueError):            # ValueError: not UTF-8
         return DEFAULT
     match = LINE_RE.search(text)
     return match.group(1) if match else DEFAULT
@@ -102,9 +102,10 @@ def write_commit_mode(mode: str, root: Path | None = None) -> Path:
 def sentence(mode: str) -> str:
     """One line for a session's context, stating the policy an agent is under."""
     if mode == "auto":
-        return ("Commit policy is `auto`: commit a node you write about work you did, "
-                "then say what you committed — the user edits afterward. Never commit a "
-                "node about work you did not do, and never hand-edit `status:`.")
+        return ("Commit policy is `auto`: commit the nodes you write — a session's result "
+                "via /log, a capture filed by /triage — then say what you committed; the "
+                "user edits afterward. Never invent a node nothing recorded, never hand-edit "
+                "`status:`, never write in the user's voice.")
     return ("Commit policy is `ask`: draft a node, show it, and commit only after the "
             "user confirms. Never commit a node they haven't seen.")
 
@@ -140,7 +141,10 @@ def main() -> int:
         print(mode)
         return 0
     source = policy_file(root)
-    stated = LINE_RE.search(source.read_text(encoding="utf-8")) if source.exists() else None
+    try:
+        stated = LINE_RE.search(source.read_text(encoding="utf-8")) if source.exists() else None
+    except (OSError, ValueError):
+        stated = None
     print(f"commit_mode: {mode}" + ("" if stated else "  (not stated — the default)"))
     print(f"  {MEANING[mode]}.")
     print(f"  set in {source} — change it with: cairn policy {'ask' if mode == 'auto' else 'auto'}")

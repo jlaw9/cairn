@@ -65,10 +65,13 @@ else
 fi
 
 # 3. /log and /paper, which only work from other repos once symlinked.
-if [ -e "$HOME/.claude/commands/log.md" ]; then
+cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+if [ -e "$cfg/commands/log.md" ]; then
     say_ok "/log and /paper reachable from any repo"
+elif [ -e "./.claude/commands/log.md" ]; then
+    say_ok "/log and /paper reachable from $(pwd) (project scope)"
 else
-    say_bad "/log not installed for this machine" "make install-commands"
+    say_bad "/log not installed for this machine" "cairn install_context --apply  (or: --project <path> --apply)"
 fi
 
 # 4. CAIRN_PATH — the tool. /log reads it from inside a project repo.
@@ -110,7 +113,6 @@ fi
 #     settings mean every session on this machine; a project's
 #     .claude/settings.local.json means only sessions started there. doctor
 #     can only see the first from here, so it says so rather than guessing.
-cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 if grep -qs "session_hook" "$cfg/settings.json" 2>/dev/null; then
     say_ok "every session on this machine sees the graph (SessionStart hook in $cfg)"
 elif grep -qs "session_hook" "./.claude/settings.local.json" 2>/dev/null; then

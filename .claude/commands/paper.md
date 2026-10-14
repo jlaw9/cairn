@@ -66,7 +66,7 @@ confirmation; under `auto`, commit and say so. (`$CAIRN_PATH/bin/cairn policy`
 prints the mode.)
 
 ```sh
-cd $CAIRN_ROOT && git add papers/ \
+cd $CAIRN_ROOT && git add papers/<doi-slug>.md nodes/<node id>.md \
   && git commit -m "paper: <bibkey>" && $CAIRN_PATH/bin/cairn sync --push
 ```
 

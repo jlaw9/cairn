@@ -92,9 +92,10 @@ back — there is no config file:
 3. **Which sessions see the graph?** `machine`: every Claude Code session on this
    machine (a `SessionStart` hook under `~/.claude`, the slash commands, a block
    in `~/.claude/CLAUDE.md`). `project`: only sessions started in one directory
-   (the same three, inside that project, with the hook in
-   `.claude/settings.local.json` so your absolute paths never reach a
-   collaborator through git).
+   (the same three, inside that project: `CLAUDE.local.md`, the hook in
+   `.claude/settings.local.json`, and `.claude/commands/` — the two `.local`
+   files are the ones git convention already ignores, so your absolute paths
+   never reach a collaborator).
 
 If [OpenViking](openviking.md) is installed, a fourth, optional offer: register
 the graph with it. Cairn is complete without it.
