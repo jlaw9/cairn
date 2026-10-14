@@ -33,13 +33,22 @@ arrive. Together with a 127.0.0.1 bind and a `Host:` check against DNS
 rebinding, that is the whole security model — which is all a localhost writer on
 a machine you are already sitting at should need, and it is why there is no
 auth to configure.
+
+**Chat** (`POST /api/chat`) runs one turn of the user's own Claude Code or
+Codex CLI as a subprocess — signed in as them, never a hosted service, never an
+API key held here — and streams its output back as ndjson. The model writes
+through `bin/cairn` like everything else; `chat_backends.py` holds what each CLI
+is allowed to do and how its output is read. `--no-chat` turns it off.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import select
+import socket
 import subprocess
 import sys
 import threading
@@ -50,6 +59,7 @@ from urllib.parse import unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import chat_backends
 import lib
 
 #: Where the tool lives, which after the repo split is not where the graph
@@ -89,6 +99,14 @@ TYPES = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
+
+#: A chat message is a question, not a document. A long paste belongs in
+#: `cairn import_note`, which keeps it verbatim.
+CHAT_MESSAGE_MAX = 20000
+
+#: Both CLIs use UUIDs (Codex's are v7). Anything that could be read as a flag
+#: or a path is refused before it reaches an argv.
+SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 #: One write at a time. Two requests shelling to `cairn note` at once would race
 #: on `git commit`, and the loser's diagnosis would be a git lock error rather
@@ -330,6 +348,9 @@ class Handler(BaseHTTPRequestHandler):
                 "cairn": "serve",
                 "root": str(lib.REPO_ROOT),
                 "actions": sorted(ACTIONS),
+                # {backend: path or null}; {} under --no-chat, so the page can
+                # tell "switched off" from "nothing installed".
+                "chat": chat_backends.available() if self.server.chat else {},  # type: ignore[attr-defined]
             })
         if path in ("/", "/index.html"):
             self.send_response(302)
@@ -384,8 +405,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(
                 {"error": "cross-origin writes are refused — open the served "
                           "page at this port rather than the file:// copy"}, 403)
+        if unquote(urlparse(self.path).path) == "/api/chat":
+            return self.handle_chat()
         if unquote(urlparse(self.path).path) != "/api/write":
-            return self.send_json({"error": "the only write endpoint is /api/write"}, 404)
+            return self.send_json({"error": "the write endpoints are /api/write "
+                                            "and /api/chat"}, 404)
         # Requiring JSON forces a preflight on any cross-origin attempt, which
         # this server never answers. A plain HTML form cannot reach here.
         if "application/json" not in (self.headers.get("Content-Type") or ""):
@@ -426,11 +450,161 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": f"{type(exc).__name__}: {exc}"}, 500)
         return self.send_json(result, 200 if result["ok"] else 422)
 
+    # ---- chat -----------------------------------------------------------
+    #
+    # One turn of the user's own Claude Code or Codex CLI, streamed back as
+    # ndjson. Everything the model writes still goes through bin/cairn (that is
+    # what its allowlist or sandbox permits), so this endpoint adds no write
+    # path of its own — it adds a second *author* for the paths that exist.
+    #
+    # WRITE_LOCK is deliberately not held for the turn: a turn can take minutes,
+    # and holding the lock would freeze the panel's note box for all of them.
+    # So a chat's writes and the panel's writes can interleave. That is safe for
+    # the same reason two people are: every write is one bin/cairn command on
+    # its own file, and `cairn note` commits with `--only`. The lock is taken
+    # around the rebuild, which is the one step that rewrites a shared file.
 
-def serve(port: int, quiet: bool = False) -> ThreadingHTTPServer:
+    def read_json_body(self) -> dict | None:
+        """The /api/write body guards, for the chat endpoint. None once an
+        error has been sent."""
+        if "application/json" not in (self.headers.get("Content-Type") or ""):
+            self.send_json({"error": "Content-Type must be application/json"}, 415)
+            return None
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0 or length > 1 << 20:
+            self.send_json({"error": "empty or oversized body"}, 400)
+            return None
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            self.send_json({"error": f"bad JSON: {exc}"}, 400)
+            return None
+        if not isinstance(payload, dict):
+            self.send_json({"error": "body must be a JSON object"}, 400)
+            return None
+        return payload
+
+    def client_gone(self) -> bool:
+        """Has the browser hung up? A closed socket reads as ready-with-nothing."""
+        try:
+            ready, _, _ = select.select([self.connection], [], [], 0)
+            return bool(ready) and self.connection.recv(1, socket.MSG_PEEK) == b""
+        except OSError:
+            return True
+
+    def send_chunk(self, event: dict) -> None:
+        data = (json.dumps(event) + "\n").encode()
+        self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
+        self.wfile.flush()
+
+    def handle_chat(self) -> None:
+        if not self.server.chat:                          # type: ignore[attr-defined]
+            return self.send_json(
+                {"error": "chat is switched off (cairn serve --no-chat)"}, 404)
+        payload = self.read_json_body()
+        if payload is None:
+            return None
+
+        name = str(payload.get("backend", "") or "").strip()
+        backend = chat_backends.BACKENDS.get(name)
+        if backend is None:
+            return self.send_json(
+                {"error": f"unknown backend {name!r}; expected one of "
+                          f"{', '.join(sorted(chat_backends.BACKENDS))}"}, 400)
+        message = str(payload.get("message", "") or "").strip()
+        if not message:
+            return self.send_json({"error": "message is required"}, 400)
+        if len(message) > CHAT_MESSAGE_MAX:
+            return self.send_json(
+                {"error": f"message is over {CHAT_MESSAGE_MAX} characters"}, 400)
+        session = str(payload.get("session", "") or "").strip() or None
+        if session and not SESSION_RE.match(session):
+            return self.send_json({"error": f"session is not a session id: {session!r}"}, 400)
+        node = None
+        node_id = str(payload.get("node", "") or "").strip()
+        if node_id:
+            if not ID_RE.match(node_id):
+                return self.send_json({"error": f"node is not a node id: {node_id!r}"}, 400)
+            try:
+                node = (node_id, known_node(node_id).title)
+            except Refused as exc:
+                return self.send_json({"error": str(exc)}, exc.code)
+
+        binary = backend.available()
+        if not binary:
+            return self.send_json(
+                {"error": f"{name} is not installed on this machine — {backend.install}",
+                 "backend": name}, 503)
+
+        argv = backend.argv(
+            chat_backends.turn_prompt(message, node), session=session,
+            system=chat_backends.system_prompt(lib.REPO_ROOT, TOOL_ROOT, name),
+            cwd=lib.REPO_ROOT, tool=TOOL_ROOT, binary=binary)
+        # The CLI runs bin/cairn itself, so it has to resolve the same graph and
+        # the same tool this server did — not whatever the shell profile says.
+        env = {**os.environ, "CAIRN_ROOT": str(lib.REPO_ROOT),
+               "CAIRN_PATH": str(TOOL_ROOT)}
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.close_connection = True
+
+        events = chat_backends.run(backend, argv, lib.REPO_ROOT, env,
+                                   gone=self.client_gone)
+        final = None
+        try:
+            for event in events:
+                if event["type"] == "done":
+                    final = event
+                    break
+                self.send_chunk(event)
+        except OSError:
+            # The browser went away mid-stream. Closing the generator (below)
+            # stops the CLI and its children; there is nobody left to tell.
+            return None
+        finally:
+            events.close()
+        if final is None:                                  # client_gone() fired
+            return None
+        # Rebuild only after a clean exit, as /api/write rebuilds only on
+        # success: a failed turn leaves build/ showing the graph as it still is.
+        rebuilt = False
+        if final.get("ok"):
+            with WRITE_LOCK:
+                rebuilt = bool(rebuild()["ok"])
+        final["rebuilt"] = rebuilt
+        try:
+            self.send_chunk(final)
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except OSError:
+            pass
+        return None
+
+
+def serve(port: int, quiet: bool = False, chat: bool = True) -> ThreadingHTTPServer:
     httpd = ThreadingHTTPServer((HOST, port), Handler)
     httpd.quiet = quiet                                   # type: ignore[attr-defined]
+    httpd.chat = chat                                     # type: ignore[attr-defined]
     return httpd
+
+
+def chat_banner(enabled: bool) -> str:
+    if not enabled:
+        return "chat: off (--no-chat)"
+    found = [f"{name} ({path})" for name, path in chat_backends.available().items() if path]
+    if not found:
+        return ("chat: no Claude Code or Codex CLI on PATH, so the chat panel has "
+                "nothing to run (--no-chat hides it)")
+    return ("chat: " + ", ".join(found) + " — your own signed-in CLI, writing "
+            "through bin/cairn (--no-chat to turn off)")
 
 
 def main() -> int:
@@ -442,6 +616,8 @@ def main() -> int:
     parser.add_argument("--open", action="store_true",
                         help="open the map in a browser once the server is up")
     parser.add_argument("--quiet", action="store_true", help="no request log")
+    parser.add_argument("--no-chat", action="store_true",
+                        help="no chat: /api/chat refuses and /api/health reports chat: {}")
     args = parser.parse_args()
 
     page = lib.REPO_ROOT / "build" / "graph.html"
@@ -451,7 +627,7 @@ def main() -> int:
         return 1
 
     try:
-        httpd = serve(args.port, args.quiet)
+        httpd = serve(args.port, args.quiet, chat=not args.no_chat)
     except OSError as exc:
         print(f"cairn: cannot listen on {HOST}:{args.port} ({exc})\n"
               f"  another `cairn serve` may already be running — try --port",
@@ -463,6 +639,7 @@ def main() -> int:
           f"  {url}\n"
           f"  the panel can now leave a note and move a status; both shell to "
           f"bin/cairn.\n"
+          f"  {chat_banner(not args.no_chat)}\n"
           f"  Ctrl-C to stop. The file:// copy keeps working read-only.")
     if args.open:
         webbrowser.open(url)

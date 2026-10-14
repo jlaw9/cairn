@@ -23,6 +23,7 @@ Three machine-level installs fix that once, and none of them is per-project:
     cairn install_context              # say what would change, touch nothing
     cairn install_context --apply
     cairn install_context --remove     # take the managed block and hooks back out
+    cairn install_context --codex      # the same for the OpenAI Codex CLI
 
 **Dry run by default, like `sync_issues`.** These are files outside the repo
 that affect every session on the machine, so the default has to be to print the
@@ -246,6 +247,130 @@ def plan_commands(root: Path) -> list[tuple[str, Path, Path]]:
 
 
 # --------------------------------------------------------------------------
+# Codex (`--codex`)
+# --------------------------------------------------------------------------
+#
+# What Codex reads, as verified against Codex CLI 0.162.1 on 2026-10-14 (see
+# docs/chat-backends.md): skills are directories holding a SKILL.md, found
+# under `$HOME/.agents/skills` among other roots, and symlinked skill folders
+# are followed; instructions come from AGENTS.md, walked from the git root down
+# to the working directory. So the install is the same shape as Claude's —
+# symlinks so the skills stay current, and a marked block so it is exact to
+# remove — just in two different places.
+#
+# No hook is installed. Codex 0.162.1 has a SessionStart hook, but it runs only
+# after the user has reviewed and trusted that exact definition in the TUI, so
+# writing one here would install something that silently does nothing.
+
+
+def agents_block() -> str:
+    """The AGENTS.md pointer. Machine-neutral, because this file lives in the
+    graph repo and every collaborator's clone of the tool is somewhere else."""
+    return f"""{BEGIN}
+## Cairn
+
+This directory is a Cairn research graph. Before writing anything here, read
+`CLAUDE.md` in this directory, then the conventions it points to,
+`$CAIRN_PATH/CLAUDE.md` and `$CAIRN_PATH/docs/schema.md`. They are written for
+Claude Code and bind every agent: write only through `$CAIRN_PATH/bin/cairn`,
+never hand-edit a node's frontmatter, and never commit a node a human has not
+read. The skills are `cairn-capture`, `cairn-resume` and `cairn-log`.
+{END}"""
+
+
+def plan_codex_block(path: Path, remove: bool) -> tuple[str, str]:
+    """(verdict, new text) for the AGENTS.md block: 'ok', 'add' or 'update'.
+    The same marker logic as the memory block, kept separate so this section
+    stays self-contained."""
+    current = path.read_text(encoding="utf-8") if path.exists() else ""
+    if remove:
+        if BEGIN not in current:
+            return "ok", current
+        head, _, rest = current.partition(BEGIN)
+        _, _, tail = rest.partition(END)
+        return "update", (head.rstrip("\n") + "\n" + tail.lstrip("\n")).lstrip("\n")
+    wanted = agents_block()
+    if not path.exists():
+        return "add", wanted + "\n"
+    if BEGIN not in current:
+        joiner = "" if current.endswith("\n\n") else ("\n" if current.endswith("\n") else "\n\n")
+        return "add", current + joiner + wanted + "\n"
+    head, _, rest = current.partition(BEGIN)
+    _, _, tail = rest.partition(END)
+    replaced = head + wanted + tail
+    return ("ok" if replaced == current else "update"), replaced
+
+
+def codex_skills_dir() -> Path:
+    return Path.home() / ".agents" / "skills"
+
+
+def plan_skills(tool: Path, remove: bool) -> list[tuple[str, Path, Path]]:
+    """[(verdict, link, source)] for every skill in this repo.
+
+    A real directory where a link would go is somebody's own skill: it is
+    reported as a conflict and left alone, never replaced.
+    """
+    out = []
+    for skill in sorted(p for p in (tool / "skills").iterdir() if (p / "SKILL.md").is_file()):
+        link = codex_skills_dir() / skill.name
+        ours = link.is_symlink() and link.resolve() == skill.resolve()
+        if remove:
+            out.append(("remove" if ours else "ok", link, skill))
+        elif ours:
+            out.append(("ok", link, skill))
+        elif link.is_symlink():
+            out.append(("update", link, skill))
+        elif link.exists():
+            out.append(("conflict", link, skill))
+        else:
+            out.append(("add", link, skill))
+    return out
+
+
+def install_codex(args) -> int:
+    root, agents = TOOL_ROOT, GRAPH_ROOT / "AGENTS.md"
+    print(f"cairn install_context --codex — tool {root}")
+    print(f"                                graph {GRAPH_ROOT}\n")
+
+    verdict, text = plan_codex_block(agents, args.remove)
+    skills = plan_skills(root, args.remove)
+    label = {"ok": "ok      ", "add": "ADD     ", "update": "UPDATE  ",
+             "remove": "REMOVE  ", "conflict": "CONFLICT"}
+    print(f"  {label[verdict]}{agents}")
+    if verdict != "ok":
+        print(f"          {'removing' if args.remove else 'installing'} the "
+              f"cairn:begin/end pointer to CLAUDE.md")
+    for v, link, source in skills:
+        print(f"  {label[v]}{link}  ->  {source}")
+        if v == "conflict":
+            print("          a directory that is not ours is already there; left alone")
+
+    changing = [verdict] + [v for v, _, _ in skills if v != "conflict"]
+    if all(v == "ok" for v in changing):
+        print("\nNothing to change. Codex on this machine already sees the graph.")
+        return 0
+    if args.dry_run or not args.apply:
+        print("\nDry run. Nothing written. Re-run with --apply.")
+        return 0
+
+    if verdict != "ok":
+        agents.write_text(text, encoding="utf-8")
+        print(f"\nwrote {agents}")
+    for v, link, source in skills:
+        if v in ("ok", "conflict"):
+            continue
+        if link.is_symlink():
+            link.unlink()
+        if v != "remove":
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(source)
+        print(f"{'unlinked' if v == 'remove' else 'linked'} {link}")
+    if not args.remove:
+        print("\nAGENTS.md is a file in the graph repo, uncommitted: commit it so every")
+        print("clone gets it. Codex has no Cairn session hook, so `cairn sync` at the")
+        print("start of a session is yours to run.")
+    return 0
 
 
 def main() -> int:
@@ -257,7 +382,16 @@ def main() -> int:
                    help="take the managed block and the cairn hooks back out")
     p.add_argument("--no-hooks", action="store_true",
                    help="memory block and commands only; leave settings.json alone")
+    p.add_argument("--codex", action="store_true",
+                   help="wire up the OpenAI Codex CLI instead: skills into "
+                        "~/.agents/skills, an AGENTS.md pointer in the graph root")
+    p.add_argument("--dry-run", action="store_true",
+                   help="say what would change and touch nothing (the default)")
     args = p.parse_args()
+    if args.codex:
+        return install_codex(args)
+    if args.dry_run:
+        args.apply = False
 
     root = TOOL_ROOT
     print(f"cairn install_context — tool {root}")
