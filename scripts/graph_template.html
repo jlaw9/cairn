@@ -127,6 +127,34 @@
   .strip-rule { stroke: var(--line); stroke-width: 1; }
   .strip-tick { stroke: var(--bg); stroke-width: .5; }
   .strip-note { fill: var(--ink-faint); font-size: 10.5px; }
+  /* Orientation chrome: lane names in a gutter on the left, months in a strip
+     along the top. Both are HTML laid over the stage and positioned on one axis
+     from the current pan and zoom, so they stay readable however far the map is
+     dragged. Neither takes pointer events except on its labels, so a drag that
+     starts over them still pans the map underneath. `fit()` reserves their room. */
+  #gutter, #axis { position: absolute; pointer-events: none; overflow: hidden; }
+  #gutter {
+    left: 0; top: 0; bottom: 0; z-index: 5; width: var(--gutter, 118px);
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    border-right: 1px solid var(--line);
+  }
+  #axis {
+    left: 0; right: 0; top: 0; height: 22px; z-index: 6;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .glane {
+    position: absolute; left: 0; right: 0; padding: 0 8px 0 10px; height: 16px; line-height: 16px;
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    pointer-events: auto; cursor: pointer; user-select: none;
+  }
+  .glane:hover { color: var(--ink); }
+  .gsep { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line); }
+  .gtick {
+    position: absolute; top: 3px; font-size: 10px; color: var(--ink-faint); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
   .node { cursor: pointer; }
   .node .glyph { stroke: var(--bg); stroke-width: 1.5; }
   /* Clickable: the label is a bigger target than the glyph, and people aim at words. */
@@ -147,6 +175,9 @@
   #panel h4, #panel h5, #panel h6 { margin: 18px 0 5px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); }
   #panel p, #panel li { color: var(--ink); }
   #panel pre { background: var(--panel-2); padding: 10px; border-radius: 6px; overflow-x: auto; }
+  /* A `host:/long/path` in running text has no spaces to break at. */
+  #panel code { overflow-wrap: anywhere; }
+  #panel pre code { overflow-wrap: normal; }
   #panel blockquote { border-left: 2px solid var(--line); margin: 8px 0; padding-left: 12px; color: var(--ink-dim); }
   #panel a { color: var(--accent); }
   #panel hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
@@ -243,6 +274,14 @@
   }
   .chk .fold:hover { color: var(--ink); background: var(--panel-2); }
   .chk .fold.on { color: var(--accent); }
+  /* "only": one project in one gesture. Shown on hover, and kept visible on the
+     one row that is already alone, where it reads "all" and undoes itself. */
+  .chk .only {
+    display: none; margin-left: 6px; font-size: 10.5px; color: var(--accent); cursor: pointer;
+  }
+  .chk:hover .only, .chk .only.alone { display: inline; }
+  .chk .only:hover { text-decoration: underline; }
+  .chk[hidden] { display: none; }
 
   /* A note is a human sentence someone added after the fact. It gets a marker on
      the glyph rather than a colour, because colour already means status and
@@ -345,10 +384,28 @@
   #flash .xbtn { position: absolute; right: 6px; top: 5px; }
 
   .keys { font-size: 11px; color: var(--ink-faint); line-height: 1.9; }
-  .keys kbd {
+  .keys kbd, #help kbd {
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px;
     padding: 0 4px; font-family: inherit; font-size: 10.5px;
   }
+  .keys .more { color: var(--accent); cursor: pointer; }
+
+  /* The keyboard help: `?` opens it, Esc or a click outside closes it. */
+  #help {
+    position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.45);
+  }
+  #help[hidden] { display: none; }
+  #help .box {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 22px 16px; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
+    overflow-y: auto; box-shadow: 0 14px 40px rgba(0,0,0,.4);
+  }
+  #help h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-dim); }
+  #help dl { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; margin: 0; font-size: 12.5px; }
+  #help dt { text-align: right; white-space: nowrap; }
+  #help dd { margin: 0; color: var(--ink-dim); }
+  #help .foot { margin-top: 12px; font-size: 11px; color: var(--ink-faint); }
 
   #hover {
     position: fixed; z-index: 20; max-width: 330px; pointer-events: none;
@@ -410,6 +467,15 @@
     <h2>Author</h2><div id="fAuthor"></div>
     <button id="reset">Reset filters</button>
     <button id="foldAll">Collapse all lanes</button>
+    <h2>Keys</h2>
+    <div class="keys">
+      <kbd>&larr;</kbd><kbd>&rarr;</kbd> along time ·
+      <kbd>&uarr;</kbd><kbd>&darr;</kbd> across lanes<br>
+      <kbd>p</kbd> parent · <kbd>c</kbd> child · <kbd>i</kbd> isolate<br>
+      <kbd>n</kbd> write a note · <kbd>w</kbd> needs you<br>
+      <kbd>space</kbd> replay · <kbd>/</kbd> search · <kbd>esc</kbd> close<br>
+      <span class="more" data-help="1"><kbd>?</kbd> every key</span>
+    </div>
     <h2>Legend</h2>
     <div class="muted" style="line-height:1.9">
       ● experiment &nbsp; ◆ seed<br>▮ direction &nbsp; ■ task<br>⬢ milestone
@@ -423,18 +489,12 @@
     <div id="fillKey"></div>
     <h2>Edges</h2>
     <div id="relKey"></div>
-    <h2>Keys</h2>
-    <div class="keys">
-      <kbd>&larr;</kbd><kbd>&rarr;</kbd> along time ·
-      <kbd>&uarr;</kbd><kbd>&darr;</kbd> across lanes<br>
-      <kbd>p</kbd> parent · <kbd>c</kbd> child · <kbd>i</kbd> isolate<br>
-      <kbd>n</kbd> write a note · <kbd>w</kbd> needs you<br>
-      <kbd>space</kbd> replay · <kbd>/</kbd> search · <kbd>esc</kbd> close
-    </div>
   </aside>
 
   <div id="stage">
     <svg id="svg"><g id="view"></g></svg>
+    <div id="gutter"></div>
+    <div id="axis"></div>
     <div id="empty" class="empty" hidden>
       <p>No nodes yet.</p>
       <p>Create one with <code>cairn new_node</code>, then <code>cairn build</code>.</p>
@@ -446,6 +506,7 @@
 </main>
 
 <div id="hover" hidden></div>
+<div id="help" hidden></div>
 
 <script>
 const DATA = /*__CAIRN_DATA__*/null;
@@ -580,15 +641,28 @@ const COLLAPSED_H = 30;
 //: without knowing which lanes above it are folded.
 let laneNow = new Map();
 
-function laneGeometry(collapsedSet) {
+/* A lane whose project is filtered out takes no room at all. Otherwise showing
+   one project of thirteen leaves one strip of nodes in a canvas of empty bands,
+   and `fit()` has to choose between the strip and the bands. */
+let laneBottom = 0;
+
+function laneGeometry(collapsedSet, hiddenSet = new Set()) {
   const out = new Map();
   let cursor = DATA.lanes.length ? DATA.lanes[0].top : 0;
+  let last = cursor;
   for (const lane of DATA.lanes) {
+    if (hiddenSet.has(lane.project)) {
+      out.set(lane.project, { top: cursor, height: 0, dy: cursor - lane.top,
+                              collapsed: false, hidden: true });
+      continue;
+    }
     const collapsed = collapsedSet.has(lane.project);
     const height = collapsed ? COLLAPSED_H : lane.height;
-    out.set(lane.project, { top: cursor, height, dy: cursor - lane.top, collapsed });
+    out.set(lane.project, { top: cursor, height, dy: cursor - lane.top, collapsed, hidden: false });
+    last = cursor + height;
     cursor += height + LANE_GAP;
   }
+  laneBottom = last;
   return out;
 }
 
@@ -806,22 +880,21 @@ function draw() {
   }
   const folded = new Set([...state.collapsed].filter(
     p => !(state.isolate && (inLane.get(p) || []).length)));
-  laneNow = laneGeometry(folded);
+  const hiddenLanes = new Set(DATA.lanes.map(l => l.project).filter(p => !state.project.has(p)));
+  laneNow = laneGeometry(folded, hiddenLanes);
 
-  const bottom = DATA.lanes.length
-    ? laneNow.get(DATA.lanes[DATA.lanes.length - 1].project).top +
-      laneNow.get(DATA.lanes[DATA.lanes.length - 1].project).height + 20
-    : DATA.height;
+  const bottom = DATA.lanes.length ? laneBottom + 20 : DATA.height;
 
+  // Lane names and month labels are drawn in the gutter and the axis strip
+  // (drawChrome), which stay put while the map pans; the canvas keeps the bands
+  // and the tick rules.
   for (const lane of DATA.lanes) {
     const g = laneNow.get(lane.project);
+    if (g.hidden) continue;
     parts.push(`<rect class="lane-band" x="0" y="${g.top}" width="${DATA.width}" height="${g.height}"></rect>`);
-    parts.push(`<text class="lane-label${g.collapsed ? ' folded' : ''}" x="14" y="${g.top + 16}" ` +
-      `data-lane="${esc(lane.project)}">${g.collapsed ? '▸' : '▾'} ${esc(lane.project)}</text>`);
   }
   for (const tick of DATA.ticks) {
     parts.push(`<line class="tick-line" x1="${tick.x}" y1="30" x2="${tick.x}" y2="${bottom}"></line>`);
-    parts.push(`<text class="tick-text" x="${tick.x + 4}" y="24">${esc(tick.label)}</text>`);
   }
   const sel = state.selected;
   const kin = sel && !state.isolate
@@ -916,6 +989,57 @@ function draw() {
   refreshCounts();
   fillLegend();
   syncCarets();
+  buildChrome();
+}
+
+/* ---------- the gutter and the axis ----------
+   Built once per draw (which lanes exist, folded or not), positioned on every
+   pan and zoom (positionChrome, from applyTransform). Each moves on one axis
+   only: a lane name follows its band up and down and sticks under the axis
+   while any of the band is on screen; a month label follows its rule left and
+   right and stays in the strip. */
+const AXIS_H = 22;
+const gutterW = () => (svg.clientWidth < 640 ? 84 : 118);
+
+function buildChrome() {
+  const gut = $('#gutter'), axis = $('#axis');
+  gut.style.setProperty('--gutter', gutterW() + 'px');
+  gut.innerHTML = DATA.lanes.map(lane => {
+    const g = laneNow.get(lane.project);
+    if (!g || g.hidden) return '';
+    return `<div class="gsep" data-sep="${esc(lane.project)}"></div>` +
+      `<div class="glane" data-lane="${esc(lane.project)}" ` +
+      `title="${esc(lane.project)} — click to ${g.collapsed ? 'unfold' : 'fold'} the lane">` +
+      `${g.collapsed ? '▸' : '▾'} ${esc(lane.project)}</div>`;
+  }).join('');
+  axis.innerHTML = DATA.ticks.map((t, i) =>
+    `<span class="gtick" data-tick="${i}">${esc(t.label)}</span>`).join('');
+  positionChrome();
+}
+
+function positionChrome() {
+  const gut = $('#gutter'), axis = $('#axis');
+  if (!gut || !laneNow.size) return;
+  const H = svg.clientHeight, W = svg.clientWidth, gw = gutterW();
+  for (const el of gut.querySelectorAll('.glane')) {
+    const g = laneNow.get(el.dataset.lane);
+    const top = g.top * scale + ty, h = g.height * scale;
+    const off = top + h < AXIS_H || top > H;
+    el.hidden = off;
+    const sep = gut.querySelector(`.gsep[data-sep="${CSS.escape(el.dataset.lane)}"]`);
+    if (sep) { sep.hidden = off || top < AXIS_H; sep.style.top = Math.round(top) + 'px'; }
+    if (off) continue;
+    // Sticky: at the band's top, or just under the axis while the band's top
+    // is above it, but never below the band's own bottom.
+    const y = h < 18 ? top + (h - 16) / 2
+                     : Math.min(Math.max(top + 3, AXIS_H + 3), top + h - 17);
+    el.style.top = Math.round(y) + 'px';
+  }
+  for (const el of axis.querySelectorAll('.gtick')) {
+    const sx = DATA.ticks[+el.dataset.tick].x * scale + tx;
+    el.hidden = sx < gw - 2 || sx > W - 20;
+    el.style.left = Math.round(sx + 4) + 'px';
+  }
 }
 
 /** Every ancestor and every descendant of `id`, plus `id` itself. */
@@ -1017,10 +1141,9 @@ function artifactRow(value) {
 
 
 /* ---------- filters ---------- */
-/* `fold` adds a per-row fold toggle, which only the Project rail gets. The lane
-   label on the canvas does the same job, but `fit()` zooms to the shown nodes and
-   the labels sit in the gutter at x=14, so at most pans they are off screen — a
-   control you cannot reach is not a control. The rail is always visible. */
+/* `fold` adds a per-row fold toggle and an "only", which only the Project rail
+   gets. The lane name in the gutter folds too; the rail is the list of every
+   project, shown or not. */
 function chk(container, values, key, colour, fold) {
   container.innerHTML = values.map(v =>
     `<label class="chk">` +
@@ -1029,19 +1152,49 @@ function chk(container, values, key, colour, fold) {
     (key === 'author' && v === 'uncommitted'
       ? `<span class="muted" title="nodes git has never seen — no author yet">not committed</span>`
       : `<span>${esc(v)}</span>`) +
+    (fold ? `<span class="only" data-only="${esc(v)}" title="Show only this project (alt- or ⌘-click the row)">only</span>` : '') +
     `<span class="n" data-count="${key}:${esc(v)}"></span>` +
     (fold ? `<span class="fold" data-lane="${esc(v)}" title="Fold this lane to a strip">▾</span>` : '') +
     `</label>`
   ).join('');
 }
 
-/** Keep the rail's carets agreeing with the map. */
+/** Keep the rail's carets, and its one "all", agreeing with the map. */
 function syncCarets() {
   document.querySelectorAll('.fold[data-lane]').forEach(el => {
     const on = state.collapsed.has(el.dataset.lane);
     el.textContent = on ? '\u25b8' : '\u25be';
     el.classList.toggle('on', on);
   });
+  document.querySelectorAll('.only[data-only]').forEach(el => {
+    const alone = state.project.size === 1 && state.project.has(el.dataset.only);
+    el.textContent = alone ? 'all' : 'only';
+    el.title = alone ? 'Show every project again' : 'Show only this project (alt- or \u2318-click the row)';
+    el.classList.toggle('alone', alone);
+  });
+}
+
+/** One project, in one gesture; the same gesture on the lone project undoes it. */
+function setOnly(project) {
+  const alone = state.project.size === 1 && state.project.has(project);
+  state.project = alone ? ALL_VALUES.project() : new Set([project]);
+  document.querySelectorAll('[data-key=project]').forEach(i => { i.checked = state.project.has(i.value); });
+  draw();
+  if (DATA.nodes.some(visible)) fit();
+  syncFilterUrl();
+}
+
+/** The filters into the query string `initFromUrl` reads, so what the map shows
+    is a link \u2014 `?project=polyid` was always readable, now it is also written. */
+function syncFilterUrl() {
+  const p = new URLSearchParams(location.search);
+  for (const key of FILTER_KEYS) {
+    const all = ALL_VALUES[key]();
+    if ([...all].every(v => state[key].has(v))) p.delete(key);
+    else p.set(key, [...state[key]].filter(v => all.has(v)).join(','));
+  }
+  const q = p.toString();
+  history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
 }
 
 function refreshCounts() {
@@ -1100,6 +1253,8 @@ function noteBox(n) {
    `actions` is the server's own list, so a button for a command this server
    does not have (an older `cairn serve`, a tool without `discard`) never shows. */
 const server = { up: false, actions: new Set() };
+//: The chat drawer's state; `enabled` only once /api/health names a backend.
+const chat = { enabled: false };
 
 async function probeServer() {
   if (!location.protocol.startsWith('http')) return;
@@ -2086,11 +2241,26 @@ function open(id, opts = {}) {
 
   panel.classList.add('open');
   panel.scrollTop = 0;
-  history.replaceState(null, '', '#' + id);
+  // An open you asked for is a history entry, so Back walks the nodes you
+  // visited. A re-render of the node already in the hash (the slider, the
+  // server probe, a restore after a reload) replaces, or Back would stutter.
+  const hash = '#' + id;
+  if (opts.replace || decodeURIComponent(location.hash) === hash) {
+    history.replaceState(null, '', hash);
+  } else {
+    history.pushState(null, '', hash);
+  }
   draw();
   syncStatusBox();
   if (opts.pan !== false) ensureVisible(id);
 }
+
+// Back, Forward, or a #<node-id> typed into the address bar.
+window.addEventListener('hashchange', () => {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (!id) { if (state.selected || state.creating) close(); return; }
+  if (id !== state.selected && byId.has(id)) open(id, { replace: true });
+});
 
 function close() {
   state.selected = null;
@@ -2103,7 +2273,10 @@ function close() {
 
 /* ---------- pan / zoom ---------- */
 let tx = 0, ty = 0, scale = 1;
-const applyTransform = () => view.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+const applyTransform = () => {
+  view.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+  positionChrome();
+};
 
 svg.addEventListener('wheel', e => {
   e.preventDefault();
@@ -2156,13 +2329,15 @@ function fit() {
     y1 = Math.max(...shown.map(n => Y(n) + radiusOf(n) + 14));
   }
   const w = Math.max(x1 - x0, 1), h = Math.max(y1 - y0, 1);
+  // The gutter and the axis strip sit over the stage; fit into what they leave.
+  const gw = gutterW(), freeW = rect.width - gw, freeH = rect.height - AXIS_H;
 
   // Floor the auto-fit: past a point, shrinking to fit just makes the labels
   // illegible. Content wider than the viewport is a job for panning.
-  scale = Math.max(0.5, Math.min(1, (rect.width - 40) / w, (rect.height - 40) / h));
-  // Centre the content rather than pinning it to the top-left corner.
-  tx = (rect.width - w * scale) / 2 - x0 * scale;
-  ty = (rect.height - h * scale) / 2 - y0 * scale;
+  scale = Math.max(0.5, Math.min(1, (freeW - 40) / w, (freeH - 40) / h));
+  // Centre the content in the free area rather than pinning it to a corner.
+  tx = gw + (freeW - w * scale) / 2 - x0 * scale;
+  ty = AXIS_H + (freeH - h * scale) / 2 - y0 * scale;
   applyTransform();
 }
 
@@ -2176,17 +2351,17 @@ function ensureVisible(id) {
   const rect = svg.getBoundingClientRect();
   if (rect.width < 120 || rect.height < 120) return;
   const sx = n.x * scale + tx, sy = Y(n) * scale + ty, m = 40;
-  if (sx < m || sx > rect.width - m || sy < m || sy > rect.height - m) centerOn(id);
+  if (sx < gutterW() + m || sx > rect.width - m || sy < AXIS_H + m || sy > rect.height - m) centerOn(id);
 }
 
-/** Pan a node to the middle of the stage without shrinking anything. */
+/** Pan a node to the middle of the free stage without shrinking anything. */
 function centerOn(id) {
   const n = byId.get(id);
   if (!n) return;
-  const rect = svg.getBoundingClientRect();
+  const rect = svg.getBoundingClientRect(), gw = gutterW();
   scale = Math.max(scale, 0.85);
-  tx = rect.width / 2 - n.x * scale;
-  ty = rect.height / 2 - Y(n) * scale;
+  tx = gw + (rect.width - gw) / 2 - n.x * scale;
+  ty = AXIS_H + (rect.height - AXIS_H) / 2 - Y(n) * scale;
   applyTransform();
 }
 
@@ -2227,6 +2402,7 @@ document.addEventListener('change', e => {
   e.target.checked ? state[key].add(e.target.value) : state[key].delete(e.target.value);
   draw();
   fitToMatchesSoon();
+  syncFilterUrl();
 });
 
 $('#reset').onclick = () => {
@@ -2235,6 +2411,7 @@ $('#reset').onclick = () => {
   state.isolate = null;
   $('#time').value = state.t = Math.max(0, DATA.dates.length - 1);
   updateTimeLabel(); draw(); fit();
+  syncFilterUrl();
 };
 
 $('#search').addEventListener('input', e => {
@@ -2259,13 +2436,26 @@ timeInput.addEventListener('input', e => {
 
 document.addEventListener('click', e => {
   if (e.target.id === 'close') return close();
+  if (e.target.id === 'help') return toggleHelp(false);       // the backdrop
   const d = e.target.dataset || {};
   if (d.goto) return open(d.goto);
+  if (d.helpx) return toggleHelp(false);
+  if (e.target.closest?.('[data-help]')) return toggleHelp(true);
+  // Alt- or ⌘-click a project row: that project alone. Checked before the
+  // label's own toggle runs, which preventDefault cancels.
+  const row = e.target.closest?.('#fProject .chk');
+  if (row && (e.altKey || e.metaKey)) {
+    e.preventDefault();
+    return setOnly(row.querySelector('input').value);
+  }
+  if (d.only) { e.preventDefault(); return setOnly(d.only); }
   if (d.isolate) {
     const on = state.isolate !== d.isolate;
     state.isolate = on ? d.isolate : null;
-    open(d.isolate);
-    return on ? centerOn(d.isolate) : fit();
+    open(d.isolate, { pan: false });
+    // Frame the whole lineage: centring on the node left its parents off to
+    // one side and its children under the panel.
+    return fit();
   }
   if (d.copy) {
     const link = location.origin + location.pathname + location.search + '#' + d.copy;
@@ -2569,6 +2759,42 @@ function hop(key) {
   if (ids.length) open(ids[0]);
 }
 
+/* ---------- every key, in one place ----------
+   The shortcuts used to be findable only in button tooltips and a block at the
+   bottom of the rail. This is the list, and the only one that is complete. */
+function helpRows() {
+  const rows = [
+    ['<kbd>&larr;</kbd> <kbd>&rarr;</kbd>', 'previous / next node along time, in this lane'],
+    ['<kbd>&uarr;</kbd> <kbd>&darr;</kbd>', 'nearest node in the lane above / below'],
+    ['<kbd>p</kbd> <kbd>c</kbd>', 'walk to a parent / a child'],
+    ['<kbd>i</kbd>', 'isolate the open node’s lineage (again to show all)'],
+    ['<kbd>n</kbd>', 'write a note on the open node'],
+    ['<kbd>w</kbd>', 'the needs-you lens'],
+    ['<kbd>space</kbd>', 'play / pause the replay'],
+    ['<kbd>/</kbd>', 'search'],
+  ];
+  if (chat.enabled) rows.push(['<kbd>k</kbd>', 'open / close the chat']);
+  rows.push(
+    ['<kbd>esc</kbd>', 'leave a field, close this, close the panel'],
+    ['<kbd>?</kbd>', 'this list'],
+    ['alt / ⌘-click', 'a project in the rail: show only it'],
+    ['Back / Forward', 'the nodes you opened, in order'],
+  );
+  return rows;
+}
+
+function toggleHelp(on) {
+  const box = $('#help');
+  if (on) {
+    box.innerHTML = `<div class="box" role="dialog" aria-label="Keyboard shortcuts">` +
+      `<button class="xbtn" style="float:right" data-helpx="1" title="Close (Esc)">×</button>` +
+      `<h3>Keys</h3><dl>` +
+      helpRows().map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') +
+      `</dl><div class="foot">Keys are ignored while you type in a field.</div></div>`;
+  }
+  box.hidden = !on;
+}
+
 const TYPING = () => {
   const el = document.activeElement;
   return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
@@ -2576,6 +2802,7 @@ const TYPING = () => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    if (!$('#help').hidden) return toggleHelp(false);
     if (TYPING()) return document.activeElement.blur();
     stopPlay();
     return close();
@@ -2583,6 +2810,8 @@ document.addEventListener('keydown', e => {
   if (TYPING()) return;                        // never hijack a key mid-sentence
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+  if (e.key === '?') { e.preventDefault(); return toggleHelp($('#help').hidden); }
+  if (!$('#help').hidden) return;              // the overlay is up: keys are for reading it
   if (e.key === '/') { e.preventDefault(); return $('#search').focus(); }
   if (e.key === ' ') { e.preventDefault(); return togglePlay(); }
   if (e.key === 'w') { e.preventDefault(); return setNeeds(!state.needs); }
@@ -2595,8 +2824,8 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const id = state.selected;
     state.isolate = state.isolate === id ? null : id;
-    open(id);
-    return state.isolate ? centerOn(id) : fit();
+    open(id, { pan: false });
+    return fit();
   }
   if (e.key === 'p' || e.key === 'c') { e.preventDefault(); return hop(e.key); }
 
