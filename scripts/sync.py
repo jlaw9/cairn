@@ -47,7 +47,10 @@ from pathlib import Path
 # because PyYAML is missing somewhere is worse than useless. The one step that
 # genuinely needs a working interpreter — regenerating build/ — is shelled out
 # to bin/cairn, which picks its own.
-REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or Path(__file__).resolve().parent.parent)
+#: Where the tool lives (bin/cairn is here), as opposed to the graph.
+TOOL_ROOT = Path(__file__).resolve().parent.parent
+#: The graph: nodes/, build/ and the git repo sync operates on.
+REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or TOOL_ROOT)
 
 
 def git(*args: str, timeout: int = 120) -> tuple[int, str]:
@@ -94,7 +97,9 @@ def porcelain() -> list[tuple[str, str]]:
     unreviewed drafts" is the exact failure this command exists to prevent, and it
     only showed up as a count that disagreed with `git status`.
     """
-    code, text = git("status", "--porcelain")
+    # -uall: without it git collapses a wholly-untracked directory to one
+    # "?? nodes/" line, so a brand-new graph reports directories, not nodes.
+    code, text = git("status", "--porcelain", "-uall")
     if code != 0:
         return []
     entries = []
@@ -166,7 +171,7 @@ def regenerate() -> bool:
     """`cairn build`, via the dispatcher so the interpreter question stays solved."""
     try:
         done = subprocess.run(
-            [str(REPO_ROOT / "bin" / "cairn"), "build"],
+            [str(TOOL_ROOT / "bin" / "cairn"), "build"],
             capture_output=True, text=True, timeout=300, cwd=str(REPO_ROOT),
         )
     except (OSError, subprocess.SubprocessError):
@@ -359,7 +364,9 @@ def main() -> int:
     if args.quiet and not needs:
         return 0
 
-    branch = out("rev-parse", "--abbrev-ref", "HEAD") or "?"
+    # symbolic-ref, not rev-parse: before the first commit HEAD does not resolve,
+    # but the branch name already exists.
+    branch = out("symbolic-ref", "--short", "HEAD") or out("rev-parse", "--short", "HEAD") or "?"
     if not args.quiet:
         print(f"cairn sync — {REPO_ROOT} on {branch}")
         for line in log:
