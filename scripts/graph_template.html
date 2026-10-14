@@ -2379,31 +2379,6 @@ $('#colourBy').addEventListener('change', e => {
   draw();
 });
 
-function setFolded(project, on) {
-  if (on) state.collapsed.add(project); else state.collapsed.delete(project);
-  syncFoldButton();
-  draw();
-}
-
-function syncFoldButton() {
-  const all = DATA.lanes.length && state.collapsed.size >= DATA.lanes.length;
-  $('#foldAll').textContent = all ? 'Expand all lanes' : 'Collapse all lanes';
-}
-
-$('#foldAll').onclick = () => {
-  const all = DATA.lanes.length && state.collapsed.size >= DATA.lanes.length;
-  state.collapsed = all ? new Set() : new Set(DATA.lanes.map(l => l.project));
-  syncFoldButton();
-  draw();
-  fit();
-};
-
-$('#colourBy').addEventListener('change', e => {
-  state.colour = e.target.value;
-  document.body.dataset.colour = state.colour;
-  draw();
-});
-
 /* ---------- hover card ---------- */
 const hover = $('#hover');
 let hoverId = null;
