@@ -668,6 +668,10 @@ not exist. `cairn serve` is a localhost writer that closes that gap:
   node's panel, which prefills the parent and its project. Lineage recorded at
   creation is lineage that actually gets recorded
 - **start a project** — the project select ends in `+ new project…`
+- **correct a node** — its body, title, due date, parents, relations and the
+  other fields its type carries, through `cairn edit`, which validates the result
+  before writing and refuses `status` (that is the select above, because it moves
+  `history` with it). An edit leaves `updated` alone: fixing a typo is not news
 
 **The form is the one place in Cairn that insists on structure**, and only for an
 experiment: it will not submit without a claim. The whole point of `planned` is a

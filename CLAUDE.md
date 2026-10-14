@@ -150,6 +150,21 @@ Body convention for experiments — `## Claim` / `## What I did` / `## Result` /
 `## Next`. **Don't enforce it.** Prompting for structure at capture time is
 how capture dies.
 
+**Correct an existing node with `bin/cairn edit`, never by hand-editing YAML.**
+It replaces the body (`--body FILE`, or `-` for stdin), sets or `--clear`s a
+whitelisted scalar the node's type carries (`title`, `project`, `due`, `date`,
+`venue`, `url`, `repo`, `commit`, `host`, `origin`, `source`), and adds or drops
+one `--parent`, `--ref`, `--artifact` or `--relate` at a time. It refuses, by
+name, `id`, `type`, `created`, `status`, `updated` and `history` — the last three
+move only together, through `new_node --update`. **It does not touch `updated` or
+`history`**: an edit is a correction, not a claim about the state of the work, so
+moving them would put a status change on the replay slider that never happened —
+the same reason `cairn note` leaves them alone. The edited node is validated in
+memory first, so a parent that closes a cycle or a relation to a missing node is
+refused with nothing written. It commits like `note` does (with a review trailer,
+since whoever corrects a node has just read it); an agent drafting a correction
+for Jeff to look at passes `--no-commit`, and `--dry-run` shows the diff.
+
 ### `## Notes` is where a human reacts to a node
 
 `bin/cairn note <id> "..."` appends a dated bullet under `## Notes`:
