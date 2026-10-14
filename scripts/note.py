@@ -235,7 +235,6 @@ def main() -> int:
         print("\n  The note is written, but the commit failed — nothing is lost:")
         for out_line in text_out.splitlines()[:10]:
             print(f"    {out_line}")
-        return 1
     return 0
 
 

@@ -2621,6 +2621,64 @@ class OnboardingFixes(unittest.TestCase):
             new_node.build(self.args("experiment", due="2026-11-15"))
         self.assertIn("no 'due' field", str(caught.exception))
 
+    # -- --update without a status ------------------------------------------
+
+    def upd(self, node_id, **kw):
+        import argparse
+        base = dict(update=node_id, status=None, note="", date=None, relate=[],
+                    parent=[], artifact=[], commit=None, host=None, url=None,
+                    due=None, when=None)
+        base.update(kw)
+        return new_node.update(argparse.Namespace(**base))
+
+    def two_tasks(self):
+        clear()
+        write("2026-08-02-prekd-a.md", node_text(
+            "2026-08-02-prekd-a", "task", "todo", extra="due: 2026-09-01\n"))
+        write("2026-08-03-prekd-b.md", node_text(
+            "2026-08-03-prekd-b", "task", "todo", created="2026-08-03"))
+
+    def test_a_due_date_can_move_without_a_status_change(self):
+        self.two_tasks()
+        node = self.upd("2026-08-02-prekd-a", due="2026-10-01")
+        self.assertEqual(node.meta["due"], dt.date(2026, 10, 1))
+        self.assertEqual(len(node.history), 1)
+        self.assertEqual(node.meta["updated"], dt.date(2026, 8, 2))
+
+    def test_a_milestones_date_can_move_without_a_status_change(self):
+        clear()
+        write("2026-08-02-prekd-m.md", node_text(
+            "2026-08-02-prekd-m", "milestone", "planned", extra="date: 2026-09-01\n"))
+        node = self.upd("2026-08-02-prekd-m", when="2026-12-01")
+        self.assertEqual(node.meta["date"], dt.date(2026, 12, 1))
+        self.assertEqual(len(node.history), 1)
+
+    def test_update_with_nothing_to_do_still_refuses(self):
+        self.two_tasks()
+        with self.assertRaises(SystemExit):
+            self.upd("2026-08-02-prekd-a")
+
+    def test_update_appends_a_parent_without_history(self):
+        self.two_tasks()
+        node = self.upd("2026-08-03-prekd-b", parent=["2026-08-02-prekd-a"])
+        self.assertEqual(node.meta["parents"], ["2026-08-02-prekd-a"])
+        self.assertEqual(len(node.history), 1)
+        node.write()
+        self.assertEqual(errors(), [], error_text())
+
+    def test_update_refuses_a_missing_parent(self):
+        self.two_tasks()
+        with self.assertRaises(SystemExit) as caught:
+            self.upd("2026-08-03-prekd-b", parent=["2026-01-01-prekd-ghost"])
+        self.assertIn("no such node", str(caught.exception))
+
+    def test_update_refuses_a_parent_that_closes_a_loop(self):
+        self.two_tasks()
+        self.upd("2026-08-03-prekd-b", parent=["2026-08-02-prekd-a"]).write()
+        with self.assertRaises(SystemExit) as caught:
+            self.upd("2026-08-02-prekd-a", parent=["2026-08-03-prekd-b"])
+        self.assertIn("loop", str(caught.exception))
+
 
 if __name__ == "__main__":
     try:

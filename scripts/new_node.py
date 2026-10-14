@@ -232,6 +232,35 @@ def build(args: argparse.Namespace) -> lib.Node:
     return lib.Node(path=path, meta=meta, body=body)
 
 
+def add_parents(node: lib.Node, parents: list) -> None:
+    """Append parents to an existing node. Append only; never removes one.
+
+    Refuses a parent that does not exist, or one that would close a loop (the
+    new parent already descends from this node). Validation would catch both
+    after the write, but a node file already rewritten is the wrong time.
+    """
+    nodes, _ = lib.load_nodes()
+    current = list(node.meta.get("parents") or [])
+    for parent in parents:
+        if parent not in nodes:
+            sys.exit(f"--parent: no such node: {parent}")
+        if parent == node.id:
+            sys.exit("--parent: a node cannot be its own parent")
+        seen, stack = set(), [parent]
+        while stack:
+            at = stack.pop()
+            if at == node.id:
+                sys.exit(f"--parent: {parent} descends from {node.id}; "
+                         "that would close a loop")
+            if at in seen or at not in nodes:
+                continue
+            seen.add(at)
+            stack.extend(nodes[at].parents)
+        if parent not in current:
+            current.append(parent)
+    node.meta["parents"] = current
+
+
 def update(args: argparse.Namespace) -> lib.Node:
     path = lib.node_dir() / f"{args.update}.md"
     if not path.exists():
@@ -243,10 +272,21 @@ def update(args: argparse.Namespace) -> lib.Node:
     relate = getattr(args, "relate", None)
     if relate:
         node.meta.setdefault("relates", []).extend(parse_relation(r) for r in relate)
+    # Edits that are not a state transition, so no history entry and no `updated`
+    # move: a deadline slipping, a parent found later. Same reasoning as a note.
+    changed = bool(relate)
+    parents = getattr(args, "parent", None) or []
+    if parents:
+        add_parents(node, parents)
+        changed = True
     if not args.status:
-        if relate:
+        deadlines = deadline_fields(node.type, args)
+        if deadlines:
+            node.meta.update(deadlines)
+            changed = True
+        if changed:
             return node
-        sys.exit("--update requires --status (or --relate)")
+        sys.exit("--update requires --status (or --relate, --parent, --due/--when)")
     when = lib.as_date(args.date) or dt.date.today()
     try:
         node.set_status(args.status, args.note or "", when)
