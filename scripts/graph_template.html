@@ -268,6 +268,14 @@
   #fillKey { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--ink-dim); }
   #fillKey .row { display: flex; align-items: center; gap: 6px; }
   #fillKey .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  #fillKey .row { align-items: flex-start; }
+  #fillKey .row .sw { margin-top: 2px; }
+  /* The shape key draws the map's own glyphs, in a neutral fill, so the wide
+     direction rectangle reads as the thing on the map and not as a bar. */
+  #shapeKey { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 11px; color: var(--ink-dim); }
+  #shapeKey .row { display: flex; align-items: center; gap: 5px; }
+  #shapeKey svg { width: 24px; height: 18px; flex: none; fill: var(--ink-faint); cursor: default; }
+  #shapeKey .glyph { stroke: var(--bg); stroke-width: 1.5; }
   .chk .fold {
     margin-left: 6px; color: var(--ink-faint); cursor: pointer; font-size: 10px;
     padding: 0 3px; border-radius: 3px;
@@ -417,6 +425,10 @@
   #hover .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   #hover .note { font-size: 12px; color: var(--ink); margin-top: 6px; font-style: italic; }
   #hover .hint { font-size: 10.5px; color: var(--ink-faint); margin-top: 6px; }
+  #hover .why, .needs-why { font-size: 11.5px; color: var(--pending); margin-top: 5px; }
+  .needs-why { margin: -6px 0 12px; }
+  #hover .hit { font-size: 12px; color: var(--ink-dim); margin-top: 6px; }
+  #hover .hit b { color: var(--ink); background: color-mix(in srgb, var(--pending) 30%, transparent); font-weight: 600; }
 
   /* Narrow viewports: the filter rail and the detail panel can't both keep a
      fixed width or the graph disappears between them. */
@@ -477,9 +489,7 @@
       <span class="more" data-help="1"><kbd>?</kbd> every key</span>
     </div>
     <h2>Legend</h2>
-    <div class="muted" style="line-height:1.9">
-      ● experiment &nbsp; ◆ seed<br>▮ direction &nbsp; ■ task<br>⬢ milestone
-    </div>
+    <div id="shapeKey"></div>
     <div class="muted" style="line-height:1.6;margin-top:8px">
       shape = type · size = work downstream<br>
       ring = needs you · dot = open note<br>
@@ -588,12 +598,23 @@ function openNotes(n, when) {
   return (n.notes || []).filter(x => x.date && x.date <= when && x.date >= floor);
 }
 
+/** Why this node needs a human, as one line — or '' when it does not. A string
+    rather than a boolean so the ring can say what it means: "needs you" with
+    no reason is a nag, and a nag gets ignored. Every caller that only asks
+    yes/no still works, because '' is falsy and a reason is not. */
 function needsYou(n, when) {
-  if (openNotes(n, when).length) return true;
+  const why = [];
+  const notes = openNotes(n, when);
+  if (notes.length) {
+    why.push(`unanswered note from ${notes.map(x => x.date).sort().pop()}`);
+  }
   const s = statusAt(n, when);
-  if (!ACTIVE_STATUS.has(s)) return false;
-  const last = [...(n.history || [])].filter(h => h.date <= when).pop();
-  return daysSince(last ? last.date : n.created, ageRef()) >= QUIET_DAYS;
+  if (ACTIVE_STATUS.has(s)) {
+    const last = [...(n.history || [])].filter(h => h.date <= when).pop();
+    const quiet = daysSince(last ? last.date : n.created, ageRef());
+    if (quiet >= QUIET_DAYS) why.push(`${s}, quiet ${quiet} d`);
+  }
+  return why.join(' · ');
 }
 
 function statusAt(n, when) {
@@ -725,8 +746,11 @@ function fillVar(n, when) {
 function fillLegend() {
   const rows = [];
   if (state.colour === 'status') {
-    // The status filter already carries this key, swatch for swatch.
-    rows.push(['', 'each status has its own colour — see the Status filter above']);
+    // Five colours, not one per status: say which statuses share each.
+    for (const cls of ['good', 'bad', 'active', 'pending', 'idle']) {
+      const members = DATA.statuses.filter(s => (CLS[s] || 'idle') === cls);
+      if (members.length) rows.push([cls, members.join(' · ')]);
+    }
   } else if (state.colour === 'needs') {
     rows.push(['pending', 'needs you'], ['idle', 'quiet, or answered']);
   } else if (state.colour === 'age') {
@@ -1099,6 +1123,37 @@ function haystack(n) {
   return hay;
 }
 
+/* Why a search matched, for the hover card: a window of text around the first
+   hit in the title, the body or a history note — the parts a person wrote. A
+   match only in the id or the project gets no excerpt; the card already shows
+   both. Original case, whitespace collapsed, the match bolded. */
+const readCache = new Map();
+function readable(n) {
+  let text = readCache.get(n.id);
+  if (text === undefined) {
+    scratch.innerHTML = n.body || '';
+    text = [n.title, scratch.content.textContent || '',
+            ...(n.history || []).map(h => h.note).filter(Boolean)]
+      .join(' — ').replace(/\s+/g, ' ').trim();
+    readCache.set(n.id, text);
+  }
+  return text;
+}
+
+function matchExcerpt(n, q, span = 60) {
+  if (!q) return '';
+  const text = readable(n);
+  const at = text.toLowerCase().indexOf(q);
+  if (at < 0) return '';
+  let start = Math.max(0, at - span), end = Math.min(text.length, at + q.length + span);
+  // Snap to word edges so the excerpt does not open on half a word.
+  if (start > 0) { const sp = text.indexOf(' ', start); if (sp > -1 && sp < at) start = sp + 1; }
+  if (end < text.length) { const sp = text.lastIndexOf(' ', end); if (sp > at + q.length) end = sp; }
+  return (start > 0 ? '…' : '') + esc(text.slice(start, at)) +
+    `<b>${esc(text.slice(at, at + q.length))}</b>` +
+    esc(text.slice(at + q.length, end)) + (end < text.length ? '…' : '');
+}
+
 /* `host:/path`, split so the machine and the filename are both readable, and
    clickable so the path lands on the clipboard instead of being re-typed.
 
@@ -1209,6 +1264,9 @@ function refreshCounts() {
   }
   document.querySelectorAll('[data-count]').forEach(el => {
     el.textContent = tally[el.dataset.count] || '';
+    // Seventeen statuses, several of them empty on any given graph (or date):
+    // a status nobody holds is a row of noise in the filter.
+    if (el.dataset.count.startsWith('status:')) el.closest('.chk').hidden = !tally[el.dataset.count];
   });
 }
 
@@ -2191,6 +2249,7 @@ function open(id, opts = {}) {
       `<span class="pill">${esc(n.type)}</span><span class="pill">${esc(n.project)}</span>` +
       (isLive() ? '' : `<span class="pill">as of ${esc(when)}</span>`) +
     `</div>` +
+    (needsYou(n, when) ? `<div class="needs-why">needs you — ${esc(needsYou(n, when))}</div>` : '') +
     gitBanner(n) +
     `<dl class="kv">${rows.join('')}</dl>` +
     `<div class="body">${n.body}</div>` +
@@ -2370,6 +2429,11 @@ chk($('#fProject'), [...new Set(DATA.nodes.map(n => n.project))].sort(), 'projec
 chk($('#fType'), DATA.types, 'type', false);
 chk($('#fStatus'), DATA.statuses, 'status', true);
 chk($('#fAuthor'), DATA.authors, 'author', false);
+
+// Shape key: the glyph() the map uses, at the map's base radius.
+$('#shapeKey').innerHTML = DATA.types.map(t =>
+  `<div class="row"><svg viewBox="-20 -15 40 30" aria-hidden="true">` +
+  glyph((DATA.shapes || {})[t] || 'circle', R - 3) + `</svg>${esc(t)}</div>`).join('');
 
 // Edge key. Dash patterns mirror the CSS so the map is decodable without colour.
 const REL_DASH = {supports: 'solid', contradicts: 'dashed', supersedes: 'dashed', resolves: 'dotted'};
@@ -2640,6 +2704,8 @@ function showHover(g, clientX, clientY) {
   const when = cutoff();
   const status = statusAt(n, when) || n.status;
   const note = [...n.history].reverse().find(h => h.date <= when && h.note);
+  const why = needsYou(n, when);
+  const hit = matchExcerpt(n, state.query);
   hover.innerHTML =
     `<strong>${esc(n.title)}</strong>` +
     `<div class="meta">` +
@@ -2648,7 +2714,10 @@ function showHover(g, clientX, clientY) {
       // Only worth the space once the graph actually has more than one
       // person in it; on a solo graph it is the same name every time.
       `${DATA.authors.length > 1 ? ' · ' + esc(whoLabel(n.author)) : ''}</div>` +
-    (note ? `<div class="note">${esc(note.note)}</div>` : '') +
+    (why ? `<div class="why">needs you — ${esc(why)}</div>` : '') +
+    // While searching, the line that matched beats the latest history note.
+    (hit ? `<div class="hit">${hit}</div>`
+         : note ? `<div class="note">${esc(note.note)}</div>` : '') +
     // A magnitude channel with no way to read the magnitude is decoration, and
     // the hover card is where the glyph's size gets its number.
     `<div class="hint">click to open${n.parents.length || n.children.length ? ' · ' + (n.parents.length + n.children.length) + ' linked' : ''}` +
