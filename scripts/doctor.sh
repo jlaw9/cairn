@@ -106,6 +106,12 @@ else
     say_note "or start one: cairn init ~/research-graph"
 fi
 
+# 4c. Codex, only where Codex is installed: without the links it has no skills.
+if command -v codex >/dev/null 2>&1 && [ ! -e "$HOME/.agents/skills/cairn-capture" ]; then
+    say_bad "codex is installed but cannot see Cairn's skills" \
+            "cairn install_context --codex --apply"
+fi
+
 # 5. Is this clone nested inside another git repo? Cairn is meant to be a
 #    separate repo spanning every project — nested, `git status` in the parent
 #    sees it as an untracked directory and /log's `repo` field gets confusing.

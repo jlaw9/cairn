@@ -310,7 +310,10 @@ by touching a file itself, so the node stays the only copy and `check_project`
 still guards the key. Two rules hold it in scope: `build/graph.html` must stay fully usable with
 the server off, and nothing in the view may hand-edit frontmatter. Anything
 needing auth, or reachability from the other machine, is the webapp
-([[2026-08-05-cairn-webapp]]) and a different decision.
+([[2026-08-05-cairn-webapp]]) and a different decision. Its chat runs the
+user's own Claude Code or Codex CLI as a subprocess, signed in as them. It is
+never a hosted service and never holds an API key, and the model writes only
+through `bin/cairn`, like the panel.
 
 **One graph, many writers, synced through git.** This is in scope and always was:
 one file per node, append-only, never renamed, means two people cannot collide,

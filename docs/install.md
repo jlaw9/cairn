@@ -222,6 +222,47 @@ about nodes.
 
 ---
 
+## Using Codex instead of (or as well as) Claude Code
+
+Cairn's agent integration was written for Claude Code, but nothing about the
+graph depends on it. The OpenAI Codex CLI reads the same skills and can drive
+the map's chat. Verified against Codex CLI 0.162.1. See
+[chat-backends.md](chat-backends.md) for how.
+
+```sh
+npm install -g @openai/codex          # or: brew install --cask codex
+codex login                           # sign in with your ChatGPT account
+cairn install_context --codex         # dry run: say what would change
+cairn install_context --codex --apply
+```
+
+`--codex` does two things, and both are exact to undo with `--remove --codex
+--apply`:
+
+- It **symlinks Cairn's skills** into `~/.agents/skills/`, the user-level
+  directory Codex scans. Symlinks rather than copies, so they stay current with
+  this clone. A real directory of the same name is reported and left alone.
+- It **writes a marked pointer block into `AGENTS.md`** in the graph root, which
+  is the file Codex reads instead of `CLAUDE.md`. The block says to read
+  `CLAUDE.md` first. AGENTS.md is a file in the graph repo and is left
+  uncommitted; commit it so every clone gets it.
+
+What Codex does not get, compared with Claude Code after `install_context`:
+
+- **No session hook.** Codex has a `SessionStart` hook, but it runs only after
+  you have reviewed and trusted that exact definition in the TUI, so Cairn does
+  not install one. That means no automatic `cairn sync` pull at the start of a
+  session and no graph state injected into it. Run `cairn sync` yourself, and
+  let the `cairn-resume` skill find the frontier.
+- **No slash commands.** `/log`, `/standup` and the rest are Claude Code
+  commands. In Codex, ask for the skill by name (`cairn-log`, `cairn-resume`,
+  `cairn-capture`).
+- **Its default sandbox cannot commit.** In the map's chat, Codex runs
+  `workspace-write`, where `.git` is read-only. A `cairn note` from Codex is
+  written but left uncommitted, and `cairn sync` cannot run from inside it.
+
+---
+
 ## Two machines, or two people
 
 Same problem, same answer: clone from the same remote on each, run `make setup`

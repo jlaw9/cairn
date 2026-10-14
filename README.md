@@ -721,6 +721,34 @@ which waits on `cairn review` and on a decision about design decision 6 — is i
 `2026-08-27-cairn-living-view`. Meeting notes still arrive through
 `cairn import_note`, since they are a file rather than a node.
 
+### Chat in the map
+
+With `cairn serve` running, the map can also take a question — "what did we
+already try on solvation?", "draft the follow-up to this dead end". Each message
+runs one turn of **your own coding CLI** as a subprocess: Claude Code
+(`claude -p`) or the OpenAI Codex CLI (`codex exec`), whichever is on `PATH`.
+There is no API key in Cairn and no hosted service. The CLI runs signed in as
+whoever is at the machine, so a collaborator signs into Claude Code or Codex
+themselves, once, in a terminal (`claude`, or `codex login`).
+`/api/health` reports which CLIs it found.
+
+The model works in the graph root and writes the way everything else does,
+**only through `bin/cairn`**. For Claude Code that is enforced: Bash is
+allowlisted to the `bin/cairn` prefix in `dontAsk` mode, so anything else is
+refused without a prompt. For Codex, the guard is the `workspace-write` sandbox:
+writes stay inside the graph, `.git` is read-only, and approvals are off. So
+Codex cannot commit at all. Either way, **a node the chat creates is a draft**:
+it sits uncommitted, the answer names the file, and you read it in the panel
+before it is committed. Design decision 6 holds with a model in the loop.
+
+The turn streams back as it happens: text, a one-line note for each command
+run, then a final line that says whether `build/` was regenerated so the map can
+reload. Conversations resume by session id. What each CLI emits, and what was
+verified about it, is in [docs/chat-backends.md](docs/chat-backends.md).
+
+`cairn serve --no-chat` switches it off: `/api/health` reports `chat: {}` and
+`/api/chat` refuses.
+
 ## Design decisions
 
 These are settled. See `docs/schema.md` for the field reference and `CLAUDE.md`
