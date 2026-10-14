@@ -290,6 +290,16 @@
   .chk:hover .only, .chk .only.alone { display: inline; }
   .chk .only:hover { text-decoration: underline; }
   .chk[hidden] { display: none; }
+  /* Deadlines: date · title, one line each, overdue first. */
+  #deadlines .sub { font-size: 10.5px; color: var(--ink-faint); margin: 7px 0 2px; }
+  #deadlines .dl {
+    font-size: 12px; padding: 2px 0; cursor: pointer; color: var(--ink-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #deadlines .dl:hover { color: var(--ink); }
+  #deadlines .dl span { pointer-events: none; font-variant-numeric: tabular-nums; }
+  #deadlines .dl.overdue span { color: var(--bad); }
+  #deadlines .dl.soon span { color: var(--pending); }
 
   /* A note is a human sentence someone added after the fact. It gets a marker on
      the glyph rather than a colour, because colour already means status and
@@ -462,6 +472,7 @@
     <option value="needs">needs you</option>
     <option value="age">age</option>
     <option value="author">author</option>
+    <option value="deadline">deadline</option>
   </select>
   <div class="timebar">
     <label class="muted" for="time">as of</label>
@@ -479,6 +490,7 @@
     <h2>Author</h2><div id="fAuthor"></div>
     <button id="reset">Reset filters</button>
     <button id="foldAll">Collapse all lanes</button>
+    <div id="deadlines" hidden></div>
     <h2>Keys</h2>
     <div class="keys">
       <kbd>&larr;</kbd><kbd>&rarr;</kbd> along time ·
@@ -598,12 +610,63 @@ function openNotes(n, when) {
   return (n.notes || []).filter(x => x.date && x.date <= when && x.date >= floor);
 }
 
+/* ---------- deadlines ----------
+   A task's `due` and a milestone's `date`, read against the slider's date so a
+   replay shows what was overdue *then*. Nothing here is stored: it is the same
+   rule `cairn standup` and `cairn digest` apply at the terminal — a date before
+   today on a node that is not terminal is overdue — computed in the page so it
+   works over file:// too. "Soon" is a week for both types; a milestone is also
+   worth listing a month out, because a paper is not written in a week.
+
+   Pure, and fenced, so tests/test_cairn.py can run it under node. */
+/* deadline:begin */
+const DUE_SOON_DAYS = 7;
+const AHEAD_DAYS = 30;
+//: The statuses in which a date still binds: everything not terminal in lib.TYPES.
+const DEADLINE_OPEN = { task: ['todo', 'doing'], milestone: ['planned', 'submitted'] };
+
+/** {kind, days, date} for one node's date as of `when` (YYYY-MM-DD), or null
+    when it has none that binds. `days` is date minus when: negative is late.
+    kind: 'overdue' | 'soon' (0–7 d) | 'month' (8–30 d) | 'later'. */
+function deadline(type, status, date, when) {
+  const open = DEADLINE_OPEN[type];
+  if (!open || !open.includes(status)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || !when) return null;
+  const days = Math.round((Date.parse(date) - Date.parse(when)) / 86400000);
+  const kind = days < 0 ? 'overdue' : days <= DUE_SOON_DAYS ? 'soon'
+             : days <= AHEAD_DAYS ? 'month' : 'later';
+  return { kind, days, date };
+}
+
+/** "overdue 29 d", "due today", "due in 3 d"; a milestone says "date passed". */
+function deadlinePhrase(type, d) {
+  if (!d) return '';
+  const word = type === 'milestone' ? 'milestone' : 'due';
+  if (d.days < 0) return type === 'milestone' ? `milestone date passed ${-d.days} d` : `overdue ${-d.days} d`;
+  if (d.days === 0) return `${word} today`;
+  return `${word} in ${d.days} d`;
+}
+
+/** "in 18 d", "today", "29 d ago" — the panel's relative date. */
+function relDays(days) {
+  return days === 0 ? 'today' : days > 0 ? `in ${days} d` : `${-days} d ago`;
+}
+/* deadline:end */
+
+const dateOf = n => n.type === 'task' ? n.extra.due : n.type === 'milestone' ? n.extra.date : null;
+const nodeDeadline = (n, when = cutoff()) =>
+  deadline(n.type, statusAt(n, when), dateOf(n), ageRef());
+
 /** Why this node needs a human, as one line — or '' when it does not. A string
     rather than a boolean so the ring can say what it means: "needs you" with
     no reason is a nag, and a nag gets ignored. Every caller that only asks
     yes/no still works, because '' is falsy and a reason is not. */
 function needsYou(n, when) {
   const why = [];
+  // A missed or imminent date first: standup ranks an overdue deadline above
+  // everything else, because it is the most expensive thing to miss.
+  const dl = nodeDeadline(n, when);
+  if (dl && (dl.kind === 'overdue' || dl.kind === 'soon')) why.push(deadlinePhrase(n.type, dl));
   const notes = openNotes(n, when);
   if (notes.length) {
     why.push(`unanswered note from ${notes.map(x => x.date).sort().pop()}`);
@@ -740,8 +803,12 @@ function fillVar(n, when) {
   if (state.colour === 'needs') return needsYou(n, when) ? 'pending' : 'idle';
   if (state.colour === 'age') return ageBucket(n, when)[1];
   if (state.colour === 'author') return WHO.get(n.author) || 'who-other';
+  if (state.colour === 'deadline') return DEADLINE_FILL[nodeDeadline(n, when)?.kind] || 'idle';
   return null;
 }
+
+/** The deadline fill reuses the status palette, in the order of urgency. */
+const DEADLINE_FILL = { overdue: 'bad', soon: 'pending', month: 'active' };
 
 function fillLegend() {
   const rows = [];
@@ -755,6 +822,11 @@ function fillLegend() {
     rows.push(['pending', 'needs you'], ['idle', 'quiet, or answered']);
   } else if (state.colour === 'age') {
     for (const [, token, label] of AGE_BUCKETS) rows.push([token, label]);
+  } else if (state.colour === 'deadline') {
+    rows.push(['bad', 'overdue — an open task or milestone past its date'],
+              ['pending', `due within ${DUE_SOON_DAYS} d`],
+              ['active', `due within ${AHEAD_DAYS} d`],
+              ['idle', 'no open deadline (or later)']);
   } else {
     for (const [who, token] of WHO) rows.push([token, whoLabel(who)]);
   }
@@ -1014,6 +1086,38 @@ function draw() {
   fillLegend();
   syncCarets();
   buildChrome();
+  drawDeadlines();
+}
+
+/** The rail's Deadlines: overdue, then due within a week, then milestones within
+    a month — for the projects shown, as of the slider. Hidden when empty, which
+    on a healthy graph is most of the time. */
+function drawDeadlines() {
+  const when = cutoff();
+  const rows = [];
+  for (const n of DATA.nodes) {
+    if (!state.project.has(n.project) || (!isLive() && n.created > when)) continue;
+    const d = nodeDeadline(n, when);
+    if (!d) continue;
+    if (d.kind === 'overdue' || d.kind === 'soon' || (d.kind === 'month' && n.type === 'milestone')) {
+      rows.push({ n, d });
+    }
+  }
+  const box = $('#deadlines');
+  box.hidden = !rows.length;
+  if (!rows.length) { box.innerHTML = ''; return; }
+  rows.sort((a, b) => a.d.days - b.d.days || a.n.id.localeCompare(b.n.id));
+  const group = (label, kind, pick) => {
+    const hit = rows.filter(pick);
+    return hit.length ? `<div class="sub">${label}</div>` + hit.map(({ n, d }) =>
+      `<div class="dl ${kind}" data-goto="${esc(n.id)}" ` +
+      `title="${esc(n.title)} — ${esc(deadlinePhrase(n.type, d))}">` +
+      `<span>${esc(d.date.slice(5))}</span> · ${esc(n.title)}</div>`).join('') : '';
+  };
+  box.innerHTML = `<h2>Deadlines</h2>` +
+    group('overdue', 'overdue', r => r.d.kind === 'overdue') +
+    group(`due within ${DUE_SOON_DAYS} d`, 'soon', r => r.d.kind === 'soon') +
+    group(`milestones within ${AHEAD_DAYS} d`, 'month', r => r.d.kind === 'month');
 }
 
 /* ---------- the gutter and the axis ----------
@@ -2219,6 +2323,14 @@ function open(id, opts = {}) {
       push(k, `<a href="${esc(n.commitUrl)}" target="_blank" rel="noopener"><code>${esc(v)}</code></a>`);
     } else if (k === 'url') {
       push(k, `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`);
+    } else if ((k === 'due' || k === 'date') && v === dateOf(n) && ISO_DAY.test(String(v))) {
+      // The date that binds this task or milestone, with how far off it is —
+      // measured from the slider's date, like everything else in the panel.
+      const days = Math.round((Date.parse(v) - Date.parse(ageRef())) / DAY);
+      const dl = nodeDeadline(n);
+      push(k, `${esc(v)}<span class="${dl?.kind === 'overdue' ? '' : 'muted'}"` +
+        `${dl?.kind === 'overdue' ? ' style="color:var(--bad)"' : ''}>, ${relDays(days)}` +
+        `${dl?.kind === 'overdue' ? ' — overdue' : ''}</span>`);
     } else {
       push(k, esc(v));
     }
