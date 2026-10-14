@@ -731,7 +731,7 @@ def _check_type_extras(node: Node, out: list[Issue]) -> None:
         if node.meta.get("due") is not None and as_date(node.meta["due"]) is None:
             err(f"'due' is not an ISO date: {node.meta['due']!r}")
         if not node.meta.get("due") and node.status in {"todo", "doing"}:
-            warn("open task with no due date — it will never surface in /weekly")
+            warn("open task with no due date — it will never surface in standup")
 
 
 def _check_edges(nodes: dict[str, Node], out: list[Issue]) -> None:

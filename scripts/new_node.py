@@ -4,17 +4,17 @@
 This exists so that /log never has to hand-assemble YAML. Hand-assembled
 frontmatter is how `status` and `history` drift apart.
 
-    scripts/new_node.py experiment "COSMO-RS baseline" --project prekd \\
+    bin/cairn new_node experiment "COSMO-RS baseline" --project prekd \\
         --status running --parent 2026-07-20-prekd-scoping \\
         --repo git@github.com:jlaw9/prekd.git --commit a3f9c21 --host kestrel
 
-    scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \\
+    bin/cairn new_node --update 2026-08-02-prekd-cosmo-baseline \\
         --status dead --note "solvation model wrong for ionics"
 
-    scripts/new_node.py experiment "PET basal face discriminates" --project mplastic \\
+    bin/cairn new_node experiment "PET basal face discriminates" --project mplastic \\
         --status planned --body "The basal chain-end face binds WS2 more strongly than WS3."
 
-    scripts/new_node.py --update 2026-08-02-prekd-cosmo-baseline \\
+    bin/cairn new_node --update 2026-08-02-prekd-cosmo-baseline \\
         --relate "contradicts:2026-07-20-prekd-scoping:opposite sign on the same set"
 """
 
@@ -144,12 +144,40 @@ def check_project(project: str, allow_new: bool) -> None:
     sys.exit("\n".join(lines))
 
 
+def deadline_fields(node_type: str, args: argparse.Namespace) -> dict:
+    """`due` (task) and `date` (milestone) from --due / --when, validated.
+
+    `--date` already means the creation date, so a milestone's own date has its
+    own flag. A flag the type does not carry is refused, naming the right one:
+    storing it anyway surfaces later as `unknown field`, and an unparseable date
+    used to be stored as `due: ~` with no error at all.
+    """
+    fields: dict = {}
+    for flag, key, carrier in (("due", "due", "task"), ("when", "date", "milestone")):
+        raw = getattr(args, flag, None)
+        if not raw:
+            continue
+        if node_type != carrier:
+            other = {"task": "use --due for a task's deadline",
+                     "milestone": "use --when for a milestone's date"}[
+                         "milestone" if carrier == "task" else "task"]
+            if node_type not in ("task", "milestone"):
+                other = "only tasks (--due) and milestones (--when) carry a date"
+            sys.exit(f"--{flag}: a {node_type} has no '{key}' field; {other}")
+        parsed = lib.as_date(raw)
+        if parsed is None:
+            sys.exit(f"--{flag}: not an ISO date: {raw}")
+        fields[key] = parsed
+    return fields
+
+
 def build(args: argparse.Namespace) -> lib.Node:
     created = lib.as_date(args.date) or dt.date.today()
     spec = lib.TYPES[args.type]
     status = args.status or spec.default_status
     if status not in spec.statuses:
         sys.exit(f"'{status}' is not a valid status for {args.type}: {', '.join(spec.statuses)}")
+    deadlines = deadline_fields(args.type, args)
     check_project(args.project, getattr(args, "new_project", False))
 
     if args.slug:
@@ -181,10 +209,11 @@ def build(args: argparse.Namespace) -> lib.Node:
         "created": created,
         "updated": created,
     }
-    for key in ("repo", "commit", "host", "origin", "venue", "url", "due", "source"):
+    for key in ("repo", "commit", "host", "origin", "venue", "url", "source"):
         value = getattr(args, key, None)
         if value:
-            meta[key] = lib.as_date(value) if key == "due" else value
+            meta[key] = value
+    meta.update(deadlines)
     if args.artifact:
         meta["artifacts"] = list(args.artifact)
     meta["parents"] = list(args.parent)
@@ -230,11 +259,7 @@ def update(args: argparse.Namespace) -> lib.Node:
     # deadline is the one thing about a task that legitimately moves after it
     # exists — and the validator nags about a task with no date, so there has to be
     # a way to add one without hand-editing the frontmatter.
-    if getattr(args, "due", None):
-        when_due = lib.as_date(args.due)
-        if when_due is None:
-            sys.exit(f"--due: not an ISO date: {args.due}")
-        node.meta["due"] = when_due
+    node.meta.update(deadline_fields(node.type, args))
     if args.artifact:
         node.meta.setdefault("artifacts", []).extend(args.artifact)
     return node
@@ -270,7 +295,10 @@ def main() -> int:
     parser.add_argument("--origin")
     parser.add_argument("--venue")
     parser.add_argument("--url")
-    parser.add_argument("--due", metavar="ISO_DATE")
+    parser.add_argument("--due", metavar="ISO_DATE", help="a task's deadline")
+    parser.add_argument("--when", metavar="ISO_DATE",
+                        help="a milestone's date (the `date` field; --date is the "
+                             "creation date)")
     parser.add_argument("--source", metavar="ID")
     args = parser.parse_args()
 
