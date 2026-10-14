@@ -7,13 +7,16 @@ Record what happened in this work session as a node in Cairn.
 $ARGUMENTS may name the node to update, or describe what was done. If it's
 empty, work it out from the repo.
 
-**This runs from inside a project repo, not the graph repo.** The graph is at
-`$CAIRN_PATH`; every command below that touches it is written as
-`$CAIRN_PATH/bin/cairn ...`. Use that dispatcher rather than a `scripts/*.py`
-path — it resolves the interpreter, and a bare `python3` often cannot run these
-files at all. If `$CAIRN_PATH` isn't set, ask for the path rather
-than guessing — and mention `make install-commands` in the Cairn clone, which
-prints the export line to add to a shell profile.
+**This runs from inside a project repo, not the graph repo.** The tool is at
+`$CAIRN_PATH` and the graph at `$CAIRN_ROOT`; every command below that touches
+it is written as `$CAIRN_PATH/bin/cairn ...`. Use that dispatcher rather than a
+`scripts/*.py` path — it resolves the interpreter, and a bare `python3` often
+cannot run these files at all. If either variable isn't set, ask for the path
+rather than guessing, and mention `cairn onboard`, which sets both up.
+
+**Read the commit policy before you start.** The session-start context states
+it; `$CAIRN_PATH/bin/cairn policy` prints it. `ask`: show the node and wait.
+`auto`: commit the node you write and say so.
 
 ## 1. Read the work, don't ask about it
 
@@ -32,8 +35,8 @@ Infer the project key from the repo name unless it's obvious it differs.
 Prefer updating an existing node. A session that continues yesterday's
 experiment is a new `history` entry, not a new node.
 
-Check `$CAIRN_PATH/nodes/` for an open node in this project whose subject matches. If one
-exists and this session moved it forward:
+Check `$CAIRN_PATH/bin/cairn standup --project <key>` for an open node whose
+subject matches. If one exists and this session moved it forward:
 
 ```sh
 $CAIRN_PATH/bin/cairn new_node --update <id> --status <status> \
@@ -58,32 +61,37 @@ commit messages. You have the evidence for all three.
 **`## Result` is the one thing to ask about.** It's the interpretation — what
 the numbers mean, whether the thing worked — and it usually isn't in the diff.
 Ask one focused question, not a form. If the user answers in a sentence, that
-sentence is the section; don't inflate it.
+sentence is the section; don't inflate it. Under `auto` with nobody to ask, write
+what the evidence shows and say in the history note that the interpretation is
+yours — never pass your reading off as theirs.
 
 If the result is that something failed: set the status to `dead` and write down
 *why* in the history note. Dead ends are the highest-value nodes in this repo.
 Do not soften them into `parked`. Park means "paused, will resume"; dead means
 "we learned this doesn't work."
 
-## 4. Show, then commit
+## 4. Show, then commit — or commit, then show
 
-Print the node. Wait for confirmation. Never commit a node the user hasn't seen.
+Print the node. Under `ask`, wait for confirmation; never commit a node the user
+hasn't seen. Under `auto`, commit it now and tell the user what landed and where
+to edit it.
 
 Then, in the graph repo:
 
 ```sh
-cd $CAIRN_PATH && make build && git add -A \
-  && git commit -m "log: <node id>" && git push
+cd $CAIRN_ROOT && git add nodes/<node id>.md \
+  && git commit -m "log: <node id>" && $CAIRN_PATH/bin/cairn sync --push
 ```
 
 The pre-commit hook validates. If it fails, fix the node — don't `--no-verify`.
+`sync --push` regenerates `build/`, commits only that, and pushes.
 
 ## Notes
 
 - A typed relation belongs here too if this result bears on another node:
   `--relate "contradicts:<other id>:<why>"`. It needs no status change.
-- One small summary figure may go in `$CAIRN_PATH/assets/` so the HTML has a thumbnail
-  without HPC access. **One.** Not a results directory.
+- One small summary figure may go in `$CAIRN_ROOT/assets/<node id>.svg` so the
+  map has a thumbnail without HPC access. **One.** Not a results directory.
 - Big outputs are referenced as `host:/path` in `artifacts`, never copied in.
 - If this session produced a commitment with a deadline rather than a result,
   that's a `task` node with a `--due`, not an experiment.

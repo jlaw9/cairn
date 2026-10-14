@@ -77,34 +77,47 @@
         </div>
 
         <pre>git clone &lt;the tool repo&gt; ~/cairn &amp;&amp; cd ~/cairn
-cairn init ~/research-graph                 <span class="cmt"># your graph: dirs, git, hook</span>
+bin/cairn onboard                           <span class="cmt"># three questions; each answer lands on disk</span>
 export CAIRN_PATH=$HOME/cairn               <span class="cmt"># the tool — add both to your profile</span>
 export CAIRN_ROOT=$HOME/research-graph      <span class="cmt"># the graph</span>
-make setup                                  <span class="cmt"># hook + slash commands + checks</span>
 export PATH=$CAIRN_PATH/bin:$PATH           <span class="cmt"># optional: plain `cairn` anywhere</span>
-make doctor                                 <span class="cmt"># confirm every step took</span></pre>
+cairn doctor                                <span class="cmt"># confirm every step took</span></pre>
 
         <div class="prose">
-          <p>Then wire the machine up once, so every session sees the graph without a
-            per-project step:</p>
-        </div>
-
-        <pre>cairn install_context            <span class="cmt"># dry run: says what it would change</span>
-cairn install_context --apply</pre>
-
-        <div class="prose">
-          <p>That does three things, none of them per-project:</p>
+          <p><code>cairn onboard</code> is the first run. It asks three things, and there
+            is no config file — each answer becomes a fact on disk that
+            <code>doctor</code> reads back:</p>
           <ol>
-            <li>Writes a marked block into <code>~/.claude/CLAUDE.md</code> — user-level
+            <li><strong>Where is your graph?</strong> Created if it doesn't exist, with
+              its own git repo and validation hook. It refuses to nest one inside another
+              repo, and it doesn't ask where nodes should live: they stay in the one graph.</li>
+            <li><strong>Commit policy: <code>ask</code> or <code>auto</code>.</strong> Under
+              <code>ask</code>, the default, an agent drafts a node, shows it, and commits
+              only after you confirm. Under <code>auto</code> it commits the nodes it writes
+              about work it did and says so; you edit afterward. One line,
+              <code>commit_mode:</code>, in the graph's own <code>CLAUDE.md</code>;
+              <code>cairn policy</code> changes it later.</li>
+            <li><strong>Which sessions see the graph?</strong> Every Claude Code session on
+              the machine, or only those started in one project
+              (<code>cairn install_context --project &lt;path&gt;</code>).</li>
+          </ol>
+          <p>Every question has a flag, so an agent can run it. At machine scope that
+            writes three things, none of them per-project:</p>
+          <ol>
+            <li>A marked block in <code>~/.claude/CLAUDE.md</code> — user-level
               memory, loaded in every session in every directory — naming the graph and
               the four verbs.</li>
-            <li>Installs a <code>SessionStart</code> hook that pulls (throttled) and
-              returns the graph's current state as the session's context, plus a
-              <code>SessionEnd</code> hook that says what is unpushed.</li>
-            <li>Symlinks the slash commands, so <code>/log</code>, <code>/standup</code>,
+            <li>A <code>SessionStart</code> hook that pulls (throttled) and
+              returns the graph's current state, and the commit policy in force, as the
+              session's context, plus a <code>SessionEnd</code> hook that says what is
+              unpushed.</li>
+            <li>Symlinks for the slash commands, so <code>/log</code>, <code>/standup</code>,
               <code>/capture</code>, <code>/triage</code> and <code>/digest</code> resolve
               from any repo.</li>
           </ol>
+          <p>At project scope the same three go inside that project instead, with the hook
+            in <code>.claude/settings.local.json</code> so an absolute path never reaches a
+            collaborator through git.</p>
 
           <div class="callout">
             <p><strong>The hook is the part a pointer can't do.</strong> A line in a
@@ -137,6 +150,16 @@ cairn install_context --apply</pre>
             slash commands, <code>CAIRN_PATH</code>, <code>CAIRN_ROOT</code> — and it runs
             without a working Python, because the interpreter is the most common thing to
             be wrong.</p>
+
+          <h3>Optional: OpenViking</h3>
+          <p>OpenViking is an agent's general memory — session history, summarization,
+            retrieval. Cairn is the research-progression view: claims, lineage, dead ends.
+            <code>cairn openviking push</code> registers the graph as a resource there, so
+            its recall can answer “did we already try this?”. Memories come back only as
+            <code>cairn capture</code> into <code>inbox/</code>, never as nodes — a missing
+            node has to keep meaning “not tried”. Standalone works fully without it, and
+            the seam is not yet verified against a live server. See
+            <a href="https://github.com/jlaw9/cairn/blob/main/docs/openviking.md">docs/openviking.md</a>.</p>
         </div>
       </section>
 
@@ -148,11 +171,17 @@ cairn install_context --apply</pre>
             regenerate-commit-<code>build/</code>-and-push, plus a report of what still
             needs a human.</p>
           <p><strong><code>sync</code> never commits a node</strong>, and never will.
-            Nothing enters the graph unreviewed, so <code>--push</code> commits only
+            Nothing enters the graph unread without saying so, so <code>--push</code> commits only
             <code>build/</code>, which is generated. Nodes stay exactly where they are,
             uncommitted, and <code>sync</code> <em>names</em> them — a node file that has
             never been committed is almost always a draft an agent wrote and nobody has
             read.</p>
+          <p>What gets committed, and by whom, is the commit policy, not <code>sync</code>.
+            Under <code>ask</code> the agent shows the draft and waits. Under
+            <code>auto</code> it commits the node it wrote about work it did, says so, and
+            <code>cairn review --list</code> keeps that node visible as unread until a
+            human reacts to it. The policy changes who presses commit, not whether you can
+            tell what a human has weighed in on.</p>
         </div>
 
         <div class="prose">
@@ -298,8 +327,9 @@ cairn new_node --update &lt;id&gt; --status <span class="s-running">running</spa
           <p>Write a <code>## Claim</code> that says what you expect <strong>and what
             result would prove it wrong</strong>. At the end of a session,
             <code>/log</code> from inside the project repo does the rest: reads the git
-            log, drafts the node, asks only for the interpretation it can't infer, and
-            commits.</p>
+            log, drafts the node, and asks only for the interpretation it can't infer. Under
+            <code>commit_mode: ask</code> it then shows you the node and waits; under
+            <code>auto</code> it commits and says what it committed.</p>
           <div class="callout warn">
             <p><code>--project</code> is checked against the keys already in the graph, and
               an unrecognised one is refused with the near-matches listed.

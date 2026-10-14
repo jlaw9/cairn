@@ -18,7 +18,7 @@ doesn't get recorded at all — which is the actual cost.
 
 If $ARGUMENTS is already a DOI, use it. If it's a title, resolve it — CrossRef
 search, or the science connectors if they're available — and **confirm the
-match with Jeff before writing anything**. A wrong DOI is worse than none: it
+match with the user before writing anything**. A wrong DOI is worse than none: it
 looks like a citation and it silently mis-attributes.
 
 Never hand-write metadata. `add_paper.py` fetches CrossRef and refuses to write
@@ -61,11 +61,13 @@ overturns a finding, use a typed relation between the two nodes.
 
 ## 4. Show, then commit
 
-Print the page and the BibTeX key. Wait for confirmation.
+Print the page and the BibTeX key. Under `commit_mode: ask`, wait for
+confirmation; under `auto`, commit and say so. (`$CAIRN_PATH/bin/cairn policy`
+prints the mode.)
 
 ```sh
-cd $CAIRN_PATH && make build && git add -A \
-  && git commit -m "paper: <bibkey>" && git push
+cd $CAIRN_ROOT && git add papers/<doi-slug>.md nodes/<node id>.md \
+  && git commit -m "paper: <bibkey>" && $CAIRN_PATH/bin/cairn sync --push
 ```
 
 ## Notes

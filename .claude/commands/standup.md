@@ -8,9 +8,9 @@ Report the state of research work out of Cairn, and help decide what to touch.
 packet instead of the survey. It may also be a question ("what's stalled?",
 "what's due?") — answer it from the same data.
 
-The graph is at `$CAIRN_PATH`. If that isn't set, ask for the path rather than
-guessing, and mention `make install-commands` in the Cairn clone, which prints
-the export line for a shell profile.
+The tool is at `$CAIRN_PATH`, the graph at `$CAIRN_ROOT`. If either isn't set,
+ask for the path rather than guessing, and mention `cairn onboard`, which sets
+both up.
 
 ## 1. Read
 
@@ -22,7 +22,7 @@ $CAIRN_PATH/bin/cairn standup --project <key>      # one project, deeper
 With no `$ARGUMENTS`, run the survey. With a project key, run the packet. If a
 key isn't recognised, the error lists the valid ones — use it, don't guess.
 
-Also check for anything waiting: `ls $CAIRN_PATH/inbox/`. Untriaged items are
+Also check for anything waiting: `ls $CAIRN_ROOT/inbox/`. Untriaged items are
 work that hasn't entered the graph yet, and they're invisible to every other view.
 
 ## 2. Say what needs a decision, not what exists
@@ -47,6 +47,6 @@ Keep it short. This gets read at the start of a session, before any work.
 
 - `standup` ranks by need; `digest` is chronological. If the question is "what
   happened while I was away", use `cairn digest --days N` instead.
-- Read `$CAIRN_PATH/nodes/<id>.md` when a summary line isn't enough to advise on.
+- Read `$CAIRN_ROOT/nodes/<id>.md` when a summary line isn't enough to advise on.
 - Don't write anything. This is a read-only view. If the conversation produces a
   decision worth keeping, that's `/log`, or `cairn capture` for a loose thought.

@@ -234,6 +234,8 @@ def build(args: argparse.Namespace) -> lib.Node:
         meta["relates"] = [parse_relation(r) for r in args.relate]
     if args.ref:
         meta["refs"] = list(args.ref)
+    if getattr(args, "data", None):
+        meta["data"] = list(args.data)
     meta["history"] = [{"date": created, "status": status, "note": args.note or "created"}]
 
     # `--body` fills the opening section — `## Claim` for an experiment, its
@@ -292,6 +294,13 @@ def update(args: argparse.Namespace) -> lib.Node:
     if parents:
         add_parents(node, parents)
         changed = True
+    # `data` works the same way: which file a run trained on is usually known at
+    # creation, but sometimes only pinned down later (a sha256 arrives with the
+    # release manifest), and recording it is not a state transition.
+    data = getattr(args, "data", None)
+    if data:
+        node.meta.setdefault("data", []).extend(data)
+        changed = True
     if not args.status:
         deadlines = deadline_fields(node.type, args)
         if deadlines:
@@ -299,7 +308,7 @@ def update(args: argparse.Namespace) -> lib.Node:
             changed = True
         if changed:
             return node
-        sys.exit("--update requires --status (or --relate, --parent, --due/--when)")
+        sys.exit("--update requires --status (or --relate, --parent, --data, --due/--when)")
     when = lib.as_date(args.date) or dt.date.today()
     try:
         node.set_status(args.status, args.note or "", when)
@@ -341,6 +350,10 @@ def main() -> int:
         help="typed relation, e.g. contradicts:2026-06-25-mplastic-scramble-control:only on crystalline",
     )
     parser.add_argument("--ref", action="append", default=[], metavar="DOI")
+    parser.add_argument(
+        "--data", action="append", default=[], metavar="KEY",
+        help="dataset key this work used as input (a datasets/<key>.md page)",
+    )
     parser.add_argument("--repo")
     parser.add_argument("--commit")
     parser.add_argument("--host")

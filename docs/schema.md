@@ -18,6 +18,7 @@ parents: [2026-07-20-prekd-scoping]    # DAG edges; [] for roots
 relates:                               # typed, non-DAG; see below
   - {to: 2026-06-25-prekd-scramble, type: contradicts, note: opposite sign, same control}
 refs: [10.1021/acs.jced.3c00123]       # bare DOIs; any node type may cite
+data: [dp18-250912]                    # dataset keys this work used as input
 history:
   - {date: 2026-08-02, status: running, note: kicked off on kestrel}
   - {date: 2026-08-05, status: dead, note: solvation model wrong for ionics}
@@ -248,6 +249,58 @@ and each citing node shows what else cites the same paper. Use the
 `litsearch-workflow` skill to produce verified DOIs; don't reimplement
 retrieval.
 
+## Datasets registry
+
+`datasets/<key>.md` — the same shape as papers, for the other external object
+many nodes share: input data. `artifacts` records a node's *outputs*; `data:`
+records its *inputs*, so "which nodes trained on this file?" and "what was this
+trained on?" stop being prose-only questions.
+
+```yaml
+key: dp18-250912                    # the identity; equals the filename stem
+title: DP-18 polymer training set, 250912 release
+rows: 3133
+host: kestrel
+path: /projects/.../250912/train.csv
+sha256: 9f2c…                       # 64 hex chars — names the bytes, not a path
+release: "250912"
+tier: review                        # public | restricted | review
+generated_by: 2026-08-10-photopoly-lit-extraction   # the node that made it
+supersedes: dp18-250801             # earlier key this replaces
+```
+
+Referenced from a node as `data: [dp18-250912]`, mirroring `refs:`. All fields
+except `key` and `title` are optional — a page naming only a path still beats a
+paragraph of prose — but **`sha256` is the load-bearing one**: a path can be
+overwritten, a hash names the bytes, and it is what lets two training runs be
+called comparable in one line instead of a hand-verified column-by-column
+argument. Release manifests (`MANIFEST.csv`) already produce it; paste from
+there or let `add_dataset --file` measure a local copy. Never retype a hash
+from memory.
+
+`tier` records shareability — `public`, `restricted`, or `review` (needs
+sign-off before it leaves the building) — which is otherwise tracked nowhere.
+
+Why a registry and not a node type: every type in `lib.TYPES` has a status
+lifecycle and sits on the DAG. A dataset has no claim, no result, and no status
+trajectory — "worked" on a dataset means nothing. As a node it would be a
+high-fan-in vertex that never changes status, polluting `standup` (ranked by
+what needs attention) and putting a non-event on the replay slider. Off the
+DAG, like papers, it is a lookup-table row with backlinks — which is all it
+ever needed to be.
+
+A new release of the same data gets a **new key** plus `supersedes:`, not an
+edit — nodes that ran on the old bytes must keep pointing at the old bytes.
+
+Create with `bin/cairn add_dataset <key> "<title>" ...` rather than by hand;
+it keeps field order stable, validates the key, and cross-checks a pasted
+sha256 against a hashed local copy when both are given.
+
+Like paper pages, dataset pages are validated lightly: `key:` must exist,
+match the filename stem, and be lowercase `[a-z0-9._-]`. Everything else warns
+rather than blocks — a malformed `sha256`, an unknown `tier`, a dangling
+`generated_by` or `supersedes`.
+
 ## Figures
 
 `assets/<node-id>.<ext>` — one optional figure per node, `.svg .png .jpg .jpeg
@@ -284,12 +337,16 @@ Errors block a commit:
 - history entries carry only `date`/`status`/`note` — an extra key means an
   unquoted comma split the note and turned its tail into a bogus key
 - `refs` are bare DOIs; `commit` is a SHA; `artifacts` are `host:/path`
+- `data` entries are dataset keys (lowercase `[a-z0-9._-]`); a dataset page's
+  `key` exists and matches its filename stem
 
 Warnings don't block:
 
 - unknown frontmatter field (schema drift — add it properly or drop it)
 - a `relates` entry with no `note` explaining why
-- `ref` with no page in `papers/`
+- `ref` with no page in `papers/`; `data` key with no page in `datasets/`
+- a dataset page with a malformed `sha256`, an unknown `tier`, or a dangling
+  `generated_by`/`supersedes`
 - open task with no `due`
 - `id` date prefix disagreeing with `created`
 - a file in `assets/` naming no node, or a second figure for a node that already

@@ -79,10 +79,14 @@
               maintain.</p>
           </div>
           <div class="card">
-            <h3>6 · Nothing is committed unreviewed</h3>
-            <p>Draft the node, show it, then commit. An auto-populated graph nobody has read
-              is the failure this project exists to avoid. Unprompted capture goes to
-              <code>inbox/</code> instead.</p>
+            <h3>6 · Nothing enters the graph unread without saying so</h3>
+            <p>Under <code>commit_mode: ask</code>, the default, the agent drafts the node,
+              shows it, and commits after you confirm. Under <code>auto</code> it commits
+              what it wrote about work it did and says so, and
+              <code>cairn review --list</code> keeps unread nodes visible rather than
+              absent. The policy changes who presses commit, not whether a reader can tell
+              what a human has weighed in on; <code>sync</code> still never commits a
+              node. Unprompted capture goes to <code>inbox/</code> instead.</p>
           </div>
           <div class="card">
             <h3>7 · Capture ≠ structure</h3>

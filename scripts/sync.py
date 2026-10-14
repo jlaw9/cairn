@@ -215,14 +215,53 @@ def _rebase_continue() -> tuple[int, str]:
     return done.returncode, (done.stdout + done.stderr).strip()
 
 
-def rebase_in_progress() -> bool:
+def rebase_dir() -> "Path | None":
+    """The rebase state directory, if git thinks a rebase is underway."""
     git_dir = out("rev-parse", "--git-dir")
     if not git_dir:
-        return False
+        return None
     base = Path(git_dir)
     if not base.is_absolute():
         base = REPO_ROOT / base
-    return (base / "rebase-merge").exists() or (base / "rebase-apply").exists()
+    for name in ("rebase-merge", "rebase-apply"):
+        if (base / name).exists():
+            return base / name
+    return None
+
+
+def rebase_in_progress() -> bool:
+    return rebase_dir() is not None
+
+
+def stale_rebase() -> "tuple[Path, str] | None":
+    """A rebase directory git can no longer act on, plus any stash stranded in it.
+
+    `git rebase` records where to put HEAD back in `head-name`. Without that file
+    both `--continue` and `--abort` fail, so the directory has stopped being a
+    rebase and become a tombstone -- one that still makes every later
+    `git pull --rebase` refuse to start. Nothing in git's own output says this;
+    `git status` keeps reporting "you are currently rebasing" forever.
+
+    The costly part is a leftover `autostash`. `pull --rebase --autostash`
+    shelves the working tree *before* the rebase runs, so a rebase that dies
+    here never unwinds the shelf: the tree comes back clean, the work is
+    reachable only by that SHA, and nothing routine ever lists it again. That is
+    a silent way to lose a week of work, so it is reported as an error rather
+    than repaired automatically -- the stash needs a human to look at it.
+
+    Returns (directory, autostash_sha) with sha "" if none was stranded.
+    """
+    d = rebase_dir()
+    if d is None or (d / "head-name").exists():
+        return None
+    stash = d / "autostash"
+    sha = ""
+    if stash.exists():
+        try:
+            sha = stash.read_text().strip()
+        except OSError:
+            pass
+    return d, sha
 
 
 def pull(log: list[str]) -> bool:
@@ -313,6 +352,23 @@ def push(log: list[str]) -> None:
 def report() -> list[str]:
     """What still needs a human. Empty list means nothing does."""
     lines: list[str] = []
+
+    stale = stale_rebase()
+    if stale is not None:
+        d, sha = stale
+        try:
+            shown = d.relative_to(REPO_ROOT)
+        except ValueError:
+            shown = d
+        lines.append(f"a dead rebase is blocking every pull — {shown}/ has no head-name")
+        lines.append("    git can neither --continue nor --abort it, and `git pull --rebase`")
+        lines.append(f"    refuses while it exists. Remove it:  rm -rf {d}")
+        if sha:
+            lines.append(f"    it is holding an autostash: {sha}")
+            lines.append("    that is uncommitted work, reachable by nothing else. Rescue it first:")
+            lines.append(f"      git tag rescue/autostash {sha[:12]}")
+            lines.append(f"      git stash show -p {sha[:12]}    # then: git stash apply")
+
     changed, new = unreviewed()
 
     if new:
