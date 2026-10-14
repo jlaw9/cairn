@@ -2867,8 +2867,10 @@ function fit() {
   // Floor the auto-fit: past a point, shrinking to fit just makes the labels
   // illegible. Content wider than the viewport is a job for panning.
   scale = Math.max(0.5, Math.min(1, (freeW - 40) / w, (freeH - 40) / h));
-  // Centre the content in the free area rather than pinning it to a corner.
-  tx = gw + (freeW - w * scale) / 2 - x0 * scale;
+  // Centre the content in the free area rather than pinning it to a corner —
+  // unless it is wider than that even at the floor, when centring would push
+  // the oldest nodes under the gutter. Then it starts at the gutter's edge.
+  tx = w * scale > freeW ? gw + 12 - x0 * scale : gw + (freeW - w * scale) / 2 - x0 * scale;
   ty = AXIS_H + (freeH - h * scale) / 2 - y0 * scale;
   applyTransform();
 }
