@@ -1303,7 +1303,11 @@ function readable(n) {
 function matchExcerpt(n, q, span = 60) {
   if (!q) return '';
   const text = readable(n);
-  const at = text.toLowerCase().indexOf(q);
+  const low = text.toLowerCase();
+  // The title is already the card's heading, so a hit in the body or a history
+  // note says more; the title's own hit is the fallback.
+  const afterTitle = low.indexOf(q, n.title.length);
+  const at = afterTitle > -1 ? afterTitle : low.indexOf(q);
   if (at < 0) return '';
   let start = Math.max(0, at - span), end = Math.min(text.length, at + q.length + span);
   // Snap to word edges so the excerpt does not open on half a word.
