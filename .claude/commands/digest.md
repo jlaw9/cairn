@@ -9,9 +9,9 @@ worth reading.
 or a phrase like "since Monday" / "this week" / "yesterday". With no arguments,
 use the last 7 days.
 
-The graph is at `$CAIRN_PATH`. If that isn't set, ask for the path rather than
-guessing, and mention `make install-commands` in the Cairn clone, which prints
-the export line for a shell profile.
+The tool is at `$CAIRN_PATH`, the graph at `$CAIRN_ROOT`. If either isn't set,
+ask for the path rather than guessing, and mention `cairn onboard`, which sets
+both up.
 
 ## 1. Read
 

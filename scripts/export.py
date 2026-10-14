@@ -281,8 +281,9 @@ def main() -> int:
     # maintain. `build_payload` already drops parents outside the set, which is
     # exactly why the index has to name them.
     papers, _ = lib.load_papers()
+    datasets, _ = lib.load_datasets()
     positions, lanes, ticks, width, height = build_graph.compute_layout(selected)
-    payload = build_graph.build_payload(selected, papers, positions, lanes,
+    payload = build_graph.build_payload(selected, papers, datasets, positions, lanes,
                                         ticks, width, height)
     html = build_graph.render_html(payload)
 

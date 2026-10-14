@@ -17,12 +17,22 @@ Three machine-level installs fix that once, and none of them is per-project:
    already in context gets used. Plus a `SessionEnd` hook that says what is
    unpushed, because that is the other half of the two-machine habit gap.
 3. **The slash commands**, symlinked into `~/.claude/commands` so `/log`,
-   `/standup`, `/capture`, `/triage` and `/digest` resolve from any repo rather
-   than only from a session rooted in this one.
+   `/standup`, `/capture`, `/triage`, `/digest` and `/paper` resolve from any
+   repo rather than only from a session rooted in this one.
 
     cairn install_context              # say what would change, touch nothing
     cairn install_context --apply
     cairn install_context --remove     # take the managed block and hooks back out
+    cairn install_context --project ~/work/polyid --apply   # one project only
+
+**Scope is a fact on disk, not a setting.** Machine-wide, the three installs
+land under `~/.claude` and every session on the machine sees the graph. With
+`--project <path>` the same three land inside that project instead — its
+`CLAUDE.local.md` and `.claude/settings.local.json` (the two files Claude Code
+reads but git convention leaves untracked, so this machine's absolute paths
+never reach collaborators) and its `.claude/commands/` — and only sessions
+started there see it. `doctor` reads both back; nothing has to
+remember which was chosen.
 
 **Dry run by default, like `sync_issues`.** These are files outside the repo
 that affect every session on the machine, so the default has to be to print the
@@ -41,6 +51,8 @@ import os
 import sys
 from pathlib import Path
 
+import policy  # stdlib only
+
 #: The tool. Where bin/cairn, the skills and the slash commands live.
 TOOL_ROOT = Path(__file__).resolve().parent.parent
 #: The graph. Separate repo since the split; falls back to a pre-split clone.
@@ -50,6 +62,27 @@ CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude
 MEMORY = CLAUDE_DIR / "CLAUDE.md"
 SETTINGS = CLAUDE_DIR / "settings.json"
 COMMANDS = CLAUDE_DIR / "commands"
+
+
+def scope_to(project: Path | None) -> None:
+    """Point the three targets at one project instead of the machine.
+
+    A project's `CLAUDE.md` is the memory file; `.claude/settings.local.json`
+    holds the hooks, because it is the file Claude Code treats as per-checkout
+    and leaves out of git — a hook command carrying this machine's absolute
+    path has no business in a shared `settings.json`; and `.claude/commands/`
+    makes the slash commands resolve there and nowhere else.
+    """
+    global CLAUDE_DIR, MEMORY, SETTINGS, COMMANDS
+    if project is None:
+        return
+    CLAUDE_DIR = project / ".claude"
+    # CLAUDE.local.md, not CLAUDE.md: the block carries this machine's absolute
+    # paths, and Claude Code reads the .local file while git convention keeps it
+    # out of the shared repo — the same reason the hooks go to settings.local.json.
+    MEMORY = project / "CLAUDE.local.md"
+    SETTINGS = CLAUDE_DIR / "settings.local.json"
+    COMMANDS = CLAUDE_DIR / "commands"
 
 BEGIN = "<!-- cairn:begin — managed by `cairn install_context`; edits here are overwritten -->"
 END = "<!-- cairn:end -->"
@@ -71,10 +104,10 @@ def memory_block(tool: Path, graph: Path) -> str:
     return f"""{BEGIN}
 ## Cairn — the research record
 
-Research activity across all projects — experiments, dead ends, open threads,
-deadlines — is recorded in **Cairn**, a git-backed graph. The tool is at
-`{tool}` (`$CAIRN_PATH`); the graph itself is at `{graph}` (`$CAIRN_ROOT`). It
-exists so that "did we already try this, and what happened?" has an answer.
+Research activity — experiments, dead ends, open threads, deadlines — is
+recorded in **Cairn**, a git-backed graph. The tool is at `{tool}`
+(`$CAIRN_PATH`); the graph itself is at `{graph}` (`$CAIRN_ROOT`). It exists so
+that "did we already try this, and what happened?" has an answer.
 
 - **Before proposing work**, read what the project already settled:
   `{tool}/bin/cairn standup --project <key>`. A `dead` node is a claim already
@@ -84,9 +117,11 @@ exists so that "did we already try this, and what happened?" has an answer.
   Never refuses, never prompts; lands in `inbox/` for later triage.
 - **A reaction to an existing node**: `{tool}/bin/cairn note <node-id> "..."`.
 
-Never commit a node Jeff hasn't seen — draft it, show it, then commit. Anything
-written unprompted goes to `inbox/` instead. Full conventions in
-`{tool}/CLAUDE.md`; the path-addressed skills are under `{tool}/skills/`.
+Follow the graph's **commit policy**, which the session-start context states and
+`{tool}/bin/cairn policy` prints: `ask` means draft, show, then commit; `auto`
+means commit the node you wrote about work you did and say so. Anything written
+unprompted goes to `inbox/` either way. Full conventions in `{tool}/CLAUDE.md`;
+the path-addressed skills are under `{tool}/skills/`.
 {END}"""
 
 
@@ -236,7 +271,13 @@ def plan_commands(root: Path) -> list[tuple[str, Path, Path]]:
     out = []
     for source in sorted((root / ".claude" / "commands").glob("*.md")):
         link = COMMANDS / source.name
-        if link.is_symlink() and link.resolve() == source.resolve():
+        try:
+            same = link.resolve() == source.resolve()
+        except (OSError, RuntimeError):        # a dangling or looping link
+            same = False
+        if same:
+            # Either already linked, or the target *is* the source file — never
+            # unlink that, or the command is gone and a self-loop is left behind.
             out.append(("ok", link, source))
         elif link.exists() or link.is_symlink():
             out.append(("update", link, source))
@@ -257,11 +298,27 @@ def main() -> int:
                    help="take the managed block and the cairn hooks back out")
     p.add_argument("--no-hooks", action="store_true",
                    help="memory block and commands only; leave settings.json alone")
+    p.add_argument("--project", metavar="PATH",
+                   help="wire one project directory instead of every session on the machine")
     args = p.parse_args()
+
+    project = None
+    if args.project:
+        project = Path(args.project).expanduser().resolve()
+        if not project.is_dir():
+            print(f"cairn install_context: {project} is not a directory", file=sys.stderr)
+            return 2
+        if project == TOOL_ROOT.resolve():
+            print("cairn install_context: --project points at the Cairn tool itself. The tool\n"
+                  "  already holds the commands; wire a *project* repo, or use machine scope.",
+                  file=sys.stderr)
+            return 2
+        scope_to(project)
 
     root = TOOL_ROOT
     print(f"cairn install_context — tool {root}")
     print(f"                        graph {GRAPH_ROOT}")
+    print(f"  scope:  {'project ' + str(project) if project else 'every session on this machine'}")
     print(f"  target: {CLAUDE_DIR}\n")
 
     mem_verdict, mem_text = (plan_memory_removal() if args.remove
@@ -320,6 +377,10 @@ def main() -> int:
         link.symlink_to(source)
         print(f"linked {link.name}")
 
+    if not args.remove and project is not None:
+        print(f"\nKeep {MEMORY.name}, .claude/settings.local.json and .claude/commands/ out of")
+        print("that repo's git (they carry this machine's paths); CLAUDE.local.md and")
+        print("settings.local.json are conventionally ignored already.")
     if not args.remove:
         print("\nThe hooks are read when a session starts, so this takes effect in the")
         print("next session, not this one. `cairn session_hook --dry-run` shows exactly")

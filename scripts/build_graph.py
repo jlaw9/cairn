@@ -400,9 +400,10 @@ def commit_url(repo: str, sha: str) -> str | None:
     return f"https://{host}/{match.group(3)}/commit/{sha}"
 
 
-def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict:
+def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, height) -> dict:
     kids = lib.children_of(nodes)
     backlinks = lib.paper_backlinks(nodes)
+    data_links = lib.dataset_backlinks(nodes)
     inbound = lib.relation_backlinks(nodes)
     titles = {node_id: node.title for node_id, node in nodes.items()}
 
@@ -426,6 +427,20 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
                 "doi": ref,
                 "title": paper.title if paper else "",
                 "cocited": [i for i in backlinks.get(ref.lower(), []) if i != node.id],
+            })
+
+        # The mirror of refs, for inputs: which registered data this work ran
+        # on, and what else ran on the same bytes. `tier` travels so the panel
+        # can say whether the data behind a result is shareable.
+        data = []
+        for key in node.data:
+            page = datasets.get(key)
+            data.append({
+                "key": key,
+                "title": page.meta.get("title", "") if page else "",
+                "tier": str(page.meta.get("tier", "")) if page else "",
+                "sha256": str(page.meta.get("sha256", "")) if page else "",
+                "shared": [i for i in data_links.get(key, []) if i != node.id],
             })
 
         payload_nodes.append({
@@ -454,6 +469,7 @@ def build_payload(nodes, papers, positions, lanes, ticks, width, height) -> dict
                 for r in inbound.get(node.id, [])
             ],
             "refs": refs,
+            "data": data,
             "history": history,
             "x": round(x, 1),
             "y": round(y, 1),
@@ -636,9 +652,10 @@ def main() -> int:
 
     nodes, _ = lib.load_nodes()
     papers, _ = lib.load_papers()
+    datasets, _ = lib.load_datasets()
 
     positions, lanes, ticks, width, height = compute_layout(nodes)
-    payload = build_payload(nodes, papers, positions, lanes, ticks, width, height)
+    payload = build_payload(nodes, papers, datasets, positions, lanes, ticks, width, height)
 
     build = lib.REPO_ROOT / "build"
     build.mkdir(exist_ok=True)

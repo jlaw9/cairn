@@ -5,8 +5,9 @@ description: Save a thought, note or observation to Cairn's inbox for later tria
 Write `$ARGUMENTS` — or whatever in this conversation is worth keeping — to
 Cairn's inbox.
 
-The graph is at `$CAIRN_PATH`. The inbox has no schema and nothing there is ever
-validated, which is what makes this safe to do without ceremony.
+The tool is at `$CAIRN_PATH` and the graph at `$CAIRN_ROOT`. The inbox has no
+schema and nothing there is ever validated, which is what makes this safe to do
+without ceremony.
 
 ```sh
 $CAIRN_PATH/bin/cairn capture --project <hint> --title "<one line>" "<the note>"
@@ -38,7 +39,8 @@ capture that can fail is not a capture. `/triage` commits.
 ## Meetings go somewhere else
 
 Meeting notes are raw and don't need triage to be useful. Write them directly to
-`$CAIRN_PATH/meetings/<YYYY-MM-DD>-<who>.md` — attendees, what was said, what was
+`$CAIRN_ROOT/meetings/<YYYY-MM-DD>-<who>.md` (or `$CAIRN_PATH/bin/cairn
+import_note <file> --meeting --who <name>`) — attendees, what was said, what was
 decided, what was promised. No schema. Note commitments inline as
 `→ task: <what> by <when>` so triage can find them.
 

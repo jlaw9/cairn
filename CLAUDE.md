@@ -33,10 +33,12 @@ node to mean "not tried."
 plus a report of what still needs a human.
 
 **`sync` never commits a node**, and never will. Design decision 6 is that
-nothing enters the graph unreviewed, so `sync --push` commits only `build/`,
-which is generated. Nodes stay exactly where they are, uncommitted, and `sync`
-names them — a node file that has never been committed is almost always a draft
-an agent wrote and nobody has read.
+nothing enters the graph unread *without saying so*: under `commit_mode: ask`
+nothing is committed unreviewed, and under `auto` an agent commits only a node
+it wrote about work it did, right then, and says so. `sync` can tell neither
+apart from a stray draft, so it commits only `build/`, which is generated. Nodes
+stay exactly where they are, uncommitted, and `sync` names them — a node file
+that has never been committed is almost always a draft nobody has read.
 
 Merge conflicts are near-impossible by design — nodes are separate append-only
 files. The only shared-file contention is generated output under `build/`, and
@@ -58,10 +60,12 @@ In the **graph** repo (`$CAIRN_ROOT`):
 |---|---|
 | `nodes/<id>.md` | the graph. One file per node, never deleted, never moved |
 | `papers/<doi-slug>.md` | one page per cited paper, CrossRef-verified metadata |
+| `datasets/<key>.md` | one page per dataset nodes reference via `data:` — sha256, host:path, tier |
 | `meetings/<date>-<who>.md` | meeting notes, raw |
 | `inbox/<date>-<hhmm>.md` | unstructured capture, awaiting triage |
 | `assets/` | small figures only — one per node, for the HTML thumbnail |
 | `build/` | generated. Never hand-edit |
+| `CLAUDE.md` | the graph's own conventions, including its one setting: `commit_mode: ask\|auto` |
 
 In **this** repo (`$CAIRN_PATH`):
 
@@ -73,7 +77,7 @@ In **this** repo (`$CAIRN_PATH`):
 | `example/` | generated: a scrubbed copy of the `cairn` subgraph, so the tool ships with a real graph |
 | `docs/github.md` | tasks as GitHub Issues: what works, what's unverified |
 | `docs/literature.md` | corpora of thousands of papers: clusters, and what earns a node |
-| `build/report.md` | generated: where to start, and how much to trust a gap |
+| `docs/openviking.md` | the optional OpenViking seam: what crosses it, in which direction |
 
 Nothing heavy ever enters this repo. Big outputs are referenced by
 `host:/path`, code by `repo` + `commit`. The repo stays text-only and small
@@ -104,7 +108,7 @@ most in practice:
    one-line reason, rather than burying it in prose that only reads correctly
    from one of the two nodes. Four types, no more — see `docs/schema.md`.
    Relations can be added later without a status change:
-   `new_node.py --update <id> --relate "contradicts:<other-id>:why"`.
+   `bin/cairn new_node --update <id> --relate "contradicts:<other-id>:why"`.
 7. **Refer to another node in prose as `[[<node-id>]]`.** It renders as a link
    titled with the target's node title, and `validate` warns if the target
    doesn't exist. Use it for the soft connections that aren't lineage and aren't
@@ -138,8 +142,8 @@ after it, it is a story.
 **`--project` is checked against the keys already in the graph.** An unrecognised
 key is refused with the near-matches listed, because it is the only field whose
 typo validates cleanly and it silently splits a project in two. Starting a
-genuinely new project takes `--new-project` — ask the graph's owner before using it rather
-than assuming, since the usual cause is a typo or a key that already exists under
+genuinely new project takes `--new-project` — ask the user before using it
+rather than assuming, since the usual cause is a typo or a key that already exists under
 a different name.
 
 **Use `--status planned` for an experiment that hasn't started.** `running` means
@@ -163,7 +167,7 @@ the same reason `cairn note` leaves them alone. The edited node is validated in
 memory first, so a parent that closes a cycle or a relation to a missing node is
 refused with nothing written. It commits like `note` does (with a review trailer,
 since whoever corrects a node has just read it); an agent drafting a correction
-for Jeff to look at passes `--no-commit`, and `--dry-run` shows the diff.
+for the user to look at passes `--no-commit`, and `--dry-run` shows the diff.
 
 ### `## Notes` is where a human reacts to a node
 
@@ -187,10 +191,10 @@ surface them. Three things about this are deliberate and worth not undoing:
   entry is one no later work has responded to; once the thread moves, the note
   stops being reported. That is what keeps it from becoming a nag list.
 
-A note in the user's voice is theirs to write — `cairn note` commits it, because a
-sentence they just typed is by definition one they have seen. If *you* are recording
-an observation of your own, that is a history note on a status change or an
-`inbox/` capture, not a `## Notes` bullet in their name.
+A note in the user's voice is theirs to write — `cairn note` commits it, because
+a sentence they just typed is by definition one they have seen. If *you* are
+recording an observation of your own, that is a history note on a status change
+or an `inbox/` capture, not a `## Notes` bullet in their name.
 
 ### A literature finding is an experiment
 
@@ -208,7 +212,7 @@ What to get right:
   finds by asking that question. "Tg literature review" is not.
 - **One claim per node.** A review touching eight things is eight nodes, or one
   `direction` with eight open questions.
-- **`--ref` the DOIs and register the papers** with `add_paper.py` / `/paper`, so
+- **`--ref` the DOIs and register the papers** with `bin/cairn add_paper` / `/paper`, so
   the evidence resolves. Never write a DOI from memory.
 - **`## What I did` is the corpus and the filter** — how many papers, from where,
   what was excluded. That is this node's methods section, and it's what tells a
@@ -219,26 +223,38 @@ experiment to test whether it holds on our own material, a task for the schema
 change it forces. Make those children of the finding rather than siblings — the
 lineage is the argument.
 
-The `## Result` section is the one thing worth asking the user about, because it's
-the interpretation and you usually can't infer it from a diff. Everything else
+The `## Result` section is the one thing worth asking the user about, because
+it's the interpretation and you usually can't infer it from a diff. Everything else
 — what changed, which commit, which host — read it out of the git log yourself.
 
 ## Drafting rules
 
-**Never commit a node the user hasn't seen.** Draft it, show it, then commit. An
-auto-populated graph nobody trusts is the exact failure mode this project
-exists to avoid.
+**Follow the graph's commit policy.** It is one line in the graph repo's
+`CLAUDE.md` — `commit_mode: ask` or `commit_mode: auto` — stated in the
+session-start context and printed by `bin/cairn policy`:
+
+- **`ask`** (the default): draft the node, show it, and commit only after the
+  user confirms. Never commit a node they haven't seen.
+- **`auto`**: commit the node you wrote about work you did, right away, and say
+  what you committed — the user edits afterward. Still never commit a node about
+  work you did not do, never hand-edit `status:`, and never write in the user's
+  voice. `cairn review --list` is how an unread node stays visible rather than
+  absent; that derivation is what makes `auto` safe to offer at all.
+
+An auto-populated graph nobody *can tell* is unread is the failure mode this
+project exists to avoid — the policy changes who presses commit, not whether a
+reader can see what a human has weighed in on.
+
+A draft nobody wants is the other outcome of reading one, and `bin/cairn
+discard <id>` is how to say so: it deletes a node file git has never seen (and
+its untracked asset). It refuses anything committed or modified, a non-git
+graph, and a node another node lists in `parents` or `relates` — so it is not
+an exception to "never delete a node", only to a draft that never became one.
 
 If you're tempted to write a node without review — for instance from a Stop
 hook — write to `inbox/` instead and let `/triage` handle it later. `inbox/`
 is explicitly a junk drawer: unstructured text, no schema, no validation.
 That's what makes it safe to write to unprompted.
-
-A draft nobody wants is the other outcome of that review, and `bin/cairn
-discard <id>` is how to say so: it deletes a node file git has never seen (and
-its untracked asset). It refuses anything committed or modified, a non-git
-graph, and a node another node lists in `parents` or `relates` — so it is not
-an exception to "never delete a node", only to a draft that never became one.
 
 Use `bin/cairn capture` for that rather than writing the file yourself: it
 records host, cwd, repo and commit, which is the context you can't reconstruct
@@ -275,10 +291,10 @@ worked — so a gap there means the graph doesn't know, not that nobody tried.
 
 ## Cross-machine
 
-Jeff works on a laptop and on NLR's HPC (`kestrel`). Both clone this repo from
+The usual shape is a laptop and an HPC login node, both cloning the graph from
 the same remote. Neither machine needs to reach the other: nodes reference
 project code by `repo` + `commit` and heavy outputs by `host:/path`, so a node
-written on kestrel is fully readable from the laptop without resolving
+written on the cluster is fully readable from the laptop without resolving
 anything.
 
 ## When a command fails

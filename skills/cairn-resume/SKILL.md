@@ -17,9 +17,10 @@ has.
 $CAIRN_PATH/bin/cairn standup --project <key>
 ```
 
-If `$CAIRN_PATH` is unset, stop and say so — it must point at the Cairn clone
-(the tool), and `$CAIRN_ROOT` at the graph. Do not guess a path. If you don't know the
-project key, run `$CAIRN_PATH/bin/cairn standup` with no arguments; it lists
+`$CAIRN_PATH` is the tool (the Cairn clone); the graph it reads is at
+`$CAIRN_ROOT`. If `$CAIRN_PATH` is unset, use the absolute path the session-start
+context names; if it names none, stop and say so. Do not guess a path. If you
+don't know the project key, run `$CAIRN_PATH/bin/cairn standup` with no arguments; it lists
 every project, ordered by what most needs attention.
 
 Four sections come back, and each answers a different question:
@@ -46,7 +47,7 @@ Four sections come back, and each answers a different question:
 3. **Trust `was:` over your own reconstruction.** The last history note was
    written when the whole problem was in someone's head.
 4. **Read the node itself when the summary isn't enough:**
-   `$CAIRN_PATH/nodes/<id>.md`. The full body has `## Claim` / `## What I did` /
+   `$CAIRN_ROOT/nodes/<id>.md`. The full body has `## Claim` / `## What I did` /
    `## Result`. A `[[node-id]]` in a body is a cross-reference — follow it,
    especially for cross-project dependencies, which live in bodies rather than in
    `parents`.
@@ -83,7 +84,7 @@ never have to mark it done.
 
 ## How much to trust a gap
 
-`$CAIRN_PATH/build/report.md` carries a coverage table: per project, how many
+`$CAIRN_ROOT/build/report.md` carries a coverage table: per project, how many
 nodes, how many settled, how many dead ends, and **what share were committed
 within a week of the work they describe**.
 
