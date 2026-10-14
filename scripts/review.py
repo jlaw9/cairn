@@ -40,17 +40,8 @@ CHASE = ("uncommitted", "unreviewed")
 
 
 def working_state(rel: Path) -> str:
-    """"" | "untracked" | "modified" — what the working tree has to say.
-
-    The distinction matters because `git commit --only <path>` refuses a path git
-    has never seen ("did not match any file(s) known to git"), which is exactly
-    the draft case this command exists to clear. An untracked node needs `git add`
-    first.
-    """
-    code, out = note_cmd.git("status", "--porcelain", "--", str(rel))
-    if code != 0 or not out.strip():
-        return ""
-    return "untracked" if out.lstrip().startswith("??") else "modified"
+    """"" | "untracked" | "modified" — see note.working_state."""
+    return note_cmd.working_state(rel)
 
 
 def list_unreviewed(nodes: dict, project: str) -> int:

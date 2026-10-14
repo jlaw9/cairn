@@ -55,6 +55,19 @@ def git(*args: str, cwd: Path | None = None) -> tuple[int, str]:
     return done.returncode, (done.stdout + done.stderr).strip()
 
 
+def working_state(rel: Path) -> str:
+    """"" | "untracked" | "modified" — what the working tree has to say.
+
+    `git commit --only <path>` refuses a path git has never seen ("did not match
+    any file(s) known to git"), so an untracked node needs a different message
+    than a modified one. review.py shares this.
+    """
+    code, out = git("status", "--porcelain", "--", str(rel))
+    if code != 0 or not out.strip():
+        return ""
+    return "untracked" if out.lstrip().startswith("??") else "modified"
+
+
 def whoami() -> str:
     """A short handle for the note line, derived rather than configured.
 
@@ -198,6 +211,15 @@ def main() -> int:
               "until you push.")
         return 0
 
+    # An untracked node cannot be committed with --only. Say what to do rather
+    # than surfacing git's pathspec error, and exit nonzero so a caller (serve's
+    # `ok`) knows the note is on disk but not committed. The note stays written:
+    # capture wins.
+    if working_state(rel) == "untracked":
+        print(f"\n  {node.id} is not committed yet — `git add {rel} && git commit` "
+              "first, then the note will commit on its own.")
+        return 1
+
     # A note is a human reading the node and reacting to it, which is exactly
     # what `reviewed` derives from — so the same commit carries the stamp, and
     # `cairn review` is only needed when you have nothing to add. The trailer
@@ -213,6 +235,7 @@ def main() -> int:
         print("\n  The note is written, but the commit failed — nothing is lost:")
         for out_line in text_out.splitlines()[:10]:
             print(f"    {out_line}")
+        return 1
     return 0
 
 
