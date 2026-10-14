@@ -6,7 +6,7 @@
 
 PY ?= $(shell scripts/find_python.sh)
 
-.PHONY: help setup init doctor install-commands validate build test clean python _python \
+.PHONY: help setup onboard init doctor install-commands validate build test clean python _python \
         digest standup sync push install-context site-check site-demo site-serve
 
 # The graph is a separate repo now. Every data command reads it through
@@ -20,6 +20,7 @@ export CAIRN_ROOT := $(GRAPH)
 endif
 
 help:
+	@echo "make onboard           set up this machine: graph, commit policy, which sessions see it"
 	@echo "make setup             hook + commands + a path reminder (once per machine)"
 	@echo "make init GRAPH=<path> create a research graph repo"
 	@echo "make doctor            check this clone is set up, and say what is missing"
@@ -80,6 +81,9 @@ setup:
 	  echo "  (no graph yet — run: make init GRAPH=~/research-graph)"
 	@$(MAKE) --no-print-directory _python
 	@$(MAKE) --no-print-directory install-commands
+
+onboard:
+	@bin/cairn onboard $(ARGS)
 
 init:
 	@test -n "$(GRAPH)" || { \

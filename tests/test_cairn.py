@@ -2340,6 +2340,272 @@ class ExportExampleExclude(unittest.TestCase):
         self.assertIn("not published here", body)
 
 
+
+
+class CommitPolicy(unittest.TestCase):
+    """The commit policy is one line in the graph's CLAUDE.md — not a dotfile,
+    not a config. The failure to prevent is a policy that silently reads as the
+    wrong mode: unset, malformed or mentioned-in-passing must all mean `ask`."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def setUp(self):
+        sys.path.insert(0, str(self.ROOT / "scripts"))
+        import policy
+        self.policy = policy
+        self.graph = Path(tempfile.mkdtemp(prefix="cairn-policy-"))
+        (self.graph / "nodes").mkdir()
+        self.addCleanup(shutil.rmtree, self.graph, ignore_errors=True)
+
+    def test_default_is_ask_when_nothing_is_stated(self):
+        self.assertEqual(self.policy.read_commit_mode(self.graph), "ask")
+        (self.graph / "CLAUDE.md").write_text("# A graph\n\nNo policy here.\n")
+        self.assertEqual(self.policy.read_commit_mode(self.graph), "ask")
+
+    def test_a_mention_in_prose_is_not_the_setting(self):
+        (self.graph / "CLAUDE.md").write_text(
+            "# A graph\n\nSwitch with `commit_mode: auto` if you like.\n")
+        self.assertEqual(self.policy.read_commit_mode(self.graph), "ask")
+
+    def test_write_appends_a_section_then_replaces_in_place(self):
+        (self.graph / "CLAUDE.md").write_text("# A graph\n\nKeep this.\n")
+        self.policy.write_commit_mode("auto", self.graph)
+        text = (self.graph / "CLAUDE.md").read_text()
+        self.assertIn("Keep this.", text)
+        self.assertIn("## Commit policy", text)
+        self.assertEqual(self.policy.read_commit_mode(self.graph), "auto")
+        self.policy.write_commit_mode("ask", self.graph)
+        text2 = (self.graph / "CLAUDE.md").read_text()
+        self.assertEqual(text2.count("## Commit policy"), 1)
+        self.assertEqual(text2.count("commit_mode:"), 1)
+        self.assertEqual(self.policy.read_commit_mode(self.graph), "ask")
+
+    def test_malformed_value_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.policy.write_commit_mode("yolo", self.graph)
+
+    def test_the_command_reads_and_sets_it(self):
+        import subprocess
+        env = {**os.environ, "CAIRN_ROOT": str(self.graph)}
+        cairn = str(self.ROOT / "bin" / "cairn")
+        out = subprocess.run([cairn, "policy", "--quiet"], capture_output=True, text=True, env=env)
+        self.assertEqual(out.stdout.strip(), "ask")
+        subprocess.run([cairn, "policy", "auto"], capture_output=True, text=True, env=env)
+        out = subprocess.run([cairn, "policy", "--quiet"], capture_output=True, text=True, env=env)
+        self.assertEqual(out.stdout.strip(), "auto")
+
+    def test_the_session_hook_states_the_policy(self):
+        """An agent in some other repo learns the policy from the session-start
+        context, not from a file it would have to go and read."""
+        import subprocess
+        self.policy.write_commit_mode("auto", self.graph)
+        out = subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "session_hook", "--dry-run"],
+            capture_output=True, text=True, timeout=90, stdin=subprocess.PIPE,
+            env={**os.environ, "CAIRN_ROOT": str(self.graph)})
+        self.assertIn("Commit policy is `auto`", out.stdout)
+        self.assertNotIn("Jeff", out.stdout)
+
+    def test_init_writes_the_policy_and_refuses_a_nested_graph(self):
+        import subprocess
+        cairn = str(self.ROOT / "bin" / "cairn")
+        fresh = self.graph / "fresh"
+        subprocess.run(["git", "init", "-q", str(self.graph)], check=True)
+        # self.graph is now a git repo, so a graph inside it is nested.
+        refused = subprocess.run([cairn, "init", str(fresh), "--commit-mode", "auto"],
+                                 capture_output=True, text=True)
+        self.assertEqual(refused.returncode, 2, refused.stderr)
+        self.assertIn("inside the git repo", refused.stderr)
+        self.assertFalse(fresh.exists())
+        allowed = subprocess.run([cairn, "init", str(fresh), "--commit-mode", "auto",
+                                  "--allow-nested", "--no-git"],
+                                 capture_output=True, text=True)
+        self.assertEqual(allowed.returncode, 0, allowed.stderr)
+        self.assertEqual(self.policy.read_commit_mode(fresh), "auto")
+
+
+class InstallContextScope(unittest.TestCase):
+    """`--project` puts the same three installs inside one project and touches
+    nothing machine-wide. Scope is where the files landed, not a setting."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp(prefix="cairn-cfg-"))
+        self.project = Path(tempfile.mkdtemp(prefix="cairn-proj-"))
+        for d in (self.home, self.project):
+            self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+
+    def run_install(self, *args):
+        import subprocess
+        return subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "install_context", *args],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "CLAUDE_CONFIG_DIR": str(self.home), "CAIRN_ROOT": str(FIXTURE)})
+
+    def test_project_scope_lands_in_the_project_and_nowhere_else(self):
+        import json
+        (self.project / "CLAUDE.md").write_text("# Project\n\nTheirs.\n")
+        result = self.run_install("--project", str(self.project), "--apply")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("Theirs.", (self.project / "CLAUDE.md").read_text())
+        self.assertIn("cairn:begin", (self.project / "CLAUDE.md").read_text())
+        local = self.project / ".claude" / "settings.local.json"
+        self.assertTrue(local.exists(), "hooks belong in settings.local.json, not settings.json")
+        self.assertIn("session_hook", json.dumps(json.loads(local.read_text())))
+        self.assertFalse((self.project / ".claude" / "settings.json").exists())
+        self.assertTrue((self.project / ".claude" / "commands" / "log.md").is_symlink())
+        # Machine-wide files are untouched.
+        self.assertFalse((self.home / "settings.json").exists())
+        self.assertFalse((self.home / "CLAUDE.md").exists())
+        self.assertFalse((self.home / "commands").exists())
+
+    def test_project_scope_removes_cleanly(self):
+        (self.project / "CLAUDE.md").write_text("# Project\n\nTheirs.\n")
+        self.run_install("--project", str(self.project), "--apply")
+        self.run_install("--project", str(self.project), "--remove", "--apply")
+        self.assertEqual((self.project / "CLAUDE.md").read_text(), "# Project\n\nTheirs.\n")
+        local = self.project / ".claude" / "settings.local.json"
+        self.assertNotIn("session_hook", local.read_text() if local.exists() else "")
+
+    def test_a_missing_project_directory_is_an_error(self):
+        result = self.run_install("--project", str(self.project / "nope"))
+        self.assertEqual(result.returncode, 2)
+
+
+class Onboard(unittest.TestCase):
+    """Onboarding asks three questions whose answers become facts on disk, and
+    it must be drivable without a terminal — the first run on a cluster login
+    node is often through an agent."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix="cairn-onboard-"))
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.home = self.base / "cfg"
+        self.project = self.base / "proj"
+        self.project.mkdir()
+
+    def run_onboard(self, *args, env_extra=None):
+        import subprocess
+        env = {k: v for k, v in os.environ.items() if k not in ("CAIRN_ROOT", "CAIRN_PATH")}
+        env["CLAUDE_CONFIG_DIR"] = str(self.home)
+        env["PATH"] = str(self.base / "nobin") + os.pathsep + env.get("PATH", "")
+        env.update(env_extra or {})
+        return subprocess.run(
+            [str(self.ROOT / "bin" / "cairn"), "onboard", *args],
+            capture_output=True, text=True, timeout=180, stdin=subprocess.DEVNULL, env=env)
+
+    def test_without_a_terminal_it_asks_for_flags_instead_of_hanging(self):
+        result = self.run_onboard("--graph", str(self.base / "g"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--yes", result.stderr)
+        self.assertFalse((self.base / "g").exists())
+
+    def test_flags_answer_every_question_and_the_facts_land_on_disk(self):
+        import json
+        sys.path.insert(0, str(self.ROOT / "scripts"))
+        import policy
+        graph = self.base / "g"
+        result = self.run_onboard("--graph", str(graph), "--commit-mode", "auto",
+                                  "--scope", f"project={self.project}", "--openviking", "no",
+                                  "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertTrue((graph / "nodes").is_dir())
+        self.assertEqual(policy.read_commit_mode(graph), "auto")
+        local = self.project / ".claude" / "settings.local.json"
+        self.assertIn("session_hook", json.dumps(json.loads(local.read_text())))
+        self.assertFalse((self.home / "settings.json").exists())
+        # It explains where nodes live rather than asking.
+        self.assertIn("Nodes stay in the one graph", result.stdout)
+        self.assertIn("cairn doctor", result.stdout)
+
+    def test_machine_scope_uses_the_config_dir(self):
+        graph = self.base / "g"
+        result = self.run_onboard("--graph", str(graph), "--scope", "machine", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("session_hook", (self.home / "settings.json").read_text())
+        import policy
+        self.assertEqual(policy.read_commit_mode(graph), "ask")
+
+    def test_an_existing_graph_is_kept_and_its_policy_switched(self):
+        import subprocess, policy
+        graph = self.base / "g"
+        subprocess.run([str(self.ROOT / "bin" / "cairn"), "init", str(graph)], check=True,
+                       capture_output=True)
+        (graph / "nodes" / "keep.md").write_text("x")
+        result = self.run_onboard("--graph", str(graph), "--commit-mode", "auto",
+                                  "--scope", f"project={self.project}", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertTrue((graph / "nodes" / "keep.md").exists())
+        self.assertEqual(policy.read_commit_mode(graph), "auto")
+
+
+class OpenViking(unittest.TestCase):
+    """OpenViking is optional and arm's-length: no import, a dry run by default,
+    and `ov` missing is a sentence, never a traceback."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix="cairn-ov-"))
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.graph = self.base / "graph"
+        (self.graph / "nodes").mkdir(parents=True)
+        (self.graph / "nodes" / "2026-08-02-prekd-a.md").write_text("---\nid: x\n---\n")
+        (self.graph / "build").mkdir()
+        (self.graph / "build" / "graph.md").write_text("graph\n")
+        self.fakebin = self.base / "bin"
+        self.fakebin.mkdir()
+        self.log = self.base / "ov.log"
+        fake = self.fakebin / "ov"
+        fake.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + str(self.log) + "'\n"
+                        "[ \"$1\" = status ] && echo 'server ok'\nexit 0\n")
+        fake.chmod(0o755)
+
+    def run_ov(self, *args, with_ov: bool):
+        import subprocess
+        # Without `ov`: a PATH holding only the system tools the dispatcher needs
+        # (dirname, sh) and a real `ov`-free directory — never an empty PATH,
+        # which breaks the dispatcher itself and tests nothing about this script.
+        system = [d for d in os.environ.get("PATH", "").split(os.pathsep)
+                  if d.startswith(("/usr/bin", "/bin", "/usr/local/bin"))
+                  and not (Path(d) / "ov").exists()]
+        path = os.pathsep.join(([str(self.fakebin)] if with_ov else []) + system)
+        env = {**os.environ, "CAIRN_ROOT": str(self.graph), "PATH": path}
+        return subprocess.run([str(self.ROOT / "bin" / "cairn"), "openviking", *args],
+                              capture_output=True, text=True, timeout=60, env=env)
+
+    def test_it_does_not_import_openviking_or_lib(self):
+        text = (self.ROOT / "scripts" / "openviking.py").read_text()
+        self.assertNotRegex(text, r"(?m)^\s*(import|from)\s+(openviking|lib)\b")
+
+    def test_missing_ov_is_a_sentence(self):
+        status = self.run_ov("status", with_ov=False)
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("optional", status.stdout)
+        push = self.run_ov("push", "--apply", with_ov=False)
+        self.assertEqual(push.returncode, 1)
+        self.assertIn("optional", push.stderr)
+        self.assertNotIn("Traceback", push.stderr)
+
+    def test_dry_run_runs_nothing(self):
+        result = self.run_ov("push", with_ov=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Dry run", result.stdout)
+        self.assertFalse(self.log.exists())
+
+    def test_apply_registers_what_exists_and_skips_what_does_not(self):
+        result = self.run_ov("push", "--apply", with_ov=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        calls = self.log.read_text().splitlines()
+        self.assertEqual(len(calls), 2, calls)          # nodes + graph.md; report.md absent
+        self.assertIn("--to viking://resources/cairn/graph/nodes", calls[0])
+        self.assertIn("add-resource", calls[1])
+        self.assertIn("report.md", result.stdout)
+        self.assertIn("skip", result.stdout)
+
 if __name__ == "__main__":
     try:
         result = unittest.main(exit=False, verbosity=2).result

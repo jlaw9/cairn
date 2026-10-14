@@ -39,10 +39,13 @@ import sys
 import time
 from pathlib import Path
 
+import policy  # stdlib only, like this file
+
 # No `import lib` — same reason as capture.py and sync.py. This runs before
 # anything else in a session, on whatever machine that is, and it must not be
 # able to fail. Everything it needs it gets by shelling out to bin/cairn.
-REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or Path(__file__).resolve().parent.parent)
+TOOL_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(os.environ.get("CAIRN_ROOT") or TOOL_ROOT)
 
 #: Don't pull more than this often. A session started every few minutes while
 #: working shouldn't hit the network every time.
@@ -65,7 +68,7 @@ def run(*cmd: str, timeout: int = 10) -> tuple[int, str]:
 
 
 def cairn(*args: str, timeout: int = 10) -> str:
-    code, text = run(str(REPO_ROOT / "bin" / "cairn"), *args, timeout=timeout)
+    code, text = run(str(TOOL_ROOT / "bin" / "cairn"), *args, timeout=timeout)
     return text if code == 0 else ""
 
 
@@ -138,12 +141,12 @@ def start_block() -> str:
     parts = [
         "# Cairn — the research record",
         "",
-        f"Research activity across all of Jeff's projects is recorded in Cairn, a",
+        f"Research activity across all of the user's projects is recorded in Cairn, a",
         f"git-backed graph of experiments, dead ends, open threads and deadlines at",
-        f"`{root}`.",
+        f"`{root}`. The tool is `{TOOL_ROOT}/bin/cairn`.",
         "",
         "**Before proposing work** in a project repo, read what is already settled:",
-        f"`{root}/bin/cairn standup --project <key>`. A `dead` node is a claim already",
+        f"`{TOOL_ROOT}/bin/cairn standup --project <key>`. A `dead` node is a claim already",
         "refuted, with the reason attached — cite it instead of re-running it.",
         "",
         "**After doing work**, record it with `/log` from inside the project repo.",
@@ -151,8 +154,9 @@ def start_block() -> str:
         "never prompts, goes to `inbox/` for later triage.",
         "**A reaction to an existing node**: `cairn note <node-id> \"...\"`.",
         "",
-        "Never commit a node Jeff hasn't seen. Anything written unprompted goes to",
-        f"`inbox/`. Conventions: `{root}/CLAUDE.md` and `{root}/skills/`.",
+        policy.sentence(policy.read_commit_mode(root)),
+        "Anything written unprompted goes to `inbox/`. Conventions:",
+        f"`{TOOL_ROOT}/CLAUDE.md` and the skills under `{TOOL_ROOT}/skills/`.",
     ]
     state = attention()
     if state:
@@ -205,7 +209,7 @@ def main() -> int:
         return 0
 
     if due_for_pull():
-        run(str(REPO_ROOT / "bin" / "cairn"), "sync", "--quiet", timeout=BUDGET_S)
+        run(str(TOOL_ROOT / "bin" / "cairn"), "sync", "--quiet", timeout=BUDGET_S)
         mark_pulled()
 
     block = start_block()

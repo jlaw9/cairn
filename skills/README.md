@@ -52,8 +52,7 @@ If `$CAIRN_PATH` is not set in the environment the agent is running in, the
 absolute path works and is the more reliable form on a shared filesystem:
 
 ```markdown
-… read the matching skill under
-/kfs2/projects/bpms/jlaw/tools/Cairn-graph/skills/.
+… read the matching skill under /path/to/your/cairn/skills/.
 ```
 
 **Not vendored, not copied.** A copy in each project repo is a copy that drifts,
@@ -68,7 +67,7 @@ remote is reachable and they would rather not clone, the [`atskills`][repo] CLI
 addresses these directly:
 
 ```sh
-atskills get gh:jlaw9/Cairn-graph/skills/cairn-capture
+atskills get gh:jlaw9/cairn/skills/cairn-capture
 ```
 
 The CLI is not required for anything above and is not a dependency of Cairn.

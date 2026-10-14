@@ -32,7 +32,9 @@ usage() {
     cat >&2 <<'EOF'
 usage: cairn <command> [args...]
 
+  onboard        set up this machine: graph, commit policy, which sessions see it
   init           create a research graph repo (run this once, per graph)
+  policy         read or set the commit policy: ask (default) or auto
   new_node       create a node, or append a status change to one
   validate       check every node against the schema
   build          regenerate build/graph.html and build/graph.md
@@ -53,6 +55,7 @@ usage: cairn <command> [args...]
   session_hook   emit Claude Code session-hook JSON (called by the hook)
   capture        append a note to inbox/ — no schema, never refuses
   sync_issues    mirror open task nodes to GitHub Issues (dry run by default)
+  openviking     register the graph with an OpenViking server (dry run by default)
   doctor         check the install
 
 `cairn <command> --help` for a command's own options.
@@ -93,7 +96,7 @@ fi
 # is to work when something else is broken. Demanding PyYAML in order to *launch*
 # them would undo that here, one layer above where the guarantee was made.
 case $cmd in
-    capture | sync | session_hook | init) probe="--any" ;;
+    capture | sync | session_hook | init | policy | onboard | openviking) probe="--any" ;;
     *)                             probe="" ;;
 esac
 

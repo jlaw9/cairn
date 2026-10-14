@@ -2,7 +2,8 @@
 description: Turn inbox notes into nodes, or discard them
 ---
 
-Work through `$CAIRN_PATH/inbox/` and decide what each note is.
+Work through `$CAIRN_ROOT/inbox/` and decide what each note is. The tool is at
+`$CAIRN_PATH`; the graph is at `$CAIRN_ROOT`.
 
 `$ARGUMENTS` may name a single inbox file to triage, or a project to filter on.
 With no arguments, take the whole inbox oldest-first.
@@ -14,7 +15,7 @@ it, and separating that from capture is the entire reason capture stays cheap.
 ## 1. Read the queue
 
 ```sh
-ls -t $CAIRN_PATH/inbox/
+ls -t $CAIRN_ROOT/inbox/
 ```
 
 Each file carries when it was written, on which host, in which repo at which
@@ -47,15 +48,17 @@ plus a deletion. Don't force one file into one node.
 
 ## 3. Show, then commit
 
-Print every node you drafted and **wait for confirmation before committing.** The
-whole point of triage happening separately from capture is that this is where a
-human reads it. Never commit a node nobody has seen.
+Print every node you drafted. Under `commit_mode: ask` (the session context
+states the policy; `$CAIRN_PATH/bin/cairn policy` prints it) **wait for
+confirmation before committing** — triage is where a human reads what capture
+let through. Under `auto`, commit and report what you filed and what you
+deleted, so the user can read the diff instead of a form.
 
 Then, in the graph repo:
 
 ```sh
-cd $CAIRN_PATH && make build && git add -A \
-  && git commit -m "triage: <n> notes" && git push
+cd $CAIRN_ROOT && git add nodes/ inbox/ \
+  && git commit -m "triage: <n> notes" && $CAIRN_PATH/bin/cairn sync --push
 ```
 
 Remove the inbox files you filed, in the same commit as the nodes they became —

@@ -106,6 +106,35 @@ else
     say_note "or start one: cairn init ~/research-graph"
 fi
 
+# 4c. Which sessions see the graph. Scope is wherever the hook landed: user
+#     settings mean every session on this machine; a project's
+#     .claude/settings.local.json means only sessions started there. doctor
+#     can only see the first from here, so it says so rather than guessing.
+cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+if grep -qs "session_hook" "$cfg/settings.json" 2>/dev/null; then
+    say_ok "every session on this machine sees the graph (SessionStart hook in $cfg)"
+elif grep -qs "session_hook" "./.claude/settings.local.json" 2>/dev/null; then
+    say_ok "sessions in $(pwd) see the graph (project-scoped hook)"
+else
+    say_bad "no session hook — sessions start without the graph's state" \
+            "cairn install_context --apply   (or: --project <path> --apply for one project)"
+    say_note "or run everything at once: cairn onboard"
+fi
+
+# 4d. The commit policy, read from the graph's CLAUDE.md. Informational: both
+#     modes are correct, which is the point of its being a policy.
+if [ -n "$py" ] && [ -d "$graph/nodes" ]; then
+    mode=$(CAIRN_ROOT="$graph" "$py" "$tool/scripts/policy.py" --quiet 2>/dev/null || echo "ask")
+    say_note "commit policy: $mode  (cairn policy — ask: draft/show/commit; auto: agents commit, you edit)"
+fi
+
+# 4e. OpenViking is optional and never a MISS. Say whether it is here.
+if command -v ov >/dev/null 2>&1; then
+    say_note "OpenViking: ov found — optional; cairn openviking status"
+else
+    say_note "OpenViking: not installed — optional; see docs/openviking.md"
+fi
+
 # 5. Is this clone nested inside another git repo? Cairn is meant to be a
 #    separate repo spanning every project — nested, `git status` in the parent
 #    sees it as an untracked directory and /log's `repo` field gets confusing.

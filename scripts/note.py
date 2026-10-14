@@ -19,7 +19,7 @@ field: the note line carries its own date, so `standup` and `digest` can find it
 by reading the body, exactly as they already read `## Next`.
 
 **It commits by default**, which is the one place this deliberately differs from
-`capture`. Design decision 6 refuses to commit a node *Jeff hasn't seen*; a
+`capture`. Design decision 6 refuses to commit a node *the user hasn't seen*; a
 sentence he just typed is the definition of seen, and the whole value of a note
 is that it is visible from the other machine tomorrow. The commit carries a
 `Cairn-Review:` trailer for the same reason — leaving a note *is* reading the
