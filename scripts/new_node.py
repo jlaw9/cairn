@@ -103,6 +103,33 @@ def parse_relation(spec: str) -> dict:
     return entry
 
 
+def near_projects(project: str, known) -> list:
+    """Existing keys `project` is plausibly a typo of, best first, at most three.
+
+    Module-level so `cairn serve` asks exactly this question before it passes
+    `--new-project` on the map's behalf — that flag switches the check below off,
+    so the server has to run it first or the map is the way around the guard.
+
+    A hint is only useful if it is short. With keys like polyid, polymd,
+    polysol and polycrystal, edit distance is too blunt — polyid and polymd
+    differ by one character and are different projects — so require either a
+    real shared prefix or a single substitution at equal length.
+    """
+    def shared(key: str) -> int:
+        return len(os.path.commonprefix([key, project]))
+
+    def plausible(key: str) -> bool:
+        if key == project:
+            return False
+        if shared(key) >= 3:
+            return True
+        return (len(key) == len(project)
+                and sum(a != b for a, b in zip(key, project)) == 1)
+
+    return sorted((k for k in known if plausible(k)),
+                  key=lambda k: (-shared(k), abs(len(k) - len(project))))[:3]
+
+
 def check_project(project: str, allow_new: bool) -> None:
     """Refuse an unrecognised project key unless --new-project says so.
 
@@ -121,21 +148,7 @@ def check_project(project: str, allow_new: bool) -> None:
     if not known or project in known or allow_new:
         return
 
-    # A hint is only useful if it is short. With keys like polyid, polymd,
-    # polysol and polycrystal, edit distance is too blunt — polyid and polymd
-    # differ by one character and are different projects — so require either a
-    # real shared prefix or a single substitution at equal length.
-    def shared(key: str) -> int:
-        return len(os.path.commonprefix([key, project]))
-
-    def plausible(key: str) -> bool:
-        if shared(key) >= 3:
-            return True
-        return (len(key) == len(project)
-                and sum(a != b for a, b in zip(key, project)) == 1)
-
-    near = sorted((k for k in known if plausible(k)),
-                  key=lambda k: (-shared(k), abs(len(k) - len(project))))[:3]
+    near = near_projects(project, known)
     lines = [f"'{project}' is not a project in this graph."]
     if near:
         lines.append(f"  did you mean: {', '.join(near)}")
