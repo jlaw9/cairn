@@ -194,8 +194,51 @@ class ValidatorTest(unittest.TestCase):
                          "docs/schema.md's type table does not cover lib.TYPES")
         for name, (statuses, terminal) in documented.items():
             spec = lib.TYPES[name]
-            self.assertEqual(statuses, spec.statuses, f"{name}: statuses differ from docs")
-            self.assertEqual(terminal, spec.terminal, f"{name}: terminal set differs from docs")
+            # The table documents what a human may write. A deprecated status
+            # is still read, and still terminal, but it is not in the table.
+            self.assertEqual(statuses, lib.OFFERED_STATUSES[name], f"{name}: statuses differ from docs")
+            self.assertEqual(terminal, spec.terminal - spec.deprecated,
+                             f"{name}: terminal set differs from docs")
+
+
+class DirectionEndings(unittest.TestCase):
+    """A direction ends `answered` or `abandoned`. `closed` was the only ending
+    before 2026-10-16 and red regardless, so the colour said nothing; it is
+    still read (grey, with a warning) and no longer written."""
+
+    def setUp(self):
+        clear()
+
+    def test_closed_is_read_with_a_warning_not_an_error(self):
+        write("2026-06-01-prekd-dir.md", node_text("2026-06-01-prekd-dir", "direction", "closed",
+                                                   created="2026-06-01"))
+        issues = lib.validate()
+        self.assertFalse([i for i in issues if i.level == "error"], issues)
+        self.assertTrue(any("deprecated" in str(i) and "answered" in str(i) for i in issues), issues)
+        self.assertEqual(lib.STATUS_CLASS["closed"], "idle")
+        node = lib.load_nodes()[0]["2026-06-01-prekd-dir"]
+        self.assertTrue(node.is_terminal)
+
+    def test_no_new_move_to_closed(self):
+        write("2026-06-01-prekd-dir.md", node_text("2026-06-01-prekd-dir", "direction", "open",
+                                                   created="2026-06-01"))
+        node = lib.load_nodes()[0]["2026-06-01-prekd-dir"]
+        with self.assertRaises(ValueError) as caught:
+            node.set_status("closed", "done with it")
+        self.assertIn("answered", str(caught.exception))
+        node.set_status("answered", "no: the monomer graph alone is not enough")
+        self.assertEqual(node.status, "answered")
+        self.assertTrue(node.is_terminal)
+        node.set_status("open", "reopened")
+        node.set_status("abandoned", "nobody is on it")
+        self.assertTrue(node.is_terminal)
+        self.assertEqual(lib.STATUS_CLASS["answered"], "good")
+        self.assertEqual(lib.STATUS_CLASS["abandoned"], "bad")
+
+    def test_offered_statuses_leave_out_the_deprecated(self):
+        self.assertEqual(lib.OFFERED_STATUSES["direction"], ["open", "parked", "answered", "abandoned"])
+        self.assertEqual(lib.OFFERED_STATUSES["experiment"], lib.TYPES["experiment"].statuses)
+        self.assertIn("closed", lib.TYPES["direction"].statuses)
 
 
 class NodeTest(unittest.TestCase):
@@ -493,6 +536,65 @@ class RenderTest(unittest.TestCase):
         positions, _, _, _, _ = build_graph.compute_layout(nodes)
         same_day = [positions[n] for n in nodes if "same-" in n]
         self.assertEqual(len({round(y) for _, y in same_day}), len(same_day))
+
+    def test_a_child_joins_its_parents_row(self):
+        """A row is a thread. Two unrelated nodes sharing a row because their
+        labels happened to fit is what the layout used to say."""
+        write(f"{ROOT_ID}.md", node_text(ROOT_ID, "direction", "open", created="2026-07-20"))
+        write("2026-07-25-prekd-other.md", node_text("2026-07-25-prekd-other", created="2026-07-25"))
+        write("2026-09-20-prekd-kid.md", node_text("2026-09-20-prekd-kid", created="2026-09-20",
+                                                   parents=f"[{ROOT_ID}]"))
+        nodes, _ = lib.load_nodes()
+        positions, _, _, _, _ = build_graph.compute_layout(nodes)
+        self.assertEqual(positions["2026-09-20-prekd-kid"][1], positions[ROOT_ID][1])
+        self.assertNotEqual(positions["2026-07-25-prekd-other"][1], positions[ROOT_ID][1])
+
+    def test_same_day_kin_step_right_by_generation(self):
+        """A project planned in one sitting used to be a column. The nudge is a
+        tie-break, not a date: under TIE_STEP per generation, parent first."""
+        write("2026-08-02-prekd-root.md", node_text("2026-08-02-prekd-root", "direction", "open"))
+        write("2026-08-02-prekd-kid.md", node_text("2026-08-02-prekd-kid", parents="[2026-08-02-prekd-root]"))
+        write("2026-08-02-prekd-grandkid.md",
+              node_text("2026-08-02-prekd-grandkid", parents="[2026-08-02-prekd-kid]"))
+        nodes, _ = lib.load_nodes()
+        positions, _, _, _, _ = build_graph.compute_layout(nodes)
+        xs = [positions[f"2026-08-02-prekd-{k}"][0] for k in ("root", "kid", "grandkid")]
+        self.assertEqual(xs, sorted(xs))
+        self.assertAlmostEqual(xs[1] - xs[0], build_graph.TIE_STEP)
+        self.assertAlmostEqual(xs[2] - xs[1], build_graph.TIE_STEP)
+
+    def test_labels_wrap_to_two_lines_and_elide_after(self):
+        short = build_graph.wrap_label("Short")
+        self.assertEqual(short, ["Short"])
+        two = build_graph.wrap_label("Can polymer Tg be predicted from monomer graph alone")
+        self.assertEqual(len(two), 2)
+        self.assertTrue(all(len(line) <= build_graph.LINE_CHARS for line in two))
+        self.assertEqual(" ".join(two), "Can polymer Tg be predicted from monomer graph alone")
+        long = build_graph.wrap_label("Does a reported final Tg fit as Tgp in the Fox equation "
+                                      "and what happens past the limit of the fit")
+        self.assertEqual(len(long), build_graph.MAX_LINES)
+        self.assertTrue(long[-1].endswith("…"))
+        # A token longer than a line is broken rather than widening the column.
+        self.assertTrue(all(len(line) <= build_graph.LINE_CHARS
+                            for line in build_graph.wrap_label("x" * 100)))
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        for node in payload["nodes"]:
+            self.assertEqual(" ".join(node["lines"]), node["label"])
+
+    def test_the_payload_carries_the_status_colour_table(self):
+        """The page paints a history entry's status from this, not from a copy
+        that would drift the day a status is added."""
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        self.assertEqual(payload["statusClass"], lib.STATUS_CLASS)
+        self.assertEqual(payload["statusClass"]["answered"], "good")
+        self.assertEqual(payload["statusClass"]["abandoned"], "bad")
+        self.assertEqual(payload["statusClass"]["closed"], "idle")
+        # A control offers the live vocabulary; the filter rail keeps the whole.
+        self.assertNotIn("closed", payload["statusesByType"]["direction"])
+        self.assertIn("answered", payload["statusesByType"]["direction"])
+        self.assertIn("closed", payload["statuses"])
 
     def test_the_payload_carries_each_types_own_fields(self):
         """The edit form renders inputs from this rather than from a second copy

@@ -104,14 +104,25 @@ Adding an edge is not a state transition, so this appends no history entry.
 | type | status values | terminal | extra fields |
 |---|---|---|---|
 | `experiment` | `planned` `running` `worked` `dead` `parked` | worked, dead | `repo` `commit` `host` `artifacts[]` |
-| `direction` | `open` `parked` `closed` | closed | — |
+| `direction` | `open` `parked` `answered` `abandoned` | answered, abandoned | — |
 | `seed` | `seed` `promoted` `killed` | promoted, killed | `origin` `contacts[]` |
 | `milestone` | `planned` `submitted` `accepted` `done` | accepted, done | `venue` `date` `url` |
 | `task` | `todo` `doing` `done` `dropped` | done, dropped | `due` `source` |
 
 "Terminal" means the thread is finished and the digest should stop nagging
-about it. Note `parked` is **not** terminal for an experiment and `closed` is
-terminal for a direction — parking is a pause, closing is a decision.
+about it. Note `parked` is **not** terminal for an experiment, and both
+direction endings are — parking is a pause, ending is a decision.
+
+A direction ends one of two ways. `answered` means the question got its
+answer, whichever way it went: "can Tg be predicted from the monomer graph
+alone?" is answered by a *no* as much as by a *yes*, and the children say which.
+`abandoned` means it was dropped unanswered — nobody is working on it and
+nobody plans to. The map paints them green and red for the same reason it
+paints `worked` and `dead` that way: a reader should not have to open the node
+to learn how the idea came out. Until 2026-10-16 the only ending was `closed`,
+red regardless; a node still holding it validates with a warning and renders
+grey ("finished, valence unknown"), but no new move to `closed` is accepted —
+pick one of the two.
 
 `planned` is **not** terminal either, and it exists so a pre-registration can be
 truthful. Opening the experiment before the first job goes to the queue is the

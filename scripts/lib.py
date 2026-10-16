@@ -158,6 +158,12 @@ class TypeSpec:
     #: first entry silently becoming the default — adding `planned` to the front
     #: of experiment would otherwise have changed what /log creates.
     default: str = ""
+    #: Statuses still accepted on a node, and in its history, but no longer
+    #: offered: `validate` warns, and the status controls leave them out. A
+    #: status leaves the vocabulary this way rather than by deletion, because a
+    #: node that holds it is a record, and the replay has to be able to say what
+    #: it said then.
+    deprecated: frozenset = frozenset()
 
     @property
     def default_status(self) -> str:
@@ -180,11 +186,20 @@ TYPES: dict[str, TypeSpec] = {
         optional=["repo", "commit", "host", "artifacts"],
         default="running",
     ),
+    # A direction ends one of two ways, and the map paints them differently:
+    # `answered` when the question got its answer, whichever way it went, and
+    # `abandoned` when it was dropped unanswered. `closed` was the only terminal
+    # status before 2026-10-16, and red regardless — so a reader had to open the
+    # node to learn whether the idea worked, which is the one thing the colour
+    # is for. Every other type already splits its ending (worked/dead,
+    # promoted/killed, done/dropped); this makes direction match. `closed` is
+    # still read, as grey: finished, valence unknown.
     "direction": TypeSpec(
-        statuses=["open", "parked", "closed"],
-        terminal={"closed"},
+        statuses=["open", "parked", "answered", "abandoned", "closed"],
+        terminal={"answered", "abandoned", "closed"},
         required=[],
         optional=[],
+        deprecated=frozenset({"closed"}),
     ),
     "seed": TypeSpec(
         statuses=["seed", "promoted", "killed"],
@@ -208,14 +223,25 @@ TYPES: dict[str, TypeSpec] = {
 
 ALL_STATUSES = sorted({s for spec in TYPES.values() for s in spec.statuses})
 
+#: What a status control should offer, per type: the vocabulary minus what has
+#: been deprecated out of it. Filters keep using `statuses`, because a filter
+#: has to be able to name what a node already holds.
+OFFERED_STATUSES = {name: [s for s in spec.statuses if s not in spec.deprecated]
+                    for name, spec in TYPES.items()}
+
+#: Why a deprecated status is deprecated, in the words `validate` uses.
+DEPRECATED_HINT = {
+    "closed": "say `answered` (the question got its answer) or `abandoned` (dropped unanswered)",
+}
+
 #: Coarse buckets used for colour in the rendered graph. Every status in TYPES
 #: must appear here exactly once; validate_schema_table() enforces that.
 STATUS_CLASS = {
-    "worked": "good", "done": "good", "accepted": "good", "promoted": "good",
-    "dead": "bad", "killed": "bad", "dropped": "bad", "closed": "bad",
+    "worked": "good", "done": "good", "accepted": "good", "promoted": "good", "answered": "good",
+    "dead": "bad", "killed": "bad", "dropped": "bad", "abandoned": "bad",
     "running": "active", "doing": "active", "submitted": "active",
     "open": "pending", "todo": "pending", "seed": "pending", "planned": "pending",
-    "parked": "idle",
+    "parked": "idle", "closed": "idle",
 }
 
 ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*$")
@@ -268,6 +294,10 @@ def validate_schema_table() -> None:
         for status in spec.statuses:
             assert status in STATUS_CLASS, f"{name}.{status} missing from STATUS_CLASS"
         assert spec.terminal <= set(spec.statuses), f"{name}: bad terminal set"
+        assert spec.deprecated <= set(spec.statuses), f"{name}: deprecated status not in statuses"
+        assert spec.default_status not in spec.deprecated, f"{name}: default status is deprecated"
+        for status in spec.deprecated:
+            assert status in DEPRECATED_HINT, f"{name}.{status} deprecated without a hint"
 
 
 validate_schema_table()
@@ -372,8 +402,13 @@ class Node:
         if self.spec and status not in self.spec.statuses:
             raise ValueError(
                 f"'{status}' is not a valid status for type '{self.type}' "
-                f"(expected one of {', '.join(self.spec.statuses)})"
+                f"(expected one of {', '.join(OFFERED_STATUSES[self.type])})"
             )
+        # A deprecated status is read, never written: a node that holds one is
+        # a record, a move to one today is a choice, and the vocabulary has a
+        # better word for it.
+        if self.spec and status in self.spec.deprecated:
+            raise ValueError(f"'{status}' is deprecated — {DEPRECATED_HINT[status]}")
         entry = {"date": when, "status": status}
         if note:
             entry["note"] = note
@@ -707,8 +742,10 @@ def _check_common(node: Node, out: list[Issue]) -> None:
     if spec and node.status and node.status not in spec.statuses:
         err(
             f"status '{node.status}' is not valid for type '{node.type}' "
-            f"(expected one of {', '.join(spec.statuses)})"
+            f"(expected one of {', '.join(OFFERED_STATUSES[node.type])})"
         )
+    elif spec and node.status in spec.deprecated:
+        warn(f"status '{node.status}' is deprecated — {DEPRECATED_HINT[node.status]}")
 
     created, updated = node.created, node.updated
     if node.meta.get("created") is not None and created is None:

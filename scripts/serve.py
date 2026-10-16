@@ -189,10 +189,10 @@ def do_status(payload: dict) -> dict:
     node = known_node(node_id)
     status = want(payload, "status")
     spec = lib.TYPES.get(node.type)
-    if spec and status not in spec.statuses:
+    if spec and (status not in spec.statuses or status in spec.deprecated):
         raise Refused(
             f"'{status}' is not a {node.type} status: "
-            f"{', '.join(spec.statuses)}")
+            f"{', '.join(lib.OFFERED_STATUSES[node.type])}")
     if status == node.status:
         raise Refused(f"{node_id} is already {status}")
     note = " ".join(str(payload.get("note", "") or "").split())
@@ -210,7 +210,7 @@ def do_status(payload: dict) -> dict:
 
 
 #: Statuses that close a thread as a failure. Only these require a reason.
-CLOSING = {"dead", "dropped", "killed", "closed"}
+CLOSING = {"dead", "dropped", "killed", "abandoned", "closed"}
 
 
 def known_projects() -> set:
@@ -237,9 +237,9 @@ def do_create(payload: dict) -> dict:
         args += ["--body", body]
     status = want(payload, "status", required=False)
     if status:
-        if status not in lib.TYPES[node_type].statuses:
+        if status not in lib.OFFERED_STATUSES[node_type]:
             raise Refused(f"'{status}' is not a {node_type} status: "
-                          f"{', '.join(lib.TYPES[node_type].statuses)}")
+                          f"{', '.join(lib.OFFERED_STATUSES[node_type])}")
         args += ["--status", status]
     for parent in payload.get("parents") or []:
         parent = str(parent).strip()

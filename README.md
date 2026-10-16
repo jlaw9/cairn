@@ -643,7 +643,17 @@ CDN, no build step beyond `make build`. Open it from disk.
 Layout is **time-ordered**, not force-directed: x is the creation date, y is a
 project lane. Research history has a real time axis and a force layout throws
 it away; it also means node positions are stable between builds, so the map
-stays memorable.
+stays memorable. Within a lane a row is a thread: a child joins its parent's row
+when there is room, so what sits on one line is one line of work.
+
+The `x` control in the header (or `l`) swaps that axis for **lineage**: x is
+how many hops a node is from a root, y packs each lane as a tree, and no dates
+are involved. A project planned in one sitting has every node created today, and
+on the time axis that is one column with the edges crumpled into the glyphs —
+the lineage view is for laying out a plan before anyone knows when anything will
+run, and for reading a project as an argument rather than as a calendar. The
+time view is unchanged and still the default; `?layout=lineage` in the URL picks
+the other.
 
 It's a full interactive app, just one served from disk instead of a server:
 
@@ -666,7 +676,10 @@ It's a full interactive app, just one served from disk instead of a server:
   milestone that's every experiment that fed the paper, dead ends included
 - **typed relations** → grey arrows are lineage; coloured, dashed ones carry
   meaning (`supports` / `contradicts` / `supersedes` / `resolves`), each with a
-  one-line reason, backlinked so a contradiction is findable from both ends
+  one-line reason, backlinked so a contradiction is findable from both ends.
+  They are drawn faint until you hover or open a node they touch, because a bow
+  spanning four months and three lanes otherwise dominates a view it says
+  little about
 - **copy link** → deep link to a node (`graph.html#<node-id>`). Back and Forward
   walk the nodes you opened, and a `#<node-id>` typed into the address bar opens
   that node
@@ -695,6 +708,10 @@ It's a full interactive app, just one served from disk instead of a server:
   and the history notes where a `dead` node keeps *why* it died
 - **size is descent** → a glyph grows with how much work hangs off it, counted as
   of the slider's date
+- **labels wrap** to two lines of about thirty characters and are elided after
+  that — titles are claims, and 95% of the ones this was measured on ran past
+  the old one-line cut. A node is half as wide as it was, so more of a lane
+  fits on screen
 - **colour by** status, needs-you, age, author or deadline — fill changes
   meaning, the legend says which, and nothing else is repainted. The status key
   lists the five colours with the statuses that share each. The deadline fill
@@ -702,7 +719,8 @@ It's a full interactive app, just one served from disk instead of a server:
 - **fold a lane** to a strip of ticks at their real dates, keeping the time axis
   and every edge that leaves the lane
 - **keyboard navigation** — arrow keys walk the layout (x is time, y is a project
-  lane), `p`/`c` walk the edges, `i` isolates, `n` writes a note, `w` toggles
+  lane), `p`/`c` walk the edges, `i` isolates, `l` swaps time for lineage on x,
+  `n` writes a note, `w` toggles
   needs-you, `space` plays the replay, `/` searches, `k` opens the chat (under
   `cairn serve`), `Esc` closes, and `?` lists every key
 - a ring marks a node that needs you; a dot marks one carrying a note —
@@ -711,7 +729,7 @@ It's a full interactive app, just one served from disk instead of a server:
 - filter by project / type / status / author (statuses nobody holds are left
   out of the list), pan, wheel-zoom
 - URL params: `?since=YYYY-MM-DD`, `?project=a,b` (and `type`, `status`,
-  `author`), `?q=`, `?colour=`, `?folded=a,b`, `?needs=1`, `?iso=<id>`,
+  `author`), `?q=`, `?colour=`, `?layout=lineage`, `?folded=a,b`, `?needs=1`, `?iso=<id>`,
   `#<node-id>`
 
 `build/graph.md` is a Mermaid fallback that renders in GitHub, an editor, or a
@@ -744,7 +762,7 @@ not exist. `cairn serve` is a localhost writer that closes that gap:
   command for the clipboard
 - **move a status** — a select beside it, offering only the statuses that node's
   type actually has, with a one-line why that becomes the history note. A move to
-  `dead`, `dropped`, `killed` or `closed` needs the why (a refuted claim is only
+  `dead`, `dropped`, `killed` or `abandoned` needs the why (a refuted claim is only
   citable with its reason); every other move is free. Enter applies
 - **create a node** — `+ node` in the header makes a root; `+ child node` in an
   open node's panel prefills the parent and its project. The project starts as

@@ -137,7 +137,7 @@ exists:
 |---|---|
 | v2 cluster matches a v1 cluster (Jaccard > ~0.5) | new node, `supersedes: <v1-node>` |
 | a v1 cluster split | two new nodes, each `supersedes:` the parent |
-| a v1 cluster vanished | set its status (`closed` / `parked`) — never delete |
+| a v1 cluster vanished | set its status (`abandoned` / `parked`) — never delete |
 | a genuinely new region | new node, `parents: [<mapping-run node>]` |
 
 This fits the existing grain exactly. `supersedes` already means "this replaces

@@ -8,6 +8,9 @@
   :root {
     --bg: #14161a; --panel: #1c1f25; --panel-2: #23272f; --line: #2f343d;
     --ink: #e6e8ec; --ink-dim: #9aa1ad; --ink-faint: #6b7280;
+    /* Node labels: between --ink and --ink-dim. Dim was unreadable at the fit
+       the real graph lands on; full ink made 200 labels shout over the glyphs. */
+    --label: #c4c9d2;
     --good: #35a06a; --bad: #c0504a; --active: #3d86cc; --pending: #c99a2e; --idle: #6b7280;
     --accent: #7aa7d9;
     /* Relation hues sit off the status palette (green/red/blue/amber) on
@@ -38,6 +41,7 @@
     :root {
       --bg: #f7f8fa; --panel: #ffffff; --panel-2: #eef0f4; --line: #d8dce3;
       --ink: #1a1d22; --ink-dim: #5b6270; --ink-faint: #8a91a0;
+      --label: #3a414d;
       --accent: #275e9c;
       --rel-supports: #157f77; --rel-contradicts: #a83a70;
       --rel-supersedes: #6b4dbd; --rel-resolves: #1f7f8f;
@@ -159,7 +163,12 @@
   /* Typed relations. Colour carries the type and dash carries it again, so the
      map stays readable in greyscale and for colour-vision deficiency — status
      already owns colour on the glyphs, and edges must not compete with it. */
-  .edge.rel { stroke-width: 1.8; }
+  /* A typed relation spans months and lanes, and at the default fit the bows
+     were the most visible thing on the map while being the least local. Faint
+     until one of its ends is hovered or selected; the key keeps the full hue. */
+  .edge.rel { stroke-width: 1.8; opacity: .3; }
+  .edge.rel.lit, .edge.rel.hov { opacity: 1; }
+  .edge.hov { stroke-width: 2.2; }
   .edge.rel-supports    { stroke: var(--rel-supports); }
   .edge.rel-contradicts { stroke: var(--rel-contradicts); stroke-dasharray: 5 3; }
   .edge.rel-supersedes  { stroke: var(--rel-supersedes);  stroke-dasharray: 8 3 2 3; }
@@ -209,7 +218,7 @@
   .node { cursor: pointer; }
   .node .glyph { stroke: var(--bg); stroke-width: 1.5; }
   /* Clickable: the label is a bigger target than the glyph, and people aim at words. */
-  .node .label { fill: var(--ink-dim); font-size: 11px; }
+  .node .label { fill: var(--label); font-size: 12px; }
   .node.sel .glyph { stroke: var(--accent); stroke-width: 2.5; }
   .node.sel .label { fill: var(--ink); }
   .node.dim { opacity: .12; }
@@ -308,7 +317,7 @@
   }
   .hbtn:hover { color: var(--ink); }
   .hbtn.on { color: #fff; background: var(--accent); border-color: var(--accent); }
-  #colourBy {
+  #colourBy, #layoutBy {
     background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim);
     border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px; cursor: pointer;
   }
@@ -517,6 +526,11 @@
   <span class="grow"></span>
   <button id="needs" class="hbtn" title="Only what needs attention (w)">needs you</button>
   <button id="newNode" class="hbtn" title="Create a node — needs `cairn serve`" hidden>+ node</button>
+  <label class="muted" for="layoutBy">x</label>
+  <select id="layoutBy" title="What the horizontal axis means (l)">
+    <option value="time">time</option>
+    <option value="lineage">lineage</option>
+  </select>
   <label class="muted" for="colourBy">fill</label>
   <select id="colourBy" title="What the glyph colour means">
     <option value="status">status</option>
@@ -548,6 +562,7 @@
       <kbd>&uarr;</kbd><kbd>&darr;</kbd> across lanes<br>
       <kbd>p</kbd> parent · <kbd>c</kbd> child · <kbd>i</kbd> isolate<br>
       <kbd>n</kbd> write a note · <kbd>w</kbd> needs you<br>
+      <kbd>l</kbd> time / lineage on x<br>
       <kbd>space</kbd> replay · <kbd>/</kbd> search · <kbd>esc</kbd> close<br>
       <span class="more" data-help="1"><kbd>?</kbd> every key</span>
     </div>
@@ -604,6 +619,7 @@ const state = {
   isolate: null,
   needs: false,
   colour: 'status',
+  layout: 'time',      // what x means: 'time' (created) or 'lineage' (hops from a root)
   collapsed: new Set(),
   creating: false,
   draft: null,
@@ -622,12 +638,14 @@ const isDraft = n => n.git === 'untracked' || n.git === 'modified';
 const whoLabel = a => a === 'uncommitted' ? 'not committed' : a;
 
 /* ---------- status as of a date: this is the replay ---------- */
-const CLS = {
-  worked:'good', done:'good', accepted:'good', promoted:'good',
-  dead:'bad', killed:'bad', dropped:'bad', closed:'bad',
+// status -> colour class, from lib.STATUS_CLASS via the payload; the literal
+// is only for a page built before the table travelled.
+const CLS = DATA.statusClass || {
+  worked:'good', done:'good', accepted:'good', promoted:'good', answered:'good',
+  dead:'bad', killed:'bad', dropped:'bad', abandoned:'bad',
   running:'active', doing:'active', submitted:'active',
   open:'pending', todo:'pending', seed:'pending', planned:'pending',
-  parked:'idle',
+  parked:'idle', closed:'idle',
 };
 const cutoff = () => DATA.dates.length ? DATA.dates[state.t] : '9999-12-31';
 const isLive = () => !DATA.dates.length || state.t === DATA.dates.length - 1;
@@ -786,11 +804,98 @@ let laneNow = new Map();
    and `fit()` has to choose between the strip and the bands. */
 let laneBottom = 0;
 
+/* ---------- what x means ----------
+   Two layouts, one active at a time. `time` is the one the builder computed:
+   x is the creation date, and the positions are in the payload. `lineage` is
+   computed here: x is how many hops a node is from a root, y packs each lane
+   as a tidy tree. It exists because the time layout has nothing to say about a
+   project planned in one sitting — every node created today lands on one x,
+   the lineage edges crumple into the glyphs, and the honest workaround people
+   reached for was editing `created`, which falsifies the one field the replay
+   trusts. Lineage needs no dates at all: a plan can be laid out before anyone
+   knows when anything will run, and the time view is still there for what
+   actually happened.
+
+   Everything downstream reads positions through X() and Y() and lanes through
+   `layoutNow`, so the two layouts differ only here. */
+const X_PAD = 150, ROW_H = 46;
+const COL_W = 250;      // a column: the glyph, a 30-char label line, and a gap
+
+const timeLayout = () => ({
+  pos: new Map(DATA.nodes.map(n => [n.id, { x: n.x, y: n.y }])),
+  lanes: DATA.lanes, width: DATA.width, height: DATA.height, ticks: DATA.ticks,
+});
+
+function lineageLayout() {
+  // Depth: longest path from a root, over every parent the graph knows,
+  // cross-project ones included — a child sits right of all its parents.
+  // Guarded against a cycle rather than trusting the validator ran.
+  const depth = new Map(), visiting = new Set();
+  const depthOf = id => {
+    if (depth.has(id)) return depth.get(id);
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    let best = 0;
+    for (const p of byId.get(id).parents) if (byId.has(p)) best = Math.max(best, depthOf(p) + 1);
+    visiting.delete(id);
+    depth.set(id, best);
+    return best;
+  };
+  let deepest = 0;
+  for (const n of DATA.nodes) deepest = Math.max(deepest, depthOf(n.id));
+
+  const byCreated = (a, b) => a.created < b.created ? -1 : a.created > b.created ? 1 : a.id < b.id ? -1 : 1;
+  const pos = new Map(), lanes = [];
+  let cursor = DATA.lanes.length ? DATA.lanes[0].top + ROW_H / 2 : 60;
+  for (const lane of DATA.lanes) {
+    const members = DATA.nodes.filter(n => n.project === lane.project).sort(byCreated);
+    const inLane = new Set(members.map(n => n.id));
+    // Tidy tree: a node's first child continues its row, every later child
+    // opens a new row below the first child's whole subtree. Rows never
+    // collide, because the only nodes sharing a row are one chain of
+    // descent, and depth strictly increases along it.
+    const rows = new Map();
+    let nRows = 0;
+    const place = (n, row) => {
+      rows.set(n.id, row);
+      const kids = n.children.map(id => byId.get(id))
+        .filter(k => k && inLane.has(k.id) && !rows.has(k.id)).sort(byCreated);
+      kids.forEach((k, i) => { if (!rows.has(k.id)) place(k, i === 0 ? row : nRows++); });
+    };
+    for (const n of members) {
+      if (rows.has(n.id) || n.parents.some(p => inLane.has(p))) continue;   // not a lane root
+      place(n, nRows++);
+    }
+    for (const n of members) if (!rows.has(n.id)) place(n, nRows++);        // a cycle's leftovers
+    const laneTop = cursor;
+    for (const n of members) {
+      pos.set(n.id, { x: X_PAD + depthOf(n.id) * COL_W, y: laneTop + rows.get(n.id) * ROW_H });
+    }
+    const height = Math.max(nRows, 1) * ROW_H;
+    lanes.push({ project: lane.project, top: laneTop - ROW_H / 2, height, count: members.length });
+    cursor = laneTop + height + LANE_GAP;
+  }
+  const ticks = [];
+  for (let d = 0; d <= deepest; d++) {
+    ticks.push({ x: X_PAD + d * COL_W - R - 16, label: d === 0 ? 'roots' : `${d} hop${d > 1 ? 's' : ''}` });
+  }
+  return { pos, lanes, width: X_PAD * 2 + (deepest + 1) * COL_W, height: cursor + 60 - LANE_GAP, ticks };
+}
+
+//: The active layout. Rebuilt when `state.layout` changes, read everywhere else.
+let layoutNow = timeLayout();
+const relayout = () => { layoutNow = state.layout === 'lineage' ? lineageLayout() : timeLayout(); };
+
+/** A node's x. */
+const X = n => layoutNow.pos.get(n.id).x;
+/** A node's y before the lanes above it have had their say. */
+const baseY = n => layoutNow.pos.get(n.id).y;
+
 function laneGeometry(collapsedSet, hiddenSet = new Set()) {
   const out = new Map();
-  let cursor = DATA.lanes.length ? DATA.lanes[0].top : 0;
+  let cursor = layoutNow.lanes.length ? layoutNow.lanes[0].top : 0;
   let last = cursor;
-  for (const lane of DATA.lanes) {
+  for (const lane of layoutNow.lanes) {
     if (hiddenSet.has(lane.project)) {
       out.set(lane.project, { top: cursor, height: 0, dy: cursor - lane.top,
                               collapsed: false, hidden: true });
@@ -807,7 +912,7 @@ function laneGeometry(collapsedSet, hiddenSet = new Set()) {
 }
 
 /** A node's y on screen, after the lanes above it have had their say. */
-const Y = n => n.y + (laneNow.get(n.project)?.dy || 0);
+const Y = n => baseY(n) + (laneNow.get(n.project)?.dy || 0);
 
 /** The row a collapsed lane's strip sits on. */
 const stripY = project => {
@@ -983,25 +1088,42 @@ function glyph(shape, r) {
 }
 
 function edgePath(a, b) {
-  const dx = Math.max(30, Math.abs(b.x - a.x) * 0.45);
+  const ax = X(a), bx = X(b);
+  const dx = Math.max(30, Math.abs(bx - ax) * 0.45);
   const ay = Y(a), by = Y(b);
-  return `M${a.x + radiusOf(a)},${ay} C${a.x + dx},${ay} ${b.x - dx},${by} ${b.x - radiusOf(b) - 3},${by}`;
+  return `M${ax + radiusOf(a)},${ay} C${ax + dx},${ay} ${bx - dx},${by} ${bx - radiusOf(b) - 3},${by}`;
 }
 
 /* A relation may run backwards in time (a later result contradicting an earlier
    one), so its curve bows instead of using the left-to-right lineage bezier —
    the shape alone says "this is not derivation". */
 function relPath(a, b) {
+  const ax = X(a), bx = X(b);
   const ay = Y(a), by = Y(b);
-  const mx = (a.x + b.x) / 2, my = (ay + by) / 2;
-  const bow = Math.max(26, Math.abs(b.x - a.x) * 0.14);
-  return `M${a.x},${ay} Q${mx},${my - bow} ${b.x},${by}`;
+  const mx = (ax + bx) / 2, my = (ay + by) / 2;
+  const bow = Math.max(26, Math.abs(bx - ax) * 0.14);
+  return `M${ax},${ay} Q${mx},${my - bow} ${bx},${by}`;
 }
+
+/** The two node ids an edge joins, so a hover can light what touches it. */
+const ends = (a, b) => ` data-a="${esc(a.id)}" data-b="${esc(b.id)}"`;
 
 /* Unordered pair -> relation type. A pair joined by both lineage and a typed
    relation gets ONE arrow, styled by the relation: the typed edge is the more
    specific claim, and two arrows between the same two nodes just reads as noise. */
 const pairKey = (a, b) => [a, b].sort().join(' ');
+
+/* The label: the builder's wrapped lines, one <text> each. Two lines centre
+   on the glyph; one line sits on its midline. A page built before `lines`
+   travelled falls back to the single elided label. */
+const LINE_H = 13.5;
+function labelText(n, r) {
+  const lines = n.lines && n.lines.length ? n.lines : [n.label];
+  const top = lines.length === 1 ? 4 : 4 - (LINE_H * (lines.length - 1)) / 2;
+  return lines.map((line, i) =>
+    `<text class="label" x="${r + 7}" y="${(top + i * LINE_H).toFixed(1)}">${esc(line)}</text>`).join('');
+}
+const widest = n => Math.max(...(n.lines && n.lines.length ? n.lines : [n.label]).map(l => l.length));
 const typedPair = new Map();
 for (const n of (DATA.nodes || [])) {
   for (const r of (n.relations || [])) {
@@ -1035,7 +1157,7 @@ function draw() {
   const hiddenLanes = new Set(DATA.lanes.map(l => l.project).filter(p => !state.project.has(p)));
   laneNow = laneGeometry(folded, hiddenLanes);
 
-  const bottom = DATA.lanes.length ? laneBottom + 20 : DATA.height;
+  const bottom = DATA.lanes.length ? laneBottom + 20 : layoutNow.height;
 
   // Lane names and month labels are drawn in the gutter and the axis strip
   // (drawChrome), which stay put while the map pans; the canvas keeps the bands
@@ -1043,9 +1165,9 @@ function draw() {
   for (const lane of DATA.lanes) {
     const g = laneNow.get(lane.project);
     if (g.hidden) continue;
-    parts.push(`<rect class="lane-band" x="0" y="${g.top}" width="${DATA.width}" height="${g.height}"></rect>`);
+    parts.push(`<rect class="lane-band" x="0" y="${g.top}" width="${layoutNow.width}" height="${g.height}"></rect>`);
   }
-  for (const tick of DATA.ticks) {
+  for (const tick of layoutNow.ticks) {
     parts.push(`<line class="tick-line" x1="${tick.x}" y1="30" x2="${tick.x}" y2="${bottom}"></line>`);
   }
   const sel = state.selected;
@@ -1066,7 +1188,7 @@ function draw() {
       const lit = sel && (n.id === sel || p === sel) ? ' lit' : '';
       const type = typedPair.get(pairKey(n.id, p));
       const typed = type ? ` rel rel-${type}` : '';
-      parts.push(`<path class="edge${typed}${lit}" d="${edgePath(byId.get(p), n)}"></path>`);
+      parts.push(`<path class="edge${typed}${lit}"${ends(byId.get(p), n)} d="${edgePath(byId.get(p), n)}"></path>`);
     }
   }
 
@@ -1078,7 +1200,7 @@ function draw() {
       if (n.parents.includes(r.id) || other.parents.includes(n.id)) continue;
       if (buried(n, other)) continue;
       const lit = sel && (n.id === sel || r.id === sel) ? ' lit' : '';
-      parts.push(`<path class="edge rel rel-${r.type}${lit}" d="${relPath(n, other)}"></path>`);
+      parts.push(`<path class="edge rel rel-${r.type}${lit}"${ends(n, other)} d="${relPath(n, other)}"></path>`);
     }
   }
 
@@ -1090,12 +1212,12 @@ function draw() {
   for (const [project, members] of inLane) {
     if (!laneNow.get(project)?.collapsed) continue;
     const y = stripY(project);
-    const xs = members.map(n => n.x);
+    const xs = members.map(X);
     parts.push(`<line class="strip-rule" x1="${Math.min(...xs)}" y1="${y}" x2="${Math.max(...xs)}" y2="${y}"></line>`);
     for (const n of members) {
       const cls = CLS[statusAt(n, when)] || 'idle';
       const paint = fillVar(n, when);
-      parts.push(`<rect class="strip-tick ${cls}" x="${n.x - 1.5}" y="${y - 7}" width="3" height="14" rx="1.5"` +
+      parts.push(`<rect class="strip-tick ${cls}" x="${X(n) - 1.5}" y="${y - 7}" width="3" height="14" rx="1.5"` +
         (paint ? ` style="fill:var(--${paint})"` : '') + `></rect>`);
     }
     const attn = members.filter(n => needsYou(n, when)).length;
@@ -1120,12 +1242,12 @@ function draw() {
     parts.push(
       `<g class="node ${cls}${dim}${on}${attn ? ' needs' : ''}"` +
       (paint ? ` style="fill:var(--${paint})"` : '') +
-      ` transform="translate(${n.x},${Y(n)})" data-id="${esc(n.id)}">` +
+      ` transform="translate(${X(n)},${Y(n)})" data-id="${esc(n.id)}">` +
       (attn ? `<circle class="ring" r="${r + 5}"></circle>` : '') +
       glyph(n.shape, r) +
       (noted ? `<circle class="flag" cx="${r - 3}" cy="${-r + 3}" r="3.4"></circle>` : '') +
       (isDraft(n) ? `<circle class="draft" cx="${r - 3}" cy="${r - 3}" r="3.2"></circle>` : '') +
-      `<text class="label" x="${r + 7}" y="4">${esc(n.label)}</text>` +
+      labelText(n, r) +
       `</g>`
     );
   }
@@ -1196,7 +1318,7 @@ function buildChrome() {
       `title="${esc(lane.project)} — click to ${g.collapsed ? 'unfold' : 'fold'} the lane">` +
       `${g.collapsed ? '▸' : '▾'} ${esc(lane.project)}</div>`;
   }).join('');
-  axis.innerHTML = DATA.ticks.map((t, i) =>
+  axis.innerHTML = layoutNow.ticks.map((t, i) =>
     `<span class="gtick" data-tick="${i}">${esc(t.label)}</span>`).join('');
   positionChrome();
 }
@@ -1220,7 +1342,7 @@ function positionChrome() {
     el.style.top = Math.round(y) + 'px';
   }
   for (const el of axis.querySelectorAll('.gtick')) {
-    const sx = DATA.ticks[+el.dataset.tick].x * scale + tx;
+    const sx = layoutNow.ticks[+el.dataset.tick].x * scale + tx;
     el.hidden = sx < gw - 2 || sx > W - 20;
     el.style.left = Math.round(sx + 4) + 'px';
   }
@@ -1883,6 +2005,7 @@ function viewParams(reveal) {
   const q = $('#search').value.trim();
   if (q && !(reveal && reveal.dropQuery)) p.set('q', q);
   if (state.colour !== 'status') p.set('colour', state.colour);
+  if (state.layout !== 'time') p.set('layout', state.layout);
   if (state.collapsed.size) p.set('folded', [...state.collapsed].join(','));
   if (!isLive()) p.set('since', DATA.dates[state.t]);
   if (state.needs) p.set('needs', '1');
@@ -2853,10 +2976,10 @@ function fit() {
     shown = shown.filter(n => keep.has(n.id));
   }
 
-  let x0 = 0, y0 = 0, x1 = DATA.width, y1 = DATA.height;
+  let x0 = 0, y0 = 0, x1 = layoutNow.width, y1 = layoutNow.height;
   if (shown.length) {
-    x0 = Math.min(...shown.map(n => n.x - radiusOf(n) - 10));
-    x1 = Math.max(...shown.map(n => n.x + radiusOf(n) + 12 + n.label.length * 5.9));
+    x0 = Math.min(...shown.map(n => X(n) - radiusOf(n) - 10));
+    x1 = Math.max(...shown.map(n => X(n) + radiusOf(n) + 12 + widest(n) * 6.4));
     y0 = Math.min(...shown.map(n => Y(n) - radiusOf(n) - 26));
     y1 = Math.max(...shown.map(n => Y(n) + radiusOf(n) + 14));
   }
@@ -2884,7 +3007,7 @@ function ensureVisible(id) {
   if (!n || !visible(n) || laneNow.get(n.project)?.collapsed) return;
   const rect = svg.getBoundingClientRect();
   if (rect.width < 120 || rect.height < 120) return;
-  const sx = n.x * scale + tx, sy = Y(n) * scale + ty, m = 40;
+  const sx = X(n) * scale + tx, sy = Y(n) * scale + ty, m = 40;
   if (sx < gutterW() + m || sx > rect.width - m || sy < AXIS_H + m || sy > rect.height - m) centerOn(id);
 }
 
@@ -2894,7 +3017,7 @@ function centerOn(id) {
   if (!n) return;
   const rect = svg.getBoundingClientRect(), gw = gutterW();
   scale = Math.max(scale, 0.85);
-  tx = gw + (rect.width - gw) / 2 - n.x * scale;
+  tx = gw + (rect.width - gw) / 2 - X(n) * scale;
   ty = AXIS_H + (rect.height - AXIS_H) / 2 - Y(n) * scale;
   applyTransform();
 }
@@ -3171,6 +3294,20 @@ $('#colourBy').addEventListener('change', e => {
   draw();
 });
 
+/** Switch what x means. Refits, because the two canvases are different sizes
+    and a pan that framed June frames nothing in a column of hops. */
+function setLayout(layout) {
+  state.layout = layout === 'lineage' ? 'lineage' : 'time';
+  $('#layoutBy').value = state.layout;
+  relayout();
+  const p = new URLSearchParams(location.search);
+  if (state.layout === 'time') p.delete('layout'); else p.set('layout', state.layout);
+  history.replaceState(history.state, '', location.pathname + (p.toString() ? '?' + p : '') + location.hash);
+  draw();
+  fit();
+}
+$('#layoutBy').addEventListener('change', e => setLayout(e.target.value));
+
 /* ---------- hover card ---------- */
 const hover = $('#hover');
 let hoverId = null;
@@ -3212,11 +3349,19 @@ function showHover(g, clientX, clientY) {
 svg.addEventListener('pointermove', e => {
   if (dragging) { hover.hidden = true; hoverId = null; return; }
   const g = e.target.closest('.node');
-  if (!g) { hover.hidden = true; hoverId = null; return; }
-  if (g.dataset.id !== hoverId) { hoverId = g.dataset.id; showHover(g, e.clientX, e.clientY); }
+  if (!g) { hover.hidden = true; hoverId = null; lightEdges(null); return; }
+  if (g.dataset.id !== hoverId) { hoverId = g.dataset.id; showHover(g, e.clientX, e.clientY); lightEdges(hoverId); }
   else { hover.style.left = Math.max(6, e.clientX + 16) + 'px'; }
 });
-svg.addEventListener('pointerleave', () => { hover.hidden = true; hoverId = null; });
+svg.addEventListener('pointerleave', () => { hover.hidden = true; hoverId = null; lightEdges(null); });
+
+/** Full strength for every edge touching `id`; relations are faint otherwise. */
+function lightEdges(id) {
+  for (const el of view.querySelectorAll('.edge.hov')) el.classList.remove('hov');
+  if (!id) return;
+  const sel = `.edge[data-a="${CSS.escape(id)}"], .edge[data-b="${CSS.escape(id)}"]`;
+  for (const el of view.querySelectorAll(sel)) el.classList.add('hov');
+}
 /* ---------- the needs-you lens ---------- */
 const needsBtn = $('#needs');
 function setNeeds(on) {
@@ -3283,17 +3428,17 @@ function walk(dx, dy) {
   if (dx) {
     // Along time, within this lane. Ties broken by y so two nodes created the
     // same day in the same project are still both reachable.
-    pool = shown.filter(n => n.y === cur.y && (dx > 0 ? n.x > cur.x : n.x < cur.x));
-    pool.sort((a, b) => dx > 0 ? a.x - b.x : b.x - a.x);
+    pool = shown.filter(n => baseY(n) === baseY(cur) && (dx > 0 ? X(n) > X(cur) : X(n) < X(cur)));
+    pool.sort((a, b) => dx > 0 ? X(a) - X(b) : X(b) - X(a));
   } else {
     // Across lanes: the nearest node in the next lane, measured on x, so
     // stepping down a column stays roughly on the same date.
-    const lanes = [...new Set(shown.map(n => n.y))].sort((a, b) => a - b);
-    const next = lanes.filter(y => dy > 0 ? y > cur.y : y < cur.y);
+    const lanes = [...new Set(shown.map(baseY))].sort((a, b) => a - b);
+    const next = lanes.filter(y => dy > 0 ? y > baseY(cur) : y < baseY(cur));
     if (!next.length) return;
     const target = dy > 0 ? next[0] : next[next.length - 1];
-    pool = shown.filter(n => n.y === target);
-    pool.sort((a, b) => Math.abs(a.x - cur.x) - Math.abs(b.x - cur.x));
+    pool = shown.filter(n => baseY(n) === target);
+    pool.sort((a, b) => Math.abs(X(a) - X(cur)) - Math.abs(X(b) - X(cur)));
   }
   if (pool.length) open(pool[0].id);           // open() pans only if it must
 }
@@ -3316,6 +3461,7 @@ function helpRows() {
     ['<kbd>i</kbd>', 'isolate the open node’s lineage (again to show all)'],
     ['<kbd>n</kbd>', 'write a note on the open node'],
     ['<kbd>w</kbd>', 'the needs-you lens'],
+    ['<kbd>l</kbd>', 'x is time / x is hops from a root'],
     ['<kbd>space</kbd>', 'play / pause the replay'],
     ['<kbd>/</kbd>', 'search'],
   ];
@@ -3361,6 +3507,7 @@ document.addEventListener('keydown', e => {
   if (e.key === '/') { e.preventDefault(); return $('#search').focus(); }
   if (e.key === ' ') { e.preventDefault(); return togglePlay(); }
   if (e.key === 'w') { e.preventDefault(); return setNeeds(!state.needs); }
+  if (e.key === 'l') { e.preventDefault(); return setLayout(state.layout === 'time' ? 'lineage' : 'time'); }
   if (e.key === 'k' && chat.enabled) { e.preventDefault(); return toggleChat(); }
   if (e.key === 'n') {
     if (!state.selected) return;
@@ -3385,8 +3532,8 @@ document.addEventListener('keydown', e => {
 
 /* URL: #node-id selects, ?since=YYYY-MM-DD or ?t= rewinds, ?project=a,b filters
    (type/status/author too), ?q= searches, ?colour= fills, ?folded= folds,
-   ?needs=1, ?iso=<id> isolates, ?tx&ty&scale pan — the last three written by a
-   write's reload, so the view survives it. */
+   ?needs=1, ?iso=<id> isolates, ?layout=lineage puts hops on x, ?tx&ty&scale
+   pan — the last three written by a write's reload, so the view survives it. */
 let savedView = null;
 (function initFromUrl() {
   const params = new URLSearchParams(location.search);
@@ -3407,6 +3554,11 @@ let savedView = null;
     $('#colourBy').value = colour;
   }
   document.body.dataset.colour = state.colour;
+  if (params.get('layout') === 'lineage') {
+    state.layout = 'lineage';
+    $('#layoutBy').value = 'lineage';
+    relayout();
+  }
   // ?project=a,b (and type/status/author the same way): exactly these are shown.
   // One value is the old ?project=polyid, unchanged.
   for (const key of FILTER_KEYS) {

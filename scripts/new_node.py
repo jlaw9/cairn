@@ -188,8 +188,9 @@ def build(args: argparse.Namespace) -> lib.Node:
     created = lib.as_date(args.date) or dt.date.today()
     spec = lib.TYPES[args.type]
     status = args.status or spec.default_status
-    if status not in spec.statuses:
-        sys.exit(f"'{status}' is not a valid status for {args.type}: {', '.join(spec.statuses)}")
+    if status not in spec.statuses or status in spec.deprecated:
+        sys.exit(f"'{status}' is not a valid status for {args.type}: {', '.join(lib.OFFERED_STATUSES[args.type])}"
+                 + (f" ({lib.DEPRECATED_HINT[status]})" if status in spec.deprecated else ""))
     deadlines = deadline_fields(args.type, args)
     check_project(args.project, getattr(args, "new_project", False))
 

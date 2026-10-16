@@ -102,9 +102,11 @@ ROW_H = 46
 NODE_R = 13
 LANE_GAP = 30
 ROW_MARGIN = 16      # clear space required between a label and the next glyph
-CHAR_PX = 5.9        # width of one char at the 11px label font
-MAX_LABEL = 42       # chars before a title is elided
-PX_PER_NODE = 130    # how much horizontal room the graph gets per node
+CHAR_PX = 6.4        # width of one char at the 12px label font
+LINE_CHARS = 30      # a title longer than this wraps onto a second line
+MAX_LINES = 2        # and is elided after that many
+TIE_STEP = 28        # x nudge per generation among kin created the same day
+PX_PER_NODE = 110    # how much horizontal room the graph gets per node
 MIN_WIDTH = 900
 MAX_WIDTH = 5200
 
@@ -340,13 +342,48 @@ def md_to_html(text: str, titles: dict[str, str] | None = None) -> str:
 # Layout
 # --------------------------------------------------------------------------
 
+def wrap_label(title: str) -> list[str]:
+    """The label's lines: a title wrapped at LINE_CHARS onto at most MAX_LINES,
+    the last one elided if the title ran on.
+
+    Titles are claims, and a claim is long — 95% of the titles in the graph
+    this was measured on ran past the old 42-character cut, median 66. Two
+    lines of 30 cover the median and take half the width one line of 42 did,
+    so more of the lane fits on screen *and* more of each title is readable.
+    """
+    words: list[str] = []
+    for word in title.split():
+        # A single token longer than a line (a DOI, a path) is broken, not
+        # allowed to decide the column width for everyone.
+        words.extend(word[i:i + LINE_CHARS] for i in range(0, len(word), LINE_CHARS))
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}" if current else word
+        if len(candidate) <= LINE_CHARS or not current:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    if len(lines) > MAX_LINES:
+        kept = lines[:MAX_LINES]
+        last = kept[-1]
+        kept[-1] = (last if len(last) < LINE_CHARS else last[: LINE_CHARS - 1].rstrip()) + "…"
+        return kept
+    return lines or [""]
+
+
 def elide(title: str) -> str:
-    return title if len(title) <= MAX_LABEL else title[: MAX_LABEL - 1].rstrip() + "…"
+    """The label as one string — what the page uses where a label is text
+    rather than drawn: the count line, the hover, the fit estimate."""
+    return " ".join(wrap_label(title))
 
 
 def label_extent(title: str) -> float:
-    """Horizontal space a node needs: its glyph plus its label."""
-    return NODE_R + 7 + len(elide(title)) * CHAR_PX
+    """Horizontal space a node needs: its glyph plus its widest label line."""
+    return NODE_R + 7 + max(len(line) for line in wrap_label(title)) * CHAR_PX
 
 
 def compute_layout(nodes: dict[str, lib.Node]):
@@ -356,6 +393,18 @@ def compute_layout(nodes: dict[str, lib.Node]):
     and a node only joins an existing row if its *label* also clears the one
     before it — labels are the whole point of the map, so they get reserved
     space rather than being truncated to fit.
+
+    Which row a node joins is decided by lineage, not just by what is free: a
+    child looks at the row its parent is on first, then the rows below it, and
+    only a root scans from the top. A row therefore reads as a thread — the
+    parent, then the child that continued it — instead of as whatever happened
+    to fit, which is what five unrelated nodes sharing a row used to say.
+
+    Kin created the same day are nudged right by TIE_STEP per generation. The
+    date is still what places them (the nudge is about a day on the axis at
+    any width the map draws), but a project planned in one sitting reads as a
+    small tree rather than as a column. When the dates say nothing at all, the
+    page's lineage layout is the honest view, and this is only the tie-break.
     """
     dated = [n for n in nodes.values() if n.created]
     if not dated:
@@ -373,6 +422,23 @@ def compute_layout(nodes: dict[str, lib.Node]):
     def x_of(date: dt.date) -> float:
         return X_PAD + (date - first).days / span_days * usable
 
+    # Generations within a same-day chain: 0 for a node none of whose parents
+    # share its date, else one past the deepest parent that does. Guarded
+    # against a cycle rather than trusting the validator ran first.
+    tie_memo: dict[str, int] = {}
+
+    def tie_depth(node: lib.Node) -> int:
+        if node.id in tie_memo:
+            return tie_memo[node.id]
+        tie_memo[node.id] = 0
+        depth = 0
+        for pid in node.parents:
+            parent = nodes.get(pid)
+            if parent and parent.created == node.created:
+                depth = max(depth, tie_depth(parent) + 1)
+        tie_memo[node.id] = depth
+        return depth
+
     by_project: dict[str, list[lib.Node]] = defaultdict(list)
     for node in nodes.values():
         by_project[node.project or "(unassigned)"].append(node)
@@ -383,23 +449,30 @@ def compute_layout(nodes: dict[str, lib.Node]):
     right_edge = float(width)
 
     for project in sorted(by_project):
-        members = sorted(by_project[project], key=lambda n: (n.created or first, n.type, n.id))
+        # Parents before children within a day, so a child always finds its
+        # parent's row already decided.
+        members = sorted(by_project[project],
+                         key=lambda n: (n.created or first, tie_depth(n), n.type, n.id))
 
         row_free_x: list[float] = []   # first free x on each row
         rows: dict[str, int] = {}
         for node in members:
-            x = x_of(node.created or first)
-            row = next((r for r, free in enumerate(row_free_x) if x >= free), None)
+            x = x_of(node.created or first) + TIE_STEP * tie_depth(node)
+            # The thread this node continues: its newest parent in this lane.
+            placed = [p for p in node.parents if p in rows]
+            start = rows[max(placed, key=lambda p: (nodes[p].created or first, p))] if placed else 0
+            row = next((r for r in range(start, len(row_free_x)) if x >= row_free_x[r]), None)
             if row is None:
                 row_free_x.append(0.0)
                 row = len(row_free_x) - 1
             row_free_x[row] = x + label_extent(node.title) + ROW_MARGIN
             rows[node.id] = row
+            positions[node.id] = (x, 0.0)
             right_edge = max(right_edge, row_free_x[row])
 
         lane_top = cursor_y
         for node in members:
-            positions[node.id] = (x_of(node.created or first), lane_top + rows[node.id] * ROW_H)
+            positions[node.id] = (positions[node.id][0], lane_top + rows[node.id] * ROW_H)
         lane_height = max(len(row_free_x), 1) * ROW_H
         lanes.append({
             "project": project,
@@ -485,6 +558,7 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
             "type": node.type,
             "title": node.title,
             "label": elide(node.title),
+            "lines": wrap_label(node.title),
             "project": node.project or "(unassigned)",
             "status": node.status,
             "cls": lib.STATUS_CLASS.get(node.status, "idle"),
@@ -568,8 +642,11 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
         # `task` can hold and not the five an `experiment` can. The flat
         # list above stays: it is the filter rail, which is deliberately
         # type-blind.
-        "statusesByType": {name: list(spec.statuses)
-                           for name, spec in sorted(lib.TYPES.items())},
+        "statusesByType": {name: list(lib.OFFERED_STATUSES[name])
+                           for name in sorted(lib.TYPES)},
+        # status -> colour class, so the page paints a history entry's status
+        # from the same table the builder used for `cls` rather than a copy.
+        "statusClass": dict(lib.STATUS_CLASS),
         # The type's own fields, so the edit form renders the right inputs
         # without a copy of the schema. Common fields are every type's and are
         # not repeated here.
