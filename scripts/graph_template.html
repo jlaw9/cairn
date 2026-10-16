@@ -317,7 +317,7 @@
   }
   .hbtn:hover { color: var(--ink); }
   .hbtn.on { color: #fff; background: var(--accent); border-color: var(--accent); }
-  #colourBy, #layoutBy {
+  #colourBy, #layoutBy, #labelsBy {
     background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim);
     border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px; cursor: pointer;
   }
@@ -530,6 +530,13 @@
   <select id="layoutBy" title="What the horizontal axis means (l)">
     <option value="time">time</option>
     <option value="lineage">lineage</option>
+    <option value="spring">spring</option>
+  </select>
+  <label class="muted" for="labelsBy">labels</label>
+  <select id="labelsBy" title="What the glyph is labelled with (t)">
+    <option value="full">titles</option>
+    <option value="short">slugs</option>
+    <option value="none">none</option>
   </select>
   <label class="muted" for="colourBy">fill</label>
   <select id="colourBy" title="What the glyph colour means">
@@ -562,7 +569,7 @@
       <kbd>&uarr;</kbd><kbd>&darr;</kbd> across lanes<br>
       <kbd>p</kbd> parent · <kbd>c</kbd> child · <kbd>i</kbd> isolate<br>
       <kbd>n</kbd> write a note · <kbd>w</kbd> needs you<br>
-      <kbd>l</kbd> time / lineage on x<br>
+      <kbd>l</kbd> time / lineage / spring on x · <kbd>t</kbd> labels<br>
       <kbd>space</kbd> replay · <kbd>/</kbd> search · <kbd>esc</kbd> close<br>
       <span class="more" data-help="1"><kbd>?</kbd> every key</span>
     </div>
@@ -619,7 +626,8 @@ const state = {
   isolate: null,
   needs: false,
   colour: 'status',
-  layout: 'time',      // what x means: 'time' (created) or 'lineage' (hops from a root)
+  layout: 'time',      // what x means: 'time' (created), 'lineage' or 'spring' (hops from a root)
+  labels: 'full',      // what a glyph is labelled with: 'full' title, 'short' slug, 'none'
   collapsed: new Set(),
   creating: false,
   draft: null,
@@ -819,14 +827,61 @@ let laneBottom = 0;
    Everything downstream reads positions through X() and Y() and lanes through
    `layoutNow`, so the two layouts differ only here. */
 const X_PAD = 150, ROW_H = 46;
-const COL_W = 250;      // a column: the glyph, a 30-char label line, and a gap
+/** A column's width: the glyph, the widest label the current mode draws, a gap. */
+const colW = () => state.labels === 'none' ? 72 : state.labels === 'short' ? 170 : 250;
 
 const timeLayout = () => ({
   pos: new Map(DATA.nodes.map(n => [n.id, { x: n.x, y: n.y }])),
   lanes: DATA.lanes, width: DATA.width, height: DATA.height, ticks: DATA.ticks,
 });
 
-function lineageLayout() {
+/* ---------- springs ----------
+   The tidy tree orders a node's children by creation date and gives each later
+   child a fresh row below its elder's whole subtree, which is honest and
+   sometimes tall: a hub with eight children spreads over eight rows and the
+   edges to the far ones cross everything between. `spring` keeps x as hops and
+   lets y settle instead — every lineage edge inside the lane pulls its two ends
+   toward one row, and nodes sharing a column keep ROW_H apart. Nothing else:
+   no gravity, no charge, so a lane only ever gets as tall as its collisions
+   make it, and a chain with nothing to fight relaxes to a straight line. 240
+   sweeps is past convergence for a few hundred nodes and runs in milliseconds.
+
+   The time axis is untouched by all of this. The README is right that a force
+   layout throws the time axis away, which is why this one is confined to the
+   view that never had it. */
+function relaxLane(members, inLane, depthOf, start) {
+  const y = new Map(start);
+  const edges = [];
+  for (const n of members) for (const p of n.parents) if (inLane.has(p)) edges.push([p, n.id]);
+  const cols = new Map();
+  for (const n of members) {
+    const d = depthOf(n.id);
+    if (!cols.has(d)) cols.set(d, []);
+    cols.get(d).push(n.id);
+  }
+  for (let sweep = 0; sweep < 240; sweep++) {
+    for (const [a, b] of edges) {
+      const f = (y.get(b) - y.get(a)) * 0.08;
+      y.set(a, y.get(a) + f);
+      y.set(b, y.get(b) - f);
+    }
+    for (const ids of cols.values()) {
+      ids.sort((p, q) => y.get(p) - y.get(q));
+      for (let i = 1; i < ids.length; i++) {
+        const gap = y.get(ids[i]) - y.get(ids[i - 1]);
+        if (gap < ROW_H) {
+          const push = (ROW_H - gap) / 2;
+          y.set(ids[i - 1], y.get(ids[i - 1]) - push);
+          y.set(ids[i], y.get(ids[i]) + push);
+        }
+      }
+    }
+  }
+  return y;
+}
+
+function lineageLayout(relax = false) {
+  const COL_W = colW();
   // Depth: longest path from a root, over every parent the graph knows,
   // cross-project ones included — a child sits right of all its parents.
   // Guarded against a cycle rather than trusting the validator ran.
@@ -867,24 +922,34 @@ function lineageLayout() {
       place(n, nRows++);
     }
     for (const n of members) if (!rows.has(n.id)) place(n, nRows++);        // a cycle's leftovers
+    let ys = new Map(members.map(n => [n.id, rows.get(n.id) * ROW_H]));
+    if (relax && members.length > 1) ys = relaxLane(members, inLane, depthOf, ys);
+    const low = members.length ? Math.min(...ys.values()) : 0;
+    const high = members.length ? Math.max(...ys.values()) : 0;
     const laneTop = cursor;
     for (const n of members) {
-      pos.set(n.id, { x: X_PAD + depthOf(n.id) * COL_W, y: laneTop + rows.get(n.id) * ROW_H });
+      pos.set(n.id, { x: X_PAD + depthOf(n.id) * COL_W, y: laneTop + ys.get(n.id) - low });
     }
-    const height = Math.max(nRows, 1) * ROW_H;
+    const height = Math.max(high - low, 0) + ROW_H;
     lanes.push({ project: lane.project, top: laneTop - ROW_H / 2, height, count: members.length });
     cursor = laneTop + height + LANE_GAP;
   }
   const ticks = [];
   for (let d = 0; d <= deepest; d++) {
-    ticks.push({ x: X_PAD + d * COL_W - R - 16, label: d === 0 ? 'roots' : `${d} hop${d > 1 ? 's' : ''}` });
+    // Narrow columns (labels off) get bare numbers, or the tick labels collide.
+    const label = d === 0 ? 'roots' : COL_W < 100 ? `${d}` : `${d} hop${d > 1 ? 's' : ''}`;
+    ticks.push({ x: X_PAD + d * COL_W - R - 16, label });
   }
   return { pos, lanes, width: X_PAD * 2 + (deepest + 1) * COL_W, height: cursor + 60 - LANE_GAP, ticks };
 }
 
 //: The active layout. Rebuilt when `state.layout` changes, read everywhere else.
 let layoutNow = timeLayout();
-const relayout = () => { layoutNow = state.layout === 'lineage' ? lineageLayout() : timeLayout(); };
+const relayout = () => {
+  layoutNow = state.layout === 'lineage' ? lineageLayout(false)
+            : state.layout === 'spring' ? lineageLayout(true)
+            : timeLayout();
+};
 
 /** A node's x. */
 const X = n => layoutNow.pos.get(n.id).x;
@@ -1117,13 +1182,33 @@ const pairKey = (a, b) => [a, b].sort().join(' ');
    on the glyph; one line sits on its midline. A page built before `lines`
    travelled falls back to the single elided label. */
 const LINE_H = 13.5;
+
+/* The slug is a short handle somebody already chose for this node — the id
+   minus its date and, when it leads, its project key. It is the one- or
+   two-word label the map can offer without a field nobody would fill in. */
+const slugOf = n => {
+  let slug = n.id.replace(/^\d{4}-\d{2}-\d{2}-/, '');
+  if (n.project && slug.startsWith(n.project + '-')) slug = slug.slice(n.project.length + 1);
+  return slug.replace(/-/g, ' ');
+};
+
+/** The lines drawn beside a glyph under the current label mode. The open
+    node always gets its title, whatever the mode. */
+function labelLines(n) {
+  if (n.id !== state.selected) {
+    if (state.labels === 'none') return [];
+    if (state.labels === 'short') return [slugOf(n)];
+  }
+  return n.lines && n.lines.length ? n.lines : [n.label];
+}
+
 function labelText(n, r) {
-  const lines = n.lines && n.lines.length ? n.lines : [n.label];
+  const lines = labelLines(n);
   const top = lines.length === 1 ? 4 : 4 - (LINE_H * (lines.length - 1)) / 2;
   return lines.map((line, i) =>
     `<text class="label" x="${r + 7}" y="${(top + i * LINE_H).toFixed(1)}">${esc(line)}</text>`).join('');
 }
-const widest = n => Math.max(...(n.lines && n.lines.length ? n.lines : [n.label]).map(l => l.length));
+const widest = n => Math.max(0, ...labelLines(n).map(l => l.length));
 const typedPair = new Map();
 for (const n of (DATA.nodes || [])) {
   for (const r of (n.relations || [])) {
@@ -2006,6 +2091,7 @@ function viewParams(reveal) {
   if (q && !(reveal && reveal.dropQuery)) p.set('q', q);
   if (state.colour !== 'status') p.set('colour', state.colour);
   if (state.layout !== 'time') p.set('layout', state.layout);
+  if (state.labels !== 'full') p.set('labels', state.labels);
   if (state.collapsed.size) p.set('folded', [...state.collapsed].join(','));
   if (!isLive()) p.set('since', DATA.dates[state.t]);
   if (state.needs) p.set('needs', '1');
@@ -3296,17 +3382,35 @@ $('#colourBy').addEventListener('change', e => {
 
 /** Switch what x means. Refits, because the two canvases are different sizes
     and a pan that framed June frames nothing in a column of hops. */
+const LAYOUTS = ['time', 'lineage', 'spring'];
+const LABEL_MODES = ['full', 'short', 'none'];
+
+/** One view setting into the URL, dropped when it is the default. */
+function urlSet(key, value, dflt) {
+  const p = new URLSearchParams(location.search);
+  if (value === dflt) p.delete(key); else p.set(key, value);
+  history.replaceState(history.state, '', location.pathname + (p.toString() ? '?' + p : '') + location.hash);
+}
+
 function setLayout(layout) {
-  state.layout = layout === 'lineage' ? 'lineage' : 'time';
+  state.layout = LAYOUTS.includes(layout) ? layout : 'time';
   $('#layoutBy').value = state.layout;
   relayout();
-  const p = new URLSearchParams(location.search);
-  if (state.layout === 'time') p.delete('layout'); else p.set('layout', state.layout);
-  history.replaceState(history.state, '', location.pathname + (p.toString() ? '?' + p : '') + location.hash);
+  urlSet('layout', state.layout, 'time');
   draw();
   fit();
 }
 $('#layoutBy').addEventListener('change', e => setLayout(e.target.value));
+
+/** Switch what a glyph is labelled with. The hop layouts size their columns
+    to the label, so they are recomputed and refitted; time keeps its canvas. */
+function setLabels(mode) {
+  state.labels = LABEL_MODES.includes(mode) ? mode : 'full';
+  $('#labelsBy').value = state.labels;
+  urlSet('labels', state.labels, 'full');
+  if (state.layout !== 'time') { relayout(); draw(); fit(); } else draw();
+}
+$('#labelsBy').addEventListener('change', e => setLabels(e.target.value));
 
 /* ---------- hover card ---------- */
 const hover = $('#hover');
@@ -3428,13 +3532,14 @@ function walk(dx, dy) {
   if (dx) {
     // Along time, within this lane. Ties broken by y so two nodes created the
     // same day in the same project are still both reachable.
-    pool = shown.filter(n => baseY(n) === baseY(cur) && (dx > 0 ? X(n) > X(cur) : X(n) < X(cur)));
+    // "Same row" within half a row: the spring layout leaves y continuous.
+    pool = shown.filter(n => Math.abs(baseY(n) - baseY(cur)) < ROW_H / 2 && (dx > 0 ? X(n) > X(cur) : X(n) < X(cur)));
     pool.sort((a, b) => dx > 0 ? X(a) - X(b) : X(b) - X(a));
   } else {
     // Across lanes: the nearest node in the next lane, measured on x, so
     // stepping down a column stays roughly on the same date.
     const lanes = [...new Set(shown.map(baseY))].sort((a, b) => a - b);
-    const next = lanes.filter(y => dy > 0 ? y > baseY(cur) : y < baseY(cur));
+    const next = lanes.filter(y => dy > 0 ? y > baseY(cur) + ROW_H / 2 : y < baseY(cur) - ROW_H / 2);
     if (!next.length) return;
     const target = dy > 0 ? next[0] : next[next.length - 1];
     pool = shown.filter(n => baseY(n) === target);
@@ -3461,7 +3566,8 @@ function helpRows() {
     ['<kbd>i</kbd>', 'isolate the open node’s lineage (again to show all)'],
     ['<kbd>n</kbd>', 'write a note on the open node'],
     ['<kbd>w</kbd>', 'the needs-you lens'],
-    ['<kbd>l</kbd>', 'x is time / x is hops from a root'],
+    ['<kbd>l</kbd>', 'x is time / hops from a root / hops with y relaxed by springs'],
+    ['<kbd>t</kbd>', 'labels: titles / slugs / none'],
     ['<kbd>space</kbd>', 'play / pause the replay'],
     ['<kbd>/</kbd>', 'search'],
   ];
@@ -3507,7 +3613,8 @@ document.addEventListener('keydown', e => {
   if (e.key === '/') { e.preventDefault(); return $('#search').focus(); }
   if (e.key === ' ') { e.preventDefault(); return togglePlay(); }
   if (e.key === 'w') { e.preventDefault(); return setNeeds(!state.needs); }
-  if (e.key === 'l') { e.preventDefault(); return setLayout(state.layout === 'time' ? 'lineage' : 'time'); }
+  if (e.key === 'l') { e.preventDefault(); return setLayout(LAYOUTS[(LAYOUTS.indexOf(state.layout) + 1) % LAYOUTS.length]); }
+  if (e.key === 't') { e.preventDefault(); return setLabels(LABEL_MODES[(LABEL_MODES.indexOf(state.labels) + 1) % LABEL_MODES.length]); }
   if (e.key === 'k' && chat.enabled) { e.preventDefault(); return toggleChat(); }
   if (e.key === 'n') {
     if (!state.selected) return;
@@ -3532,8 +3639,9 @@ document.addEventListener('keydown', e => {
 
 /* URL: #node-id selects, ?since=YYYY-MM-DD or ?t= rewinds, ?project=a,b filters
    (type/status/author too), ?q= searches, ?colour= fills, ?folded= folds,
-   ?needs=1, ?iso=<id> isolates, ?layout=lineage puts hops on x, ?tx&ty&scale
-   pan — the last three written by a write's reload, so the view survives it. */
+   ?needs=1, ?iso=<id> isolates, ?layout=lineage|spring puts hops on x,
+   ?labels=short|none changes what a glyph is labelled with, ?tx&ty&scale pan —
+   the last three written by a write's reload, so the view survives it. */
 let savedView = null;
 (function initFromUrl() {
   const params = new URLSearchParams(location.search);
@@ -3554,11 +3662,15 @@ let savedView = null;
     $('#colourBy').value = colour;
   }
   document.body.dataset.colour = state.colour;
-  if (params.get('layout') === 'lineage') {
-    state.layout = 'lineage';
-    $('#layoutBy').value = 'lineage';
-    relayout();
+  if (LABEL_MODES.includes(params.get('labels'))) {
+    state.labels = params.get('labels');
+    $('#labelsBy').value = state.labels;
   }
+  if (LAYOUTS.includes(params.get('layout'))) {
+    state.layout = params.get('layout');
+    $('#layoutBy').value = state.layout;
+  }
+  relayout();
   // ?project=a,b (and type/status/author the same way): exactly these are shown.
   // One value is the old ?project=polyid, unchanged.
   for (const key of FILTER_KEYS) {

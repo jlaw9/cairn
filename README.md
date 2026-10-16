@@ -655,6 +655,20 @@ run, and for reading a project as an argument rather than as a calendar. The
 time view is unchanged and still the default; `?layout=lineage` in the URL picks
 the other.
 
+**Spring** is lineage with y relaxed: every lineage edge inside a lane pulls its
+two ends toward one row, nodes sharing a column keep their distance, and nothing
+else acts, so a lane gets only as tall as its collisions make it and a hub's
+children gather around it instead of each taking a row below the last. It is
+confined to the hop axis on purpose — a force layout would throw away the time
+axis, which is the one thing this map has that a force layout does not.
+
+The `labels` control (or `t`) chooses what a glyph is labelled with: the
+**title**, wrapped; the **slug** — the id minus its date and project key, which
+is the one- or two-word handle somebody already chose for the node, so no field
+has to be filled in; or **none**, a map of dots with the hover card and the
+open node for the words. The hop layouts size their columns to the label, so
+slugs or none make them a good deal more compact.
+
 It's a full interactive app, just one served from disk instead of a server:
 
 - **lane names and months stay on screen** — project names sit in a gutter on
@@ -719,8 +733,8 @@ It's a full interactive app, just one served from disk instead of a server:
 - **fold a lane** to a strip of ticks at their real dates, keeping the time axis
   and every edge that leaves the lane
 - **keyboard navigation** — arrow keys walk the layout (x is time, y is a project
-  lane), `p`/`c` walk the edges, `i` isolates, `l` swaps time for lineage on x,
-  `n` writes a note, `w` toggles
+  lane), `p`/`c` walk the edges, `i` isolates, `l` cycles time / lineage /
+  spring on x, `t` cycles title / slug / no labels, `n` writes a note, `w` toggles
   needs-you, `space` plays the replay, `/` searches, `k` opens the chat (under
   `cairn serve`), `Esc` closes, and `?` lists every key
 - a ring marks a node that needs you; a dot marks one carrying a note —
@@ -729,7 +743,8 @@ It's a full interactive app, just one served from disk instead of a server:
 - filter by project / type / status / author (statuses nobody holds are left
   out of the list), pan, wheel-zoom
 - URL params: `?since=YYYY-MM-DD`, `?project=a,b` (and `type`, `status`,
-  `author`), `?q=`, `?colour=`, `?layout=lineage`, `?folded=a,b`, `?needs=1`, `?iso=<id>`,
+  `author`), `?q=`, `?colour=`, `?layout=lineage|spring`, `?labels=short|none`,
+  `?folded=a,b`, `?needs=1`, `?iso=<id>`,
   `#<node-id>`
 
 `build/graph.md` is a Mermaid fallback that renders in GitHub, an editor, or a
