@@ -415,6 +415,7 @@ cairn export         one project's generated view, for that project's own repo
 cairn mine_sessions  survey Claude Code transcripts (read-only)
 cairn sync_issues    mirror open task nodes to GitHub Issues (docs/github.md)
 cairn openviking     register the graph with an OpenViking server (docs/openviking.md)
+cairn export_supabase mirror published projects into Supabase, read-only (docs/supabase.md)
 cairn install_context wire this machine's sessions to the graph; --project for one
 cairn install_hooks  enable validation on a graph repo you cloned rather than init'd
 cairn session_hook   the hook payload itself; --dry-run to see it

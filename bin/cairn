@@ -59,6 +59,7 @@ usage: cairn <command> [args...]
   capture        append a note to inbox/ — no schema, never refuses
   sync_issues    mirror open task nodes to GitHub Issues (dry run by default)
   openviking     register the graph with an OpenViking server (dry run by default)
+  export_supabase mirror published projects into Supabase, read-only (dry run by default)
   doctor         check the install
 
 `cairn <command> --help` for a command's own options.

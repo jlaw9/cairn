@@ -66,6 +66,7 @@ In the **graph** repo (`$CAIRN_ROOT`):
 | `assets/` | small figures only — one per node, for the HTML thumbnail |
 | `build/` | generated. Never hand-edit |
 | `CLAUDE.md` | the graph's own conventions, including its one setting: `commit_mode: ask\|auto` |
+| `published-projects.txt` | optional: the projects `export_supabase` may mirror. No file publishes nothing |
 
 In **this** repo (`$CAIRN_PATH`):
 
@@ -78,6 +79,7 @@ In **this** repo (`$CAIRN_PATH`):
 | `docs/github.md` | tasks as GitHub Issues: what works, what's unverified |
 | `docs/literature.md` | corpora of thousands of papers: clusters, and what earns a node |
 | `docs/openviking.md` | the optional OpenViking seam: what crosses it, in which direction |
+| `docs/supabase.md` | the optional read-only Supabase mirror, for agents that cannot reach the graph's machine |
 
 Nothing heavy ever enters this repo. Big outputs are referenced by
 `host:/path`, code by `repo` + `commit`. The repo stays text-only and small

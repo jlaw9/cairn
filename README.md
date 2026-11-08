@@ -368,11 +368,12 @@ scripts/     lib.py, validate.py, build_graph.py, new_node.py, add_paper.py,
              capture.py, import_note.py, note.py, review.py, edit.py, discard.py,
              policy.py, sync.py, sync_issues.py, session_hook.py,
              install_context.py, init.py, onboard.py, serve.py, export.py,
-             export_example.py, openviking.py, check_site_links.py;
+             export_example.py, export_supabase.py, openviking.py,
+             check_site_links.py;
              find_python.sh, doctor.sh, install_hooks.sh, graph_template.html
 skills/      path-addressed skills, so agents in *other* repos can use the graph
 docs/        install.md, schema.md, backfill.md, literature.md, github.md,
-             openviking.md, worked examples
+             openviking.md, supabase.md (+ supabase.sql), worked examples
 site/        the documentation site — hand-written HTML, no build step
 example/     generated: a scrubbed copy of this project's own subgraph
 ```

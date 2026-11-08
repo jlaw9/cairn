@@ -4599,6 +4599,183 @@ class OpenViking(unittest.TestCase):
         self.assertIn("skip", result.stdout)
 
 
+
+class ExportSupabase(unittest.TestCase):
+    """cairn export_supabase — the read-only mirror for agents that cannot reach
+    the graph's machine.
+
+    What is worth protecting is not that rows get sent. It is that an
+    unpublished project never leaks — not its nodes, not their ids, which name
+    the work — while an edge into it stays visible as hidden rather than absent.
+    """
+
+    PUB = "2026-08-01-alpha-root"
+    KID = "2026-08-03-alpha-child"
+    SECRET = "2026-08-02-beta-secret-thing"
+    DRAFT = "2026-08-04-alpha-draft"
+
+    def setUp(self):
+        global export_supabase
+        import export_supabase                          # noqa: PLW0603
+        self.tmp = Path(tempfile.mkdtemp(prefix="cairn-supabase-"))
+        (self.tmp / "nodes").mkdir()
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "jlaw@example.gov")
+        self.git("config", "user.name", "Jeff Law")
+        self.put(self.PUB, node_text(self.PUB, "direction", "open", project="alpha",
+                                     created="2026-08-01"))
+        self.put(self.SECRET, node_text(self.SECRET, project="beta", created="2026-08-02"))
+        history = (f"  - {{date: 2026-08-03, status: running, "
+                   f"note: \"follows {self.SECRET}\"}}")
+        self.put(self.KID, node_text(
+            self.KID, project="alpha", created="2026-08-03",
+            parents=f"[{self.PUB}, {self.SECRET}]", history=history,
+            extra=f"relates:\n  - {{to: {self.SECRET}, type: contradicts, "
+                  f"note: \"see [[{self.SECRET}]]\"}}\n",
+        ) + f"\nBuilds on [[{self.SECRET}]], also written bare: {self.SECRET}.\n"
+            f"And [[2026-01-01-not-a-node]], which does not exist.\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "seed")
+        self.saved = (lib.REPO_ROOT, os.environ.get("CAIRN_ROOT"))
+        lib.REPO_ROOT = self.tmp
+        os.environ["CAIRN_ROOT"] = str(self.tmp)
+
+    def tearDown(self):
+        lib.REPO_ROOT, root = self.saved
+        os.environ["CAIRN_ROOT"] = root
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args):
+        import subprocess
+        return subprocess.run(["git", "-C", str(self.tmp), *args],
+                              capture_output=True, text=True, timeout=30)
+
+    def put(self, node_id, text):
+        (self.tmp / "nodes" / f"{node_id}.md").write_text(text.lstrip("\n"))
+
+    def payload(self, projects=("alpha",)):
+        return export_supabase.build_payload(self.tmp, list(projects), "g",
+                                             today=dt.date(2026, 8, 10))
+
+    def test_no_allowlist_publishes_nothing(self):
+        keys, exists = export_supabase.read_allowlist(self.tmp)
+        self.assertEqual((keys, exists), ([], False))
+        out = self.payload(projects=())
+        self.assertEqual(out["tables"]["cairn_nodes"], [])
+        self.assertEqual(out["tables"]["cairn_edges"], [])
+
+    def test_star_and_typos(self):
+        (self.tmp / "published-projects.txt").write_text("# shared\nalpah\n")
+        keys, _ = export_supabase.read_allowlist(self.tmp)
+        published, warnings = export_supabase.resolve_projects(keys, ["alpha", "beta"])
+        self.assertEqual(published, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("did you mean alpha", warnings[0])
+        self.assertEqual(export_supabase.resolve_projects(["*"], ["beta", "alpha"]),
+                         (["alpha", "beta"], []))
+
+    def test_an_unpublished_id_appears_nowhere(self):
+        import json
+        out = self.payload()
+        ids = sorted(r["id"] for r in out["tables"]["cairn_nodes"])
+        self.assertEqual(ids, [self.PUB, self.KID])
+        self.assertEqual(out["held_back"], ["beta"])
+        text = json.dumps(out)
+        self.assertNotIn(self.SECRET, text)
+        self.assertNotIn("secret-thing", text)
+
+        kid = next(r for r in out["tables"]["cairn_nodes"] if r["id"] == self.KID)
+        self.assertNotIn("parents", kid["meta"])
+        self.assertNotIn("relates", kid["meta"])
+        self.assertIn(export_supabase.REDACTED, kid["body"])
+        self.assertIn(export_supabase.REDACTED_BARE, kid["body"])
+        # A link to nothing names nothing hidden, so it is left as a broken link.
+        self.assertIn("[[2026-01-01-not-a-node]]", kid["body"])
+
+    def test_a_hidden_edge_is_kept_not_dropped(self):
+        edges = [e for e in self.payload()["tables"]["cairn_edges"]
+                 if e["source"] == self.KID]
+        by = {(e["kind"], e["target_state"]): e for e in edges}
+        self.assertEqual(by[("parent", "visible")]["target"], self.PUB)
+        self.assertIsNone(by[("parent", "hidden")]["target"])
+        self.assertIsNone(by[("contradicts", "hidden")]["target"])
+        self.assertEqual(by[("mentions", "missing")]["target"], "2026-01-01-not-a-node")
+        # The mention of the secret is already a parent and a relation: not doubled.
+        self.assertNotIn(("mentions", "hidden"), by)
+        # Stable across runs, so an upsert updates rather than duplicates.
+        again = {e["edge_id"] for e in self.payload()["tables"]["cairn_edges"]}
+        self.assertEqual({e["edge_id"] for e in edges} - again, set())
+
+    def test_drafts_stay_out(self):
+        self.put(self.DRAFT, node_text(self.DRAFT, project="alpha", created="2026-08-04"))
+        out = self.payload()
+        self.assertEqual(out["drafts"], [self.DRAFT])
+        self.assertNotIn(self.DRAFT, [r["id"] for r in out["tables"]["cairn_nodes"]])
+
+    def test_views_are_cairns_own(self):
+        views = {v["key"]: v for v in self.payload()["tables"]["cairn_views"]}
+        for key in ("standup", "standup:alpha", "digest:7d", "digest:7d:alpha",
+                    "report", "report:alpha", "coverage"):
+            self.assertIn(key, views)
+        self.assertEqual([r["project"] for r in views["coverage"]["data"]], ["alpha"])
+        self.assertIn("alpha", views["standup"]["content"])
+
+    def test_send_upserts_prunes_then_records(self):
+        import http.server
+        import json
+        import threading
+        seen = []
+
+        class Stub(http.server.BaseHTTPRequestHandler):
+            def handle_one(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n)) if n else None
+                seen.append((self.command, self.path, dict(self.headers), body))
+                self.send_response(201)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            do_POST = do_DELETE = handle_one
+
+            def log_message(self, *a):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+
+        export_id = export_supabase.send(export_supabase.Remote(url, "k"),
+                                         self.payload(), "g", "abc123")
+        calls = [(m, path.split("?")[0].rsplit("/", 1)[-1]) for m, path, _, _ in seen]
+        self.assertEqual(calls, [
+            ("POST", "cairn_nodes"), ("POST", "cairn_edges"), ("POST", "cairn_views"),
+            ("DELETE", "cairn_nodes"), ("DELETE", "cairn_edges"), ("DELETE", "cairn_views"),
+            ("POST", "cairn_exports"),
+        ])
+        method, path, headers, body = seen[0]
+        self.assertIn("on_conflict=graph%2Cid", path)
+        self.assertIn("resolution=merge-duplicates", headers["Prefer"])
+        self.assertEqual(headers["Authorization"], "Bearer k")
+        self.assertTrue(all(r["export_id"] == export_id and r["source_sha"] == "abc123"
+                            for r in body))
+        self.assertIn(f"export_id=neq.{export_id}", seen[3][1])
+        self.assertIn("graph=eq.g", seen[3][1])
+        self.assertEqual(seen[-1][3][0]["projects"], ["alpha"])
+
+    def test_apply_refuses_uncommitted_nodes(self):
+        import subprocess
+        (self.tmp / "published-projects.txt").write_text("alpha\n")
+        self.put(self.DRAFT, node_text(self.DRAFT, project="alpha", created="2026-08-04"))
+        env = dict(os.environ, CAIRN_ROOT=str(self.tmp),
+                   SUPABASE_URL="http://127.0.0.1:9", SUPABASE_SERVICE_ROLE_KEY="k")
+        root = Path(__file__).resolve().parent.parent
+        done = subprocess.run([str(root / "bin" / "cairn"), "export_supabase", "--apply"],
+                              capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("uncommitted", done.stderr)
+        self.assertIn(self.DRAFT, done.stderr)
+
 if __name__ == "__main__":
     try:
         result = unittest.main(exit=False, verbosity=2).result
