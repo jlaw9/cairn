@@ -603,32 +603,58 @@ def asset_dir(root: Path | None = None) -> Path:
 #: instead of as the mistake it is.
 ASSET_SUFFIXES = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp")
 
-#: `assets/` is documented as "small figures only". This is that promise, in
+#: `assets/` is documented as small figures only. This is that promise, in
 #: bytes. A warning rather than an error: it is a judgement about repo weight,
 #: not a schema violation, and blocking a commit over it would be the kind of
-#: friction that costs a capture.
-ASSET_MAX_BYTES = 100_000
+#: friction that costs a capture. 300 kB is a 1600 px plot or screenshot as WebP
+#: with room to spare, which is what `cairn figure` produces when Pillow is there.
+ASSET_MAX_BYTES = 300_000
+
+#: `<node-id>--<n>`: the second and later figures of one node, in order. The
+#: first is the bare `<node-id>.<ext>` the convention always had, so a graph
+#: written before there could be more than one reads exactly as it did.
+FIGURE_SLOT_RE = re.compile(r"^(.+?)--(\d+)$")
 
 
-def find_assets(root: Path | None = None) -> dict[str, Path]:
-    """node id -> its figure, by filename convention: `assets/<node-id>.<ext>`.
+def figure_slot(stem: str, ids=None) -> tuple[str, int]:
+    """(node id, position) for an asset's filename stem.
+
+    `ids`, when given, settles the one ambiguity the naming has: an id may
+    itself contain `--`, so a stem that *is* a node id is that node's first
+    figure, whatever it looks like.
+    """
+    if ids is not None and stem in ids:
+        return stem, 1
+    match = FIGURE_SLOT_RE.match(stem)
+    if match and (ids is None or match.group(1) in ids):
+        return match.group(1), int(match.group(2))
+    return stem, 1
+
+
+def find_assets(root: Path | None = None, ids=None) -> dict[str, list[Path]]:
+    """node id -> its figures, in order, by filename convention:
+    `assets/<node-id>.<ext>`, then `assets/<node-id>--2.<ext>`, `--3`, ...
 
     Derived from the filesystem, never stored on the node. Same reasoning as
     `author` being read out of git: a path recorded in frontmatter is a second
     copy of the truth that can disagree with the first, and one more field that
     stops getting filled in.
 
-    One per node. If a node has several, the first by sorted suffix wins and
-    `validate` says so — silently picking one would make the other invisible.
+    Ordered by slot number (numerically, so `--10` follows `--9`), then by
+    suffix — two files in one slot are both shown rather than one hiding the
+    other. Pass `ids` (the node ids) to resolve an id that contains `--`.
     """
     folder = asset_dir(root)
     if not folder.is_dir():
         return {}
-    found: dict[str, Path] = {}
-    for path in sorted(folder.iterdir()):
-        if path.is_file() and path.suffix.lower() in ASSET_SUFFIXES:
-            found.setdefault(path.stem, path)
-    return found
+    slots: dict[str, list[tuple[int, str, Path]]] = {}
+    for path in folder.iterdir():
+        if (path.is_file() and not path.name.startswith(".")
+                and path.suffix.lower() in ASSET_SUFFIXES):
+            node_id, slot = figure_slot(path.stem, ids)
+            slots.setdefault(node_id, []).append((slot, path.suffix.lower(), path))
+    return {node_id: [entry[2] for entry in sorted(found)]
+            for node_id, found in slots.items()}
 
 
 def load_nodes(root: Path | None = None) -> tuple[dict[str, Node], list[str]]:
@@ -1024,16 +1050,16 @@ def _check_body_links(nodes: dict[str, Node], out: list[Issue]) -> None:
 
 
 def _check_assets(nodes: dict[str, Node], out: list[Issue], root: Path | None = None) -> None:
-    """A figure has to belong to a node, be the only one, and stay small.
+    """A figure has to belong to a node, be a type an `<img>` shows, and stay small.
 
     All three failures are silent otherwise: an orphan never renders anywhere, a
-    second figure for the same node is simply never shown, and a large one is
-    invisible until the clone is slow.
+    PDF never renders at all, and a large one is invisible until the clone is
+    slow. Several figures per node are fine — `<id>--2.<ext>` and on are shown in
+    order after the first.
     """
     folder = asset_dir(root)
     if not folder.is_dir():
         return
-    seen: dict[str, list[str]] = {}
     for path in sorted(folder.iterdir()):
         if not path.is_file() or path.name.startswith("."):
             continue
@@ -1043,22 +1069,19 @@ def _check_assets(nodes: dict[str, Node], out: list[Issue], root: Path | None = 
                 f"not a figure type {ASSET_SUFFIXES} — the panel renders assets in an "
                 f"<img>, so this will never be shown")))
             continue
-        if path.stem not in nodes:
+        node_id, _slot = figure_slot(path.stem, nodes)
+        if node_id not in nodes:
             out.append(Issue("warn", where, (
-                "no node with this id — a figure is addressed by filename, so this one "
-                "renders nowhere")))
-        else:
-            seen.setdefault(path.stem, []).append(path.name)
+                "no node with this id — a figure is addressed by filename "
+                "(<node-id>.<ext> or <node-id>--<n>.<ext>), so this one renders nowhere")))
         size = path.stat().st_size
         if size > ASSET_MAX_BYTES:
             out.append(Issue("warn", where, (
-                f"{size // 1000} kB — assets/ is documented as small figures only, and "
-                f"this repo is meant to stay text-sized forever")))
-    for node_id, names in seen.items():
-        if len(names) > 1:
-            out.append(Issue("warn", f"assets/{names[0]}", (
-                f"{node_id} has {len(names)} figures ({', '.join(names)}) — only the "
-                f"first is shown")))
+                f"{size // 1000} kB, over the {ASSET_MAX_BYTES // 1000} kB figure cap — "
+                f"shrink it: add it with `cairn figure <id> <file>` (with Pillow "
+                f"installed it scales to 1600 px and re-encodes as WebP), re-export "
+                f"smaller or as SVG, or keep the full-size file on a host and list it "
+                f"under `artifacts:`")))
 
 
 def validate(root: Path | None = None) -> list[Issue]:
@@ -1183,26 +1206,82 @@ def format_note(text: str, who: str = "", when: dt.date | None = None) -> str:
     return f"{stamp} {flat}".rstrip()
 
 
-def append_note(node: Node, text: str, who: str = "", when: dt.date | None = None) -> str:
-    """Add a note to the node's `## Notes` section, creating it if absent.
+def append_to_section(node: Node, heading: str, line: str) -> str:
+    """Append `line` inside the body's `## <heading>` section, creating it if absent.
 
     Appends *inside* the existing section rather than at the end of the file, so
-    a `## Notes` written above `## Next` stays where the author put it and notes
-    stay in one place instead of accumulating stray headings.
+    a section written above `## Next` stays where the author put it and its
+    entries stay in one place instead of accumulating stray headings.
     """
-    line = format_note(text, who, when)
+    wanted = heading.lower()
     body = node.body.rstrip()
     matches = list(HEADING_RE.finditer(body))
     for index, match in enumerate(matches):
-        if match.group(1).strip().lower().rstrip(":") != NOTES_HEADING:
+        if match.group(1).strip().lower().rstrip(":") != wanted:
             continue
         end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
         head, section, tail = body[:match.end()], body[match.end():end], body[end:]
         section = section.rstrip() + "\n" + line + "\n"
         node.body = (head + section + ("\n" + tail.lstrip("\n") if tail.strip() else "")).rstrip() + "\n"
         return line
-    node.body = f"{body}\n\n## Notes\n\n{line}\n"
+    node.body = f"{body}\n\n## {heading}\n\n{line}\n"
     return line
+
+
+def append_note(node: Node, text: str, who: str = "", when: dt.date | None = None) -> str:
+    """Add a note to the node's `## Notes` section, creating it if absent."""
+    return append_to_section(node, "Notes", format_note(text, who, when))
+
+
+# --------------------------------------------------------------------------
+# `## Figures` — a figure's caption, in the body
+# --------------------------------------------------------------------------
+#
+# The same bargain as `## Notes`: a caption is a sentence about the node, so it
+# lives in the body, dated, one bullet per figure, and moves neither `updated`
+# nor `history`. The file is named in the line, so the map can pair caption and
+# image without a field — and a reader of the raw markdown sees which is which.
+#
+#   - **2026-11-08** `assets/2026-08-02-prekd-cosmo-baseline.webp` — MAE by solvent class
+
+FIGURES_HEADING = "figures"
+
+FIGURE_LINE_RE = re.compile(
+    r"^-\s+\*\*(\d{4}-\d{2}-\d{2})\*\*\s+`assets/([^`]+)`\s*(?:[\u2014\u2013-]+\s*)?(.*)$"
+)
+
+
+def format_figure_line(filename: str, caption: str, when: dt.date | None = None) -> str:
+    """One `## Figures` bullet. Newlines are folded — a caption is one line."""
+    when = when or dt.date.today()
+    flat = " ".join(str(caption).split())
+    line = f"- **{when.isoformat()}** `assets/{filename}`"
+    return f"{line} \u2014 {flat}" if flat else line
+
+
+def append_figure_caption(node: Node, filename: str, caption: str,
+                          when: dt.date | None = None) -> str:
+    return append_to_section(node, "Figures", format_figure_line(filename, caption, when))
+
+
+def read_figures(node: Node) -> list[dict]:
+    """Parsed `## Figures` entries: {date, file, caption}, in the order written.
+
+    As with notes, an indented continuation line is folded into the caption
+    above it rather than dropped.
+    """
+    section = body_section(node.body, [FIGURES_HEADING])
+    if not section:
+        return []
+    found: list[dict] = []
+    for line in section.splitlines():
+        match = FIGURE_LINE_RE.match(line.strip())
+        if match:
+            found.append({"date": as_date(match.group(1)), "file": match.group(2).strip(),
+                          "caption": match.group(3).strip()})
+        elif found and line.strip():
+            found[-1]["caption"] = (found[-1]["caption"] + " " + line.strip()).strip()
+    return found
 
 
 # --------------------------------------------------------------------------

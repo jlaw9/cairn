@@ -314,25 +314,43 @@ rather than blocks — a malformed `sha256`, an unknown `tier`, a dangling
 
 ## Figures
 
-`assets/<node-id>.<ext>` — one optional figure per node, `.svg .png .jpg .jpeg
-.gif .webp`. There is no field. The filename **is** the link, the same way git
-already knows a node's author: a path in frontmatter would be a second copy of
-the truth that can disagree with the first, and one more thing to fill in.
+`assets/<node-id>.<ext>`, then `assets/<node-id>--2.<ext>`, `--3`, ... — optional
+summary figures, in order, `.svg .png .jpg .jpeg .gif .webp`. There is no field.
+The filename **is** the link, the same way git already knows a node's author: a
+path in frontmatter would be a second copy of the truth that can disagree with
+the first, and one more thing to fill in. `lib.find_assets` reads them; a stem
+that is itself a node id is that node's first figure, so an id containing `--`
+is never misread as a numbered one.
 
-The panel shows it under **Figure**, after the body — the body states the claim,
-the figure shows the result. It is referenced as `../assets/<file>` and rendered
-in an `<img>`, never embedded and never inlined. Three consequences worth knowing:
+Add one with `bin/cairn figure <id> <file> [--caption "..."]`, which picks the
+next name, shrinks the image when Pillow is installed, and commits it. A caption
+is a dated bullet under `## Figures` in the body — the same bargain as
+`## Notes`, and like a note it moves neither `updated` nor `history`:
 
-- **The payload stays text.** `build/graph.html` carries the filename, not the
-  image, so a figure costs the map nothing.
+```markdown
+## Figures
+
+- **2026-11-08** `assets/2026-08-02-prekd-cosmo-baseline.webp` — MAE by solvent class
+```
+
+The panel shows every figure directly under the status pills, each with its
+caption — the picture is the fastest read of how the work came out. The map marks
+a node that has one with a small corner tab, and the hover card shows the first.
+`docs/figures.md` has what makes a good one and the storage math.
+
+Each is referenced as `../assets/<file>` and rendered in an `<img>`, never
+embedded and never inlined. Three consequences worth knowing:
+
+- **The payload stays text.** `build/graph.html` carries filenames, not images,
+  so a figure costs the map nothing.
 - **An `<img>` is inert.** Inlining an SVG would put unreviewed markup from
   `assets/` into the page's own DOM. The cost is that a figure cannot be
-  interactive — it is a thumbnail, and the numbers belong in the body anyway.
+  interactive — it is a picture, and the numbers belong in the body anyway.
 - **An SVG can still theme itself.** A media query inside the file sees the
   reader's colour scheme even through an `<img>`, so one file works dark and
   light. `assets/2026-08-27-cairn-size-by-descent.svg` is the worked example.
 
-Prefer SVG. This repo promises to stay text-sized forever, and an SVG is text.
+Prefer SVG for a plot you generate; a screenshot is fine as WebP.
 
 ## What the validator checks
 
@@ -360,6 +378,7 @@ Warnings don't block:
   `generated_by`/`supersedes`
 - open task with no `due`
 - `id` date prefix disagreeing with `created`
-- a file in `assets/` naming no node, or a second figure for a node that already
-  has one — both render nowhere, silently, without this
-- an asset over 100 kB, or of a type an `<img>` cannot show
+- a file in `assets/` naming no node (by `<id>.<ext>` or `<id>--<n>.<ext>`) —
+  it renders nowhere, silently, without this
+- an asset over 300 kB (the warning says how to shrink it), or of a type an
+  `<img>` cannot show

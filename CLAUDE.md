@@ -63,7 +63,7 @@ In the **graph** repo (`$CAIRN_ROOT`):
 | `datasets/<key>.md` | one page per dataset nodes reference via `data:` — sha256, host:path, tier |
 | `meetings/<date>-<who>.md` | meeting notes, raw |
 | `inbox/<date>-<hhmm>.md` | unstructured capture, awaiting triage |
-| `assets/` | small figures only — one per node, for the HTML thumbnail |
+| `assets/` | summary figures, small — `bin/cairn figure <id> <file>`; see `docs/figures.md` |
 | `build/` | generated. Never hand-edit |
 | `CLAUDE.md` | the graph's own conventions, including its one setting: `commit_mode: ask\|auto` |
 
@@ -75,6 +75,7 @@ In **this** repo (`$CAIRN_PATH`):
 | `bin/cairn` | the dispatcher. Run everything through it |
 | `skills/<name>/SKILL.md` | path-addressed skills, so agents in *other* repos can use the graph |
 | `example/` | generated: a scrubbed copy of the `cairn` subgraph, so the tool ships with a real graph |
+| `docs/figures.md` | summary figures: what makes a good one, `cairn figure`, the storage math |
 | `docs/github.md` | tasks as GitHub Issues: what works, what's unverified |
 | `docs/literature.md` | corpora of thousands of papers: clusters, and what earns a node |
 | `docs/openviking.md` | the optional OpenViking seam: what crosses it, in which direction |

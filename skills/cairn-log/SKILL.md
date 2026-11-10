@@ -146,7 +146,9 @@ the user and commit, not for it to sweep in.
 - Do not commit a node the user hasn't seen under `ask`; under `auto`, do not
   commit a node about work you did not do.
 - Do not copy large outputs in. Reference them as `host:/path` in `artifacts`.
-  One small summary figure may go in `$CAIRN_ROOT/assets/<node-id>.svg`. One.
+  A summary figure — the plot that would let a reader skip the node — goes in
+  with `$CAIRN_PATH/bin/cairn figure <node-id> <file> --caption "..."`, which
+  names, shrinks and commits it. Under `ask`, pass `--no-commit` and show it.
 - Do not add schema fields. Every optional field is one that stops getting
   filled in; adding one is a real decision made in `lib.TYPES` and
   `docs/schema.md`, not in passing.

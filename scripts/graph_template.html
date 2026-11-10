@@ -284,11 +284,32 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
      which is the right trade for a record you are supposed to be able to trust.
      The cost is that a figure cannot be interactive, and that is acceptable —
      it is a thumbnail, and the node body carries the numbers. */
+  /* A node's figures sit directly under the pill row: a summary image is the
+     fastest read of how the work came out, so it comes before the prose. Each is
+     capped in height so a tall screenshot cannot push the claim off-screen; the
+     full image is one click away. */
+  .figs { margin: 10px 0 4px; display: grid; gap: 10px; }
+  .fig { margin: 0; }
   .fig a { display: block; }
   .fig img {
-    display: block; width: auto; max-width: 100%; margin: 0 auto; height: auto; border-radius: 6px;
-    background: var(--panel-2); border: 1px solid var(--line);
+    display: block; width: auto; max-width: 100%; margin: 0 auto; height: auto; max-height: 52vh; object-fit: contain;
+    border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line);
   }
+  .fig figcaption { font-size: 12px; color: var(--ink-dim); margin-top: 5px; line-height: 1.45; }
+  /* The drop zone. Only rendered while `cairn serve` offers `figure`. */
+  .figbox .drop {
+    border: 1.5px dashed var(--line); border-radius: 8px; padding: 14px 10px;
+    text-align: center; font-size: 12px; color: var(--ink-faint); cursor: pointer;
+  }
+  .figbox .drop:hover, .figbox .drop:focus, .figbox .drop.over {
+    border-color: var(--accent); color: var(--ink-dim); outline: none;
+  }
+  .figbox .staged { margin-top: 8px; font-size: 11.5px; }
+  .figbox .staged img {
+    display: block; max-width: 100%; max-height: 160px; border-radius: 5px;
+    border: 1px solid var(--line); margin-bottom: 4px;
+  }
+  .figbox .staged span[data-figclear] { color: var(--accent); cursor: pointer; margin-left: 6px; }
   /* An artifact is an address, and the two halves answer different questions:
      the host says which machine, the basename says what it is. Both were buried
      in one long <code> run before, which is why 44 of them read as noise. */
@@ -385,6 +406,9 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   /* Not in git: hollow, where the note dot is filled, and at the opposite
      corner — a decoration on the glyph, like the other two marks. */
   .node .draft { fill: var(--bg); stroke: var(--ink); stroke-width: 1.3; }
+  /* Has a summary figure: a small tab at the top-left corner, the one corner the
+     other marks leave free. Same family as the dots — a decoration, not a fill. */
+  .node .figmark { fill: var(--accent); stroke: var(--bg); stroke-width: 1; }
   .notes { font-size: 12.5px; }
   .notes .n { border-left: 2px solid var(--pending); padding: 2px 0 2px 10px; margin-bottom: 9px; }
   .notes .who { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
@@ -505,6 +529,12 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
     position: fixed; z-index: 20; max-width: 330px; pointer-events: none;
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
     padding: 9px 12px; box-shadow: 0 8px 26px rgba(0,0,0,.35);
+  }
+  /* A fixed height, so the card is measured (and flipped at the viewport edge)
+     correctly before the image has loaded. */
+  #hover .thumb {
+    display: block; width: 100%; height: 120px; object-fit: contain; margin-bottom: 7px;
+    background: var(--panel-2); border-radius: 5px;
   }
   #hover strong { display: block; font-size: 13px; line-height: 1.35; margin-bottom: 4px; }
   #hover .meta { font-size: 11.5px; color: var(--ink-dim); display: flex; align-items: center; gap: 6px; }
@@ -682,7 +712,8 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
     <div class="muted" style="line-height:1.6;margin-top:8px">
       shape = type · size = work downstream<br>
       ring = needs you · dot = open note<br>
-      hollow dot = not committed yet
+      hollow dot = not committed yet<br>
+      corner tab = has a figure
     </div>
     <h2>Fill</h2>
     <div id="fillKey"></div>
@@ -1475,6 +1506,7 @@ function draw() {
       glyph(n.shape, r) +
       (noted ? `<circle class="flag" cx="${r - 3}" cy="${-r + 3}" r="3.4"></circle>` : '') +
       (isDraft(n) ? `<circle class="draft" cx="${r - 3}" cy="${r - 3}" r="3.2"></circle>` : '') +
+      (figuresOf(n).length ? `<rect class="figmark" x="${-r - 2}" y="${-r - 1}" width="7.5" height="5.5" rx="1.2"></rect>` : '') +
       labelText(n, r) +
       `</g>`
     );
@@ -1813,6 +1845,181 @@ function noteBox(n) {
     `<code class="cmd" id="noteCmd">cairn note ${esc(n.id)} "…"</code>` +
     `</div>`;
 }
+
+/* ---------- figures ----------
+   `assets/<id>.<ext>`, then `<id>--2.<ext>` and on: the build sends the names
+   (`assets`) and any `## Figures` captions (`captions`, by name). `asset` alone
+   is what a page built before a node could have more than one carries. */
+function figuresOf(n) { return n.assets || (n.asset ? [n.asset] : []); }
+
+function figureStrip(n) {
+  const figs = figuresOf(n);
+  if (!figs.length) return '';
+  const caps = n.captions || {};
+  return `<div class="figs">` + figs.map((f, i) => {
+    const src = `../assets/${encodeURIComponent(f)}`;
+    const cap = caps[f] || '';
+    return `<figure class="fig"><a href="${src}" target="_blank" rel="noopener">` +
+      `<img src="${src}" loading="lazy" alt="${esc(cap || `Figure ${i + 1} for ${n.title}`)}"></a>` +
+      (cap ? `<figcaption>${esc(cap)}</figcaption>` : '') + `</figure>`;
+  }).join('') + `</div>`;
+}
+
+/* Adding one, while `cairn serve` offers `figure`. Drop, paste or pick an
+   image; it is scaled here to at most FIG_MAX_EDGE px and re-encoded as WebP
+   before it is posted, so the server's body cap is rarely the thing you meet,
+   and then `cairn figure` names it, shrinks it further if it can, captions it
+   under `## Figures` and commits it. Nothing is written until "Add figure". */
+const FIG_MAX_EDGE = 1600, FIG_QUALITY = 0.82;
+//: lib.ASSET_MAX_BYTES — under it, and under FIG_MAX_EDGE, an image goes as it is.
+const FIG_SMALL = 300000;
+const FIG_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif',
+                  'image/webp': '.webp', 'image/svg+xml': '.svg' };
+const figStage = { id: null, blob: null, name: '', url: '', note: '' };
+const kbOf = b => b < 1000 ? `${b} B` : `${Math.round(b / 1000)} kB`;
+
+function figureBox(n) {
+  return `<div class="sect figbox"><div class="hd">Add a figure</div>` +
+    `<div class="drop" id="figDrop" tabindex="0" data-figpick="1">` +
+      `drop an image here, paste one, or click to choose</div>` +
+    `<input type="file" id="figFile" accept="${Object.keys(FIG_EXT).join(',')}" hidden>` +
+    `<div class="staged" id="figStaged" hidden></div>` +
+    `<div class="wr"><input id="figCaption" type="text" maxlength="500" ` +
+      `placeholder="caption: what this shows, in one line"></div>` +
+    `<div class="wr"><button data-figsave="${esc(n.id)}" disabled>Add figure</button>` +
+      `<span class="muted">writes and commits, exactly as <code>cairn figure</code> does</span></div>` +
+    `<code class="said" id="figSaid" hidden></code></div>`;
+}
+
+function loadImage(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('the browser could not read that image')); };
+    img.src = url;
+  });
+}
+
+/** {blob, name, note} for an image as it should be posted. SVG is text and a
+    GIF may be animated, so both go as they are; anything else is drawn onto a
+    canvas at <= FIG_MAX_EDGE and kept as WebP when that is smaller. */
+async function prepareFigure(file) {
+  const ext = FIG_EXT[file.type];
+  if (!ext) throw new Error(`${file.name || 'that file'} is not an image the map can show — png, jpg, gif, webp or svg`);
+  const asIs = why => ({ blob: file, name: 'figure' + ext, note: `${kbOf(file.size)} ${ext.slice(1)}, as-is${why ? ' — ' + why : ''}` });
+  if (ext === '.svg' || ext === '.gif') return asIs('');
+  const img = await loadImage(file);
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const k = Math.min(1, FIG_MAX_EDGE / Math.max(w, h, 1));
+  if (k === 1 && file.size <= FIG_SMALL) return asIs(`${w}×${h}`);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(w * k));
+  canvas.height = Math.max(1, Math.round(h * k));
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/webp', FIG_QUALITY));
+  // A browser that cannot encode WebP hands back PNG; name it for what it is.
+  const out = blob && FIG_EXT[blob.type];
+  if (!blob || !out || (k === 1 && blob.size >= file.size)) return asIs(`${w}×${h}`);
+  return { blob, name: 'figure' + out,
+           note: `${w}×${h} ${kbOf(file.size)} → ${canvas.width}×${canvas.height} ${out.slice(1)} ${kbOf(blob.size)}` };
+}
+
+async function stageFigure(file) {
+  const id = state.selected, said = $('#figSaid');
+  if (!file || !id) return;
+  let ready;
+  try {
+    ready = await prepareFigure(file);
+  } catch (err) {
+    if (said) { said.hidden = false; said.className = 'said bad'; said.textContent = err.message; }
+    return;
+  }
+  if (figStage.url) URL.revokeObjectURL(figStage.url);
+  Object.assign(figStage, ready, { id, url: URL.createObjectURL(ready.blob) });
+  if (said) said.hidden = true;
+  renderFigStage();
+}
+
+function clearFigStage() {
+  if (figStage.url) URL.revokeObjectURL(figStage.url);
+  Object.assign(figStage, { id: null, blob: null, name: '', url: '', note: '' });
+  renderFigStage();
+}
+
+/** Show what is staged for the open node — called after every panel render,
+    so a slider tick or a server probe does not drop a dropped image. */
+function renderFigStage() {
+  const box = $('#figStaged');
+  if (!box) return;
+  const on = !!figStage.blob && figStage.id === state.selected;
+  box.hidden = !on;
+  const button = panel.querySelector('[data-figsave]');
+  if (button) button.disabled = !on;
+  box.innerHTML = on
+    ? `<img src="${figStage.url}" alt="the figure to add"><span class="muted">${esc(figStage.note)}</span>` +
+      `<span data-figclear="1">remove</span>`
+    : '';
+}
+
+function blobBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function saveFigure(button) {
+  const id = button.dataset.figsave, said = $('#figSaid');
+  if (!figStage.blob || figStage.id !== id) return;
+  button.disabled = true;
+  let data;
+  try {
+    data = await blobBase64(figStage.blob);
+  } catch (err) {
+    said.hidden = false; said.className = 'said bad'; said.textContent = String(err);
+    button.disabled = false;
+    return;
+  }
+  const caption = ($('#figCaption')?.value || '').trim();
+  const done = await write({ action: 'figure', id, filename: figStage.name, data,
+                             caption: caption || undefined }, said);
+  if (done.ok) clearFigStage(); else button.disabled = false;
+}
+
+/** Where a dropped or pasted image goes: the open node's drop zone, if the
+    panel is showing one. Otherwise the event is left to the browser. */
+const figDropZone = () => (state.selected && server.up && server.actions.has('figure'))
+  ? $('#figDrop') : null;
+const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+panel.addEventListener('dragover', e => {
+  const zone = figDropZone();
+  if (!zone || !hasFiles(e)) return;
+  e.preventDefault();
+  zone.classList.add('over');
+});
+panel.addEventListener('dragleave', e => {
+  if (!panel.contains(e.relatedTarget)) figDropZone()?.classList.remove('over');
+});
+panel.addEventListener('drop', e => {
+  const zone = figDropZone();
+  if (!zone || !hasFiles(e)) return;
+  e.preventDefault();
+  zone.classList.remove('over');
+  stageFigure(e.dataTransfer.files[0]);
+});
+document.addEventListener('paste', e => {
+  if (!figDropZone()) return;
+  const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+  if (!file) return;               // text pastes into the note box as always
+  e.preventDefault();
+  stageFigure(file);
+});
+document.addEventListener('change', e => {
+  if (e.target.id === 'figFile' && e.target.files[0]) stageFigure(e.target.files[0]);
+});
 
 /* ---------- the live server, when there is one ----------
    `cairn serve` answers /api/health from this page's own origin. On a file://
@@ -3074,15 +3281,11 @@ function open(id, opts = {}) {
       `<span class="pill">${esc(n.type)}</span><span class="pill">${esc(n.project)}</span>` +
       (isLive() ? '' : `<span class="pill">as of ${esc(when)}</span>`) +
     `</div>` +
+    figureStrip(n) +
     (needsYou(n, when) ? `<div class="needs-why">needs you — ${esc(needsYou(n, when))}</div>` : '') +
     gitBanner(n) +
     `<dl class="kv">${rows.join('')}</dl>` +
     `<div class="body">${n.body}</div>` +
-    // After the body: the body states the claim, the figure shows the result.
-    (n.asset ? `<div class="sect fig"><div class="hd">Figure</div>` +
-      `<a href="../assets/${encodeURIComponent(n.asset)}" target="_blank" rel="noopener">` +
-      `<img src="../assets/${encodeURIComponent(n.asset)}" alt="Figure for ${esc(n.title)}">` +
-      `</a></div>` : '') +
     section('Parents', links(n.parents)) +
     section('Children', links(n.children)) +
     // Phrased from this node's side in both directions, so a contradiction is
@@ -3121,6 +3324,7 @@ function open(id, opts = {}) {
       `<div>${esc(x.text)}</div></div>`
     ).join('')) +
     (server.up && isLive() ? statusBox(n) : '') +
+    (server.up && isLive() && server.actions.has('figure') ? figureBox(n) : '') +
     noteBox(n);
 
   panel.classList.add('open');
@@ -3136,6 +3340,7 @@ function open(id, opts = {}) {
   }
   draw();
   syncStatusBox();
+  renderFigStage();
   if (opts.pan !== false) ensureVisible(id);
 }
 
@@ -3426,6 +3631,9 @@ document.addEventListener('click', e => {
     }).then(done => { if (!done.ok) { b.disabled = false; disarm(); } });
     return;
   }
+  if (e.target.closest?.('[data-figpick]')) return $('#figFile')?.click();
+  if (d.figclear) return clearFigStage();
+  if (d.figsave) return saveFigure(e.target);
   if (d.save) {
     const text = ($('#noteText')?.value || '').trim();
     const said = $('#noteSaid');
@@ -3567,7 +3775,9 @@ function showHover(g, clientX, clientY) {
   const note = [...n.history].reverse().find(h => h.date <= when && h.note);
   const why = needsYou(n, when);
   const hit = matchExcerpt(n, state.query);
+  const thumb = figuresOf(n)[0];
   hover.innerHTML =
+    (thumb ? `<img class="thumb" src="../assets/${encodeURIComponent(thumb)}" alt="">` : '') +
     `<strong>${esc(n.title)}</strong>` +
     `<div class="meta">` +
       `<span class="dot" style="background:var(--${CLS[status] || 'idle'})"></span>` +

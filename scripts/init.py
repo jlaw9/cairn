@@ -55,7 +55,7 @@ than no graph, because you cannot trust a missing node to mean "not tried".
 | `papers/<doi-slug>.md` | one page per cited paper, CrossRef-verified metadata |
 | `meetings/<date>-<who>.md` | meeting notes, raw |
 | `inbox/<date>-<hhmm>.md` | unstructured capture, awaiting triage |
-| `assets/` | small figures only — one per node |
+| `assets/` | summary figures, small — `cairn figure <id> <file>` adds one |
 | `build/` | generated. Never hand-edit |
 
 Nothing heavy ever enters this repo. Big outputs are referenced by `host:/path`,

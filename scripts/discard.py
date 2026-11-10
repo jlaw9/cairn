@@ -16,7 +16,8 @@ this refuses anything git tracks (committed, or modified since), anything that
 is not a bare node id, a graph that is not a git repo (then there is no way to
 tell a draft from a record), and a draft some other node already points at
 through `parents` or `relates`, since removing it would leave that node
-dangling. `assets/<id>.*` goes with the draft, if untracked.
+dangling. Its figures (`assets/<id>.*`, `assets/<id>--<n>.*`) go with the
+draft, if untracked.
 """
 
 from __future__ import annotations
@@ -102,7 +103,9 @@ def main() -> int:
                       "discarding it would leave those dangling.")
 
     targets = [path]
-    for asset in sorted((root / "assets").glob(f"{node_id}.*")):
+    # Every figure of the draft: `<id>.<ext>` and `<id>--<n>.<ext>`, by the same
+    # rule the map uses to find them.
+    for asset in lib.find_assets(ids=set(nodes)).get(node_id, []):
         if untracked(asset.relative_to(root)):
             targets.append(asset)
 

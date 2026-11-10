@@ -16,8 +16,8 @@ no schema of its own and invents no policy: it reports whatever the command
 said, including that `cairn note` commits and `new_node --update` does not.
 
 The line, from the node: the view may **create** a node, append a **note**,
-propose a **status change**, and **edit** a node's body and a whitelist of its
-fields through `cairn edit`. It may never hand-edit frontmatter. There is no
+propose a **status change**, **edit** a node's body and a whitelist of its
+fields through `cairn edit`, and attach a **figure** through `cairn figure`. It may never hand-edit frontmatter. There is no
 endpoint that writes YAML, and adding one would be the bug.
 
 **`build/graph.html` still works with the server off.** That constraint is the
@@ -45,6 +45,8 @@ is allowed to do and how its output is read. `--no-chat` turns it off.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import os
 import re
@@ -52,6 +54,7 @@ import select
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -452,8 +455,68 @@ def do_edit(payload: dict) -> dict:
     return run_cairn(args, stdin=body)
 
 
+#: The request body cap. A note, an edit or a whole node body is text, and 1 MB
+#: is far past any of them; a figure is an image as base64, so it alone gets
+#: more. The page scales a figure to 1600 px WebP before posting, so 4 MB is
+#: the case where that was not possible, not the usual one.
+BODY_MAX = 1 << 20
+FIGURE_BODY_MAX = 4 << 20
+
+#: A caption is one line under `## Figures`, not a second body.
+CAPTION_MAX = 500
+
+
+def do_figure(payload: dict) -> dict:
+    """Attach an image through `cairn figure` — which names it, shrinks it and
+    commits it. Payload: {id, filename, data (base64), caption?}.
+
+    The upload goes to a temp file outside the graph, and only its suffix is
+    taken from `filename`: the name the browser sent never becomes a path here.
+    Everything else — the type check, the slot, the resize — is the command's.
+    """
+    node_id = want(payload, "id", ID_RE)
+    known_node(node_id)
+    filename = str(payload.get("filename", "") or "").strip()
+    suffix = Path(filename).suffix.lower()
+    if suffix not in lib.ASSET_SUFFIXES:
+        raise Refused(f"{filename or 'the upload'} is not a figure type: "
+                      f"{' '.join(lib.ASSET_SUFFIXES)}")
+    data = payload.get("data")
+    if not isinstance(data, str) or not data.strip():
+        raise Refused("data is required: the image, base64-encoded")
+    # A data: URL is what FileReader hands the page; take either.
+    if data.startswith("data:"):
+        data = data.split(",", 1)[-1]
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        raise Refused("data is not valid base64")
+    if not raw:
+        raise Refused("the image is empty")
+    caption = " ".join(str(payload.get("caption", "") or "").split())
+    if len(caption) > CAPTION_MAX:
+        raise Refused(f"a caption is one line — this one is over {CAPTION_MAX} "
+                      f"characters; the rest belongs in the body")
+
+    scratch = Path(tempfile.mkdtemp(prefix="cairn-figure-"))
+    try:
+        upload = scratch / f"upload{suffix}"
+        upload.write_bytes(raw)
+        # `--caption=` so a caption that opens with a dash is still a caption.
+        args = ["figure", node_id, str(upload)]
+        if caption:
+            args.append(f"--caption={caption}")
+        return run_cairn(args)
+    finally:
+        for leftover in scratch.iterdir():
+            leftover.unlink()
+        scratch.rmdir()
+
+
 ACTIONS = {"note": do_note, "status": do_status, "create": do_create,
            "edit": do_edit, "review": do_review}
+if (TOOL_ROOT / "scripts" / "figure.py").exists():
+    ACTIONS["figure"] = do_figure
 # Offered only where the command exists, so /api/health's list is what the page
 # reads to decide whether to show the button.
 if (TOOL_ROOT / "scripts" / "discard.py").exists():
@@ -482,13 +545,27 @@ def committed(out: str) -> bool | None:
     rel = node_path(out)
     if not rel:
         return None
+    # `cairn figure` writes an asset too, and a figure left untracked is as
+    # invisible from the other machine as a node.
+    paths = [rel] + asset_paths(out)
     try:
         done = subprocess.run(
-            ["git", "-C", str(lib.REPO_ROOT), "status", "--porcelain", "--", rel],
+            ["git", "-C", str(lib.REPO_ROOT), "status", "--porcelain", "--", *paths],
             capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     return None if done.returncode != 0 else not done.stdout.strip()
+
+
+def asset_paths(out: str) -> list:
+    """`assets/<name>` paths a command reported writing, as the first word of
+    a line — `cairn figure` prints the asset first, then the node."""
+    found = []
+    for line in out.splitlines():
+        word = (line.split() or [""])[0]
+        if word.startswith("assets/") and Path(word).suffix.lower() in lib.ASSET_SUFFIXES:
+            found.append(word)
+    return found
 
 
 def rebuild() -> dict:
@@ -632,7 +709,10 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
-        if length <= 0 or length > 1 << 20:
+        # The action is inside the body, so the outer cap is the largest any
+        # action takes; the per-action one is checked once the action is known.
+        largest = FIGURE_BODY_MAX if "figure" in ACTIONS else BODY_MAX
+        if length <= 0 or length > largest:
             return self.send_json({"error": "empty or oversized body"}, 400)
 
         try:
@@ -647,6 +727,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(
                 {"error": f"unknown action {action!r}; "
                           f"expected one of {', '.join(sorted(ACTIONS))}"}, 400)
+        if action != "figure" and length > BODY_MAX:
+            return self.send_json({"error": "empty or oversized body"}, 400)
 
         try:
             with WRITE_LOCK:
@@ -687,7 +769,7 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
-        if length <= 0 or length > 1 << 20:
+        if length <= 0 or length > BODY_MAX:
             self.send_json({"error": "empty or oversized body"}, 400)
             return None
         try:

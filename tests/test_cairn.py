@@ -2177,8 +2177,9 @@ class Serve(unittest.TestCase):
         self.assertEqual(info["root"], str(lib.REPO_ROOT))
         # `discard` is offered only where the command exists.
         expected = ["create", "edit", "note", "review", "status"]
-        if (Path(serve.TOOL_ROOT) / "scripts" / "discard.py").exists():
-            expected = sorted(expected + ["discard"])
+        for optional in ("discard", "figure"):
+            if (Path(serve.TOOL_ROOT) / "scripts" / f"{optional}.py").exists():
+                expected = sorted(expected + [optional])
         self.assertEqual(sorted(info["actions"]), expected)
 
     def test_root_redirects_to_the_map_under_the_graph_root(self):
@@ -4597,6 +4598,489 @@ class OpenViking(unittest.TestCase):
         self.assertIn("add-resource", calls[1])
         self.assertIn("report.md", result.stdout)
         self.assertIn("skip", result.stdout)
+
+
+def tiny_png(width=4, height=4, pad=0) -> bytes:
+    """A real PNG, built by hand so the suite needs no imaging library. `pad`
+    appends an ancillary chunk of that many bytes, to make a large file that
+    is still a valid PNG."""
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff))
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * width for _ in range(height))
+    body = chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    if pad:
+        body += chunk(b"tEXt", b"pad\x00" + b"x" * pad)
+    body += chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    return b"\x89PNG\r\n\x1a\n" + body
+
+
+def has_pillow() -> bool:
+    """Whether the interpreter `bin/cairn` will pick — not this one — has Pillow,
+    and this one can read what it writes back."""
+    import subprocess
+    scripts = Path(__file__).resolve().parent.parent / "scripts"
+    try:
+        import PIL  # noqa: F401
+        py = subprocess.run([str(scripts / "find_python.sh")], capture_output=True,
+                            text=True, timeout=60).stdout.strip()
+        return bool(py) and subprocess.run(
+            [py, "-c", "import PIL"], capture_output=True, timeout=60).returncode == 0
+    except (ImportError, OSError, subprocess.SubprocessError):
+        return False
+
+
+class FigureGraph(unittest.TestCase):
+    """A throwaway graph that is a real git repo, with one closed experiment, a
+    direction, and an uncommitted draft — the shapes `cairn figure` treats
+    differently."""
+
+    CAIRN = Path(__file__).resolve().parent.parent / "bin" / "cairn"
+    RUN_ID = "2026-08-02-demo-run"
+    ROOT_ID = "2026-08-01-demo-root"
+    DRAFT_ID = "2026-08-03-demo-draft"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cairn-figure-"))
+        (self.tmp / "nodes").mkdir()
+        self.git("init", "-q", ".")
+        self.git("config", "user.email", "jlaw@example.gov")
+        self.git("config", "user.name", "Jeff Law")
+        self.put(self.ROOT_ID, node_text(self.ROOT_ID, "direction", "open",
+                                         project="demo", created="2026-08-01"))
+        self.put(self.RUN_ID, node_text(
+            self.RUN_ID, status="dead", project="demo", parents=f"[{self.ROOT_ID}]",
+            updated="2026-08-05",
+            history="  - {date: 2026-08-02, status: running, note: created}\n"
+                    "  - {date: 2026-08-05, status: dead, note: did not converge}"))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "seed")
+        self.put(self.DRAFT_ID, node_text(self.DRAFT_ID, project="demo",
+                                          created="2026-08-03"))
+        self.png = self.tmp.parent / f"{self.tmp.name}-plot.png"
+        self.png.write_bytes(tiny_png())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        if self.png.exists():
+            self.png.unlink()
+
+    def git(self, *args):
+        import subprocess
+        return subprocess.run(["git", "-C", str(self.tmp), *args],
+                              capture_output=True, text=True, timeout=30)
+
+    def put(self, node_id, text):
+        (self.tmp / "nodes" / f"{node_id}.md").write_text(text.lstrip("\n"))
+
+    def path(self, node_id):
+        return self.tmp / "nodes" / f"{node_id}.md"
+
+    def figure(self, *args, root=None):
+        import subprocess
+        return subprocess.run(
+            [str(self.CAIRN), "figure", *[str(a) for a in args]],
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, CAIRN_ROOT=str(root or self.tmp)))
+
+    def assets(self):
+        folder = self.tmp / "assets"
+        return sorted(p.name for p in folder.iterdir()) if folder.is_dir() else []
+
+
+class Figure(FigureGraph):
+    """`cairn figure` — the capture path for a summary image. The tests that
+    matter: where it lands, that a caption is a body edit and never a status
+    change, that it commits what it wrote and nothing else, and what it refuses."""
+
+    def test_the_first_takes_the_bare_name_and_the_rest_are_numbered(self):
+        for _ in range(3):
+            done = self.figure(self.RUN_ID, self.png)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.assets(), [f"{self.RUN_ID}--2.png", f"{self.RUN_ID}--3.png",
+                                         f"{self.RUN_ID}.png"])
+        found = lib.find_assets(self.tmp, ids={self.RUN_ID})[self.RUN_ID]
+        self.assertEqual([p.name for p in found], [f"{self.RUN_ID}.png",
+                                                   f"{self.RUN_ID}--2.png",
+                                                   f"{self.RUN_ID}--3.png"])
+
+    def test_a_partial_id_resolves_like_note(self):
+        done = self.figure("demo-run", self.png)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.assets(), [f"{self.RUN_ID}.png"])
+
+    def test_a_caption_is_a_body_edit_not_a_status_change(self):
+        before = lib.parse_file(self.path(self.RUN_ID))
+        done = self.figure(self.RUN_ID, self.png, "--caption", "loss  never came\ndown",
+                           "--date", "2026-11-08")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        after = lib.parse_file(self.path(self.RUN_ID))
+        self.assertEqual(after.meta["updated"], before.meta["updated"])
+        self.assertEqual(after.history, before.history)
+        self.assertEqual(after.status, before.status)
+        self.assertIn(f"- **2026-11-08** `assets/{self.RUN_ID}.png` — loss never came down",
+                      after.body)
+        self.assertEqual(lib.read_figures(after), [{
+            "date": dt.date(2026, 11, 8), "file": f"{self.RUN_ID}.png",
+            "caption": "loss never came down"}])
+        self.assertEqual(lib.read_notes(after), [])
+        # Figure and node land in one commit, carrying the review trailer; the
+        # untracked draft is the only thing left in the working tree.
+        self.assertEqual(self.git("status", "--porcelain").stdout.strip(),
+                         f"?? nodes/{self.DRAFT_ID}.md")
+        shown = self.git("show", "--name-only", "--format=%B", "HEAD").stdout
+        self.assertIn(f"assets/{self.RUN_ID}.png", shown)
+        self.assertIn(f"nodes/{self.RUN_ID}.md", shown)
+        self.assertIn(lib.review_trailer("jlaw", self.RUN_ID), shown)
+        self.assertEqual([i for i in lib.validate(self.tmp) if i.level == "error"], [])
+
+    def test_a_second_caption_lands_in_the_same_section(self):
+        self.figure(self.RUN_ID, self.png, "--caption", "one")
+        self.figure(self.RUN_ID, self.png, "--caption", "two")
+        node = lib.parse_file(self.path(self.RUN_ID))
+        self.assertEqual(node.body.count("## Figures"), 1)
+        self.assertEqual([f["caption"] for f in lib.read_figures(node)], ["one", "two"])
+
+    def test_without_a_caption_only_the_asset_is_committed(self):
+        before = self.path(self.RUN_ID).read_bytes()
+        done = self.figure(self.RUN_ID, self.png)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.path(self.RUN_ID).read_bytes(), before)
+        files = self.git("show", "--name-only", "--format=", "HEAD").stdout.split()
+        self.assertEqual(files, [f"assets/{self.RUN_ID}.png"])
+        # The untracked draft did not ride along.
+        self.assertIn(self.DRAFT_ID, self.git("status", "--porcelain").stdout)
+
+    def test_the_output_names_the_asset_then_the_node(self):
+        """serve.py reads these lines for `committed` and the node to reopen."""
+        done = self.figure(self.RUN_ID, self.png)
+        lines = done.stdout.splitlines()
+        self.assertTrue(lines[0].startswith(f"assets/{self.RUN_ID}.png"), lines)
+        self.assertEqual(lines[1], f"nodes/{self.RUN_ID}.md")
+
+    def test_dry_run_writes_nothing(self):
+        before = self.path(self.RUN_ID).read_bytes()
+        head = self.git("rev-parse", "HEAD").stdout
+        done = self.figure(self.RUN_ID, self.png, "--caption", "c", "--dry-run")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(f"would write assets/{self.RUN_ID}.png", done.stdout)
+        self.assertIn("## Figures", done.stdout)
+        self.assertEqual(self.assets(), [])
+        self.assertEqual(self.path(self.RUN_ID).read_bytes(), before)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, head)
+
+    def test_no_commit_leaves_both_on_disk(self):
+        head = self.git("rev-parse", "HEAD").stdout
+        done = self.figure(self.RUN_ID, self.png, "--caption", "c", "--no-commit")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, head)
+        porcelain = self.git("status", "--porcelain").stdout
+        self.assertIn(f"assets/", porcelain)
+        self.assertIn(f"nodes/{self.RUN_ID}.md", porcelain)
+
+    def test_a_draft_node_keeps_its_figure_uncommitted(self):
+        """The draft is the user's to admit; its figure waits with it, untracked,
+        so `cairn discard` can still take both."""
+        done = self.figure(self.DRAFT_ID, self.png)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("not committed yet", done.stdout)
+        self.assertTrue((self.tmp / "assets" / f"{self.DRAFT_ID}.png").exists())
+        self.assertIn(f"?? assets/", self.git("status", "--porcelain").stdout)
+
+    def test_discard_takes_every_figure_of_a_draft(self):
+        self.figure(self.DRAFT_ID, self.png, "--no-commit")
+        self.figure(self.DRAFT_ID, self.png, "--no-commit")
+        import subprocess
+        done = subprocess.run([str(self.CAIRN), "discard", self.DRAFT_ID],
+                              capture_output=True, text=True, timeout=60,
+                              env=dict(os.environ, CAIRN_ROOT=str(self.tmp)))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.assets(), [])
+
+    # -- refusals: each leaves the graph exactly as it was -----------------
+
+    def refused(self, *args, says, root=None):
+        before = self.path(self.RUN_ID).read_bytes()
+        done = self.figure(*args, root=root)
+        self.assertEqual(done.returncode, 1, done.stdout)
+        self.assertIn(says, done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+        self.assertEqual(self.assets(), [])
+        self.assertEqual(self.path(self.RUN_ID).read_bytes(), before)
+
+    def test_an_unknown_node_is_refused(self):
+        self.refused("2026-01-01-demo-ghost", self.png, says="no node matching")
+
+    def test_a_non_image_is_refused(self):
+        pdf = self.png.with_suffix(".pdf")
+        pdf.write_bytes(b"%PDF-1.4")
+        try:
+            self.refused(self.RUN_ID, pdf, says="not a figure type")
+        finally:
+            pdf.unlink()
+
+    def test_a_file_that_is_not_what_its_name_says_is_refused(self):
+        fake = self.png.with_name(self.png.stem + "-fake.png")
+        fake.write_bytes(b"GIF89a not a png at all")
+        try:
+            self.refused(self.RUN_ID, fake, says="does not look like a png")
+        finally:
+            fake.unlink()
+
+    def test_a_missing_file_is_refused(self):
+        self.refused(self.RUN_ID, self.png.with_name("nope.png"), says="no such file")
+
+    def test_a_graph_git_cannot_see_is_refused_unless_no_commit(self):
+        shutil.rmtree(self.tmp / ".git")
+        self.refused(self.RUN_ID, self.png, says="not a git repo")
+        done = self.figure(self.RUN_ID, self.png, "--no-commit")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.assets(), [f"{self.RUN_ID}.png"])
+
+    def test_a_large_file_is_written_and_warned_about(self):
+        """Capture wins: over the cap is a warning with the way out, not a refusal."""
+        big = self.png.with_name(self.png.stem + "-big.png")
+        big.write_bytes(tiny_png(pad=lib.ASSET_MAX_BYTES + 1000))
+        try:
+            done = self.figure(self.RUN_ID, big, "--no-commit")
+        finally:
+            big.unlink()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        [name] = self.assets()
+        if has_pillow():            # re-encoded on the way in, so under the cap
+            self.assertLessEqual((self.tmp / "assets" / name).stat().st_size,
+                                 lib.ASSET_MAX_BYTES)
+            self.assertIn("->", done.stdout)
+        else:
+            self.assertIn("over the 300 kB cap", done.stderr)
+            self.assertIn("Pillow", done.stderr)
+
+    @unittest.skipUnless(has_pillow(), "Pillow is optional, and not installed here")
+    def test_with_pillow_a_big_raster_is_scaled_and_re_encoded(self):
+        from PIL import Image
+        big = self.png.with_name(self.png.stem + "-huge.png")
+        Image.new("RGB", (3200, 1800), "white").save(big)
+        try:
+            done = self.figure(self.RUN_ID, big, "--no-commit")
+        finally:
+            big.unlink()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        [name] = self.assets()
+        with Image.open(self.tmp / "assets" / name) as stored:
+            self.assertEqual(max(stored.size), 1600)
+
+
+class FigureAssets(unittest.TestCase):
+    """`find_assets` is the whole figure convention — the filename is the link —
+    so its ordering and its one ambiguity are worth pinning down."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cairn-assets-"))
+        (self.tmp / "nodes").mkdir()
+        (self.tmp / "assets").mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def touch(self, *names, size=10):
+        for name in names:
+            (self.tmp / "assets" / name).write_bytes(b"x" * size)
+
+    def test_order_is_by_slot_numerically_then_suffix(self):
+        a = "2026-08-02-demo-run"
+        self.touch(f"{a}--10.png", f"{a}--2.webp", f"{a}--9.svg", f"{a}.png", f"{a}.svg")
+        found = [p.name for p in lib.find_assets(self.tmp, ids={a})[a]]
+        self.assertEqual(found, [f"{a}.png", f"{a}.svg", f"{a}--2.webp",
+                                 f"{a}--9.svg", f"{a}--10.png"])
+
+    def test_an_id_that_contains_a_double_dash_is_its_own_first_figure(self):
+        odd = "2026-08-02-demo--2"
+        self.touch(f"{odd}.png")
+        self.assertEqual(lib.find_assets(self.tmp, ids={odd, "2026-08-02-demo"}),
+                         {odd: [self.tmp / "assets" / f"{odd}.png"]})
+
+    def test_non_figures_and_dotfiles_are_ignored(self):
+        self.touch(".DS_Store", "2026-08-02-demo-run.pdf")
+        self.assertEqual(lib.find_assets(self.tmp), {})
+
+    def validate_assets(self, ids):
+        nodes = {i: lib.Node(path=self.tmp / "nodes" / f"{i}.md", meta={"id": i}, body="")
+                 for i in ids}
+        out = []
+        lib._check_assets(nodes, out, self.tmp)
+        return out
+
+    def test_several_figures_are_not_a_warning_but_an_orphan_is(self):
+        a = "2026-08-02-demo-run"
+        self.touch(f"{a}.png", f"{a}--2.png", "2026-01-01-gone--2.png")
+        issues = self.validate_assets([a])
+        self.assertEqual([i.where for i in issues], ["assets/2026-01-01-gone--2.png"])
+        self.assertIn("no node with this id", issues[0].message)
+
+    def test_the_cap_is_300_kb_and_the_warning_says_how_to_shrink(self):
+        self.assertEqual(lib.ASSET_MAX_BYTES, 300_000)
+        a = "2026-08-02-demo-run"
+        self.touch(f"{a}.png", size=lib.ASSET_MAX_BYTES)          # at the cap: fine
+        self.touch(f"{a}--2.png", size=lib.ASSET_MAX_BYTES + 1)
+        issues = self.validate_assets([a])
+        self.assertEqual([i.where for i in issues], [f"assets/{a}--2.png"])
+        self.assertIn("cairn figure", issues[0].message)
+        self.assertIn("artifacts:", issues[0].message)
+
+    def test_the_page_uses_the_same_cap(self):
+        text = SlugPreview.TEMPLATE.read_text(encoding="utf-8")
+        self.assertEqual(int(re.search(r"const FIG_SMALL = (\d+);", text).group(1)),
+                         lib.ASSET_MAX_BYTES)
+
+
+class FigurePayload(FigureGraph):
+    """The build sends filenames and captions, never image bytes."""
+
+    def setUp(self):
+        super().setUp()
+        self.saved = (lib.REPO_ROOT, os.environ.get("CAIRN_ROOT"))
+        lib.REPO_ROOT = self.tmp
+        os.environ["CAIRN_ROOT"] = str(self.tmp)
+
+    def tearDown(self):
+        lib.REPO_ROOT, root = self.saved
+        os.environ["CAIRN_ROOT"] = root
+        super().tearDown()
+
+    def test_assets_in_order_with_asset_as_the_first_and_captions_by_name(self):
+        self.figure(self.RUN_ID, self.png, "--caption", "first one")
+        self.figure(self.RUN_ID, self.png)
+        nodes, _ = lib.load_nodes()
+        payload = build_graph.build_payload(nodes, {}, {}, *build_graph.compute_layout(nodes))
+        run = {n["id"]: n for n in payload["nodes"]}[self.RUN_ID]
+        self.assertEqual(run["assets"], [f"{self.RUN_ID}.png", f"{self.RUN_ID}--2.png"])
+        self.assertEqual(run["asset"], f"{self.RUN_ID}.png")
+        self.assertEqual(run["captions"], {f"{self.RUN_ID}.png": "first one"})
+        root = {n["id"]: n for n in payload["nodes"]}[self.ROOT_ID]
+        self.assertNotIn("assets", root)
+        self.assertNotIn("asset", root)
+
+
+class FigureServe(FigureGraph):
+    """`figure` over HTTP, end to end: base64 in, `cairn figure` run, committed,
+    map rebuilt. And the body cap that is larger for this action alone."""
+
+    def setUp(self):
+        super().setUp()
+        import threading
+        global serve
+        import serve                                    # noqa: PLW0603
+        self.saved = (lib.REPO_ROOT, os.environ.get("CAIRN_ROOT"))
+        lib.REPO_ROOT = self.tmp
+        os.environ["CAIRN_ROOT"] = str(self.tmp)
+        self.httpd = serve.serve(0, quiet=True, chat=False)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.thread.join(timeout=5)
+        self.httpd.server_close()
+        lib.REPO_ROOT, root = self.saved
+        os.environ["CAIRN_ROOT"] = root
+        super().tearDown()
+
+    def post(self, payload=None, raw=None):
+        import json as _json
+        import urllib.error, urllib.request
+        body = raw if raw is not None else _json.dumps(payload).encode()
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.httpd.server_address[1]}/api/write", data=body,
+            headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=180) as res:
+                return res.status, _json.loads(res.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, _json.loads(exc.read())
+
+    def b64(self, data: bytes) -> str:
+        import base64
+        return base64.b64encode(data).decode()
+
+    def test_a_tiny_png_lands_committed_captioned_and_rebuilt(self):
+        code, out = self.post({"action": "figure", "id": self.RUN_ID,
+                               "filename": "Screen Shot 2026.PNG",
+                               "data": self.b64(tiny_png()),
+                               "caption": "-0.4 eV, as predicted"})
+        self.assertEqual(code, 200, out)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["cmd"][:3], ["cairn", "figure", self.RUN_ID])
+        self.assertEqual(out["node"], self.RUN_ID)
+        self.assertTrue(out["committed"], out)
+        self.assertTrue(out["rebuilt"], out)
+        self.assertEqual(self.assets(), [f"{self.RUN_ID}.png"])
+        node = lib.parse_file(self.path(self.RUN_ID))
+        self.assertEqual(lib.read_figures(node)[0]["caption"], "-0.4 eV, as predicted")
+        self.assertIn(f'"{self.RUN_ID}.png"',
+                      (self.tmp / "build" / "graph.html").read_text())
+
+    def test_a_data_url_is_accepted_too(self):
+        code, out = self.post({"action": "figure", "id": self.RUN_ID, "filename": "a.png",
+                               "data": "data:image/png;base64," + self.b64(tiny_png())})
+        self.assertEqual(code, 200, out)
+
+    def test_an_uncommitted_figure_is_reported_as_such(self):
+        """`committed` must look at the asset, not only the node file."""
+        (self.tmp / "assets").mkdir()
+        (self.tmp / "assets" / f"{self.RUN_ID}.png").write_bytes(tiny_png())
+        self.assertFalse(serve.committed(
+            f"assets/{self.RUN_ID}.png  73 B — copied as-is\nnodes/{self.RUN_ID}.md\n"))
+
+    def test_refusals_name_the_problem(self):
+        cases = [
+            ({"filename": "notes.pdf", "data": self.b64(b"%PDF")}, "not a figure type"),
+            ({"filename": "a.png", "data": "not base64!!"}, "not valid base64"),
+            ({"filename": "a.png"}, "data is required"),
+            ({"filename": "a.png", "data": self.b64(tiny_png()), "caption": "x" * 501},
+             "a caption is one line"),
+        ]
+        for extra, says in cases:
+            code, out = self.post({"action": "figure", "id": self.RUN_ID, **extra})
+            self.assertEqual(code, 400, out)
+            self.assertIn(says, out["error"])
+        code, out = self.post({"action": "figure", "id": "2026-01-01-demo-ghost",
+                               "filename": "a.png", "data": self.b64(tiny_png())})
+        self.assertEqual(code, 404, out)
+        # A file whose bytes are not its name is the command's refusal, verbatim.
+        code, out = self.post({"action": "figure", "id": self.RUN_ID,
+                               "filename": "a.png", "data": self.b64(b"GIF89a....")})
+        self.assertEqual(code, 422, out)
+        self.assertIn("does not look like a png", out["out"])
+        self.assertEqual(self.assets(), [])
+
+    def test_the_4_mb_cap_is_for_figure_alone(self):
+        import json as _json
+        big = tiny_png(pad=(1 << 20))                       # ~1.4 MB as base64
+        code, out = self.post({"action": "figure", "id": self.RUN_ID,
+                               "filename": "a.png", "data": self.b64(big)})
+        self.assertEqual(code, 200, out)
+        self.assertTrue(out["ok"], out)
+        if not has_pillow():
+            self.assertIn("over the 300 kB cap", out["out"])
+        # Any other action is still held to 1 MB.
+        code, out = self.post(raw=_json.dumps(
+            {"action": "note", "id": self.RUN_ID, "text": "x" * (1 << 20)}).encode())
+        self.assertEqual(code, 400, out)
+        self.assertIn("oversized", out["error"])
+        # And figure itself stops at 4 MB. The server answers without reading
+        # the body, so the client may see the 400 or a closed connection.
+        before = self.assets()
+        try:
+            code, out = self.post(raw=_json.dumps(
+                {"action": "figure", "id": self.RUN_ID, "filename": "a.png",
+                 "data": "A" * (4 << 20)}).encode())
+            self.assertEqual(code, 400, out)
+        except OSError:
+            pass
+        self.assertEqual(self.assets(), before)
 
 
 if __name__ == "__main__":

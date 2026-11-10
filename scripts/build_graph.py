@@ -518,7 +518,7 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
 
     authors = node_authors()
     git_states = node_git_states()
-    assets = lib.find_assets()
+    assets = lib.find_assets(ids=set(nodes))
 
     payload_nodes = []
     for node in nodes.values():
@@ -613,13 +613,22 @@ def build_payload(nodes, papers, datasets, positions, lanes, ticks, width, heigh
             ],
         })
 
-        # `assets/<node-id>.<ext>`, discovered rather than declared. Only the
-        # filename travels: the panel resolves it as `../assets/<name>` the same
-        # way the `source` link already resolves `../nodes/<id>.md`, so the figure
-        # is not embedded and the payload does not carry it.
-        asset = assets.get(node.id)
-        if asset is not None:
-            payload_nodes[-1]["asset"] = asset.name
+        # `assets/<node-id>.<ext>`, then `<node-id>--2.<ext>` and on, discovered
+        # rather than declared. Only filenames travel: the panel resolves them as
+        # `../assets/<name>` the same way the `source` link already resolves
+        # `../nodes/<id>.md`, so no figure is embedded and the payload does not
+        # carry one. `asset` stays the first, for a page built before the list.
+        figures = assets.get(node.id) or []
+        if figures:
+            names = [path.name for path in figures]
+            payload_nodes[-1]["asset"] = names[0]
+            payload_nodes[-1]["assets"] = names
+            # A caption is a `## Figures` bullet naming the file; the latest
+            # bullet for a file wins, so a re-captioned figure reads correctly.
+            captions = {f["file"]: f["caption"] for f in lib.read_figures(node)
+                        if f["caption"] and f["file"] in names}
+            if captions:
+                payload_nodes[-1]["captions"] = captions
 
     all_dates = sorted({d for n in payload_nodes for d in [n["created"]] + [h["date"] for h in n["history"]] if d})
 

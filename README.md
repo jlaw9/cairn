@@ -385,7 +385,7 @@ papers/      one page per cited paper, keyed by DOI, CrossRef-verified
 datasets/    one page per dataset nodes cite in `data:` — sha256, host:path, tier
 meetings/    raw meeting notes
 inbox/       unstructured capture awaiting triage
-assets/      small figures only — assets/<node-id>.<ext>, shown in the panel
+assets/      summary figures — assets/<node-id>.<ext>, <node-id>--2.<ext>…, via `cairn figure`
 build/       generated: graph.html (self-contained), graph.md (Mermaid),
              report.md (where to start, and how much to trust a gap)
 CLAUDE.md    the graph's conventions, and its one setting: commit_mode
@@ -682,7 +682,7 @@ It's a full interactive app, just one served from disk instead of a server:
   `only`, or alt/⌘-click the row. The same click on the lone project shows
   everything again. The filters are written to the URL (`?project=polyid`) as
   you change them, and hidden projects' lanes take no room
-- **click** → side panel: rendered body, the node's figure if it has one,
+- **click** → side panel: the node's figures (if any) under its status, rendered body,
   clickable commit link, DOI links, artifacts split into host and path (click to
   copy the path), parent/child links you can navigate, and a link to the node's
   markdown source
