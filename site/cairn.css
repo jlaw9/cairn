@@ -10,12 +10,12 @@
  */
 
 :root {
-  --bg: #f7f8fa; --panel: #ffffff; --panel-2: #eef0f4; --line: #d8dce3;
-  --ink: #1a1d22; --ink-dim: #5b6270; --ink-faint: #8a91a0;
-  --accent: #275e9c;
+  --bg: #f5f3ec; --panel: #fffef9; --panel-2: #eeeee4; --line: #dddfd3;
+  --ink: #233d34; --ink-dim: #5c6c61; --ink-faint: #6f7e73;
+  --accent: #286b56; --accent-contrast: #ffffff;
   --good: #35a06a; --bad: #c0504a; --active: #3d86cc; --pending: #c99a2e; --idle: #6b7280;
   --supports: #157f77; --contradicts: #a83a70; --supersedes: #6b4dbd; --resolves: #1f7f8f;
-  --code-bg: #eef0f4; --lane: #f1f3f7;
+  --code-bg: #eeeee4; --lane: #f0f0e6;
   --shadow: 0 1px 2px rgba(26,29,34,.06), 0 8px 24px rgba(26,29,34,.06);
 
   --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
@@ -29,20 +29,20 @@
    (no data-theme) follows the OS; an explicit choice wins in both directions. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #14161a; --panel: #1c1f25; --panel-2: #23272f; --line: #2f343d;
-    --ink: #e6e8ec; --ink-dim: #9aa1ad; --ink-faint: #6b7280;
-    --accent: #7aa7d9;
+    --bg: #141d1c; --panel: #1b2725; --panel-2: #24332f; --line: #354640;
+    --ink: #e9ede5; --ink-dim: #b0bdb5; --ink-faint: #8d9e94;
+    --accent: #8fcbbb; --accent-contrast: #142520;
     --supports: #2aa198; --contradicts: #cc5490; --supersedes: #8f6fd6; --resolves: #3fb0bf;
-    --code-bg: #23272f; --lane: #17191e;
+    --code-bg: #24332f; --lane: #18231f;
     --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
   }
 }
 :root[data-theme="dark"] {
-  --bg: #14161a; --panel: #1c1f25; --panel-2: #23272f; --line: #2f343d;
-  --ink: #e6e8ec; --ink-dim: #9aa1ad; --ink-faint: #6b7280;
-  --accent: #7aa7d9;
+  --bg: #141d1c; --panel: #1b2725; --panel-2: #24332f; --line: #354640;
+  --ink: #e9ede5; --ink-dim: #b0bdb5; --ink-faint: #8d9e94;
+  --accent: #8fcbbb; --accent-contrast: #142520;
   --supports: #2aa198; --contradicts: #cc5490; --supersedes: #8f6fd6; --resolves: #3fb0bf;
-  --code-bg: #23272f; --lane: #17191e;
+  --code-bg: #24332f; --lane: #18231f;
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
 }
 

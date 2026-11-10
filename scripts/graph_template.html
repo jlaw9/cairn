@@ -4,15 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cairn</title>
+<script>
+try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme; } catch (_) {}
+</script>
 <style>
   :root {
-    --bg: #14161a; --panel: #1c1f25; --panel-2: #23272f; --line: #2f343d;
-    --ink: #e6e8ec; --ink-dim: #9aa1ad; --ink-faint: #6b7280;
+    --bg: #141d1c; --panel: #1b2725; --panel-2: #24332f; --line: #354640;
+    --ink: #e9ede5; --ink-dim: #b0bdb5; --ink-faint: #8d9e94;
     /* Node labels: between --ink and --ink-dim. Dim was unreadable at the fit
        the real graph lands on; full ink made 200 labels shout over the glyphs. */
-    --label: #c4c9d2;
+    --label: #c7d3ca;
     --good: #35a06a; --bad: #c0504a; --active: #3d86cc; --pending: #c99a2e; --idle: #6b7280;
-    --accent: #7aa7d9;
+    --accent: #8fcbbb; --accent-contrast: #142520;
     /* Relation hues sit off the status palette (green/red/blue/amber) on
        purpose, so a typed edge never reads as a status. */
     --rel-supports: #2aa198; --rel-contradicts: #cc5490;
@@ -38,17 +41,30 @@
     --who-1: #3987e5; --who-2: #d95926; --who-3: #199e70; --who-other: #6b7280;
   }
   @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f7f8fa; --panel: #ffffff; --panel-2: #eef0f4; --line: #d8dce3;
-      --ink: #1a1d22; --ink-dim: #5b6270; --ink-faint: #8a91a0;
-      --label: #3a414d;
-      --accent: #275e9c;
+    :root:not([data-theme="dark"]) {
+      --bg: #f5f3ec; --panel: #fffef9; --panel-2: #eeeee4; --line: #dddfd3;
+      --ink: #233d34; --ink-dim: #5c6c61; --ink-faint: #6f7e73;
+      --label: #425b4f;
+      --accent: #286b56; --accent-contrast: #ffffff;
       --rel-supports: #157f77; --rel-contradicts: #a83a70;
       --rel-supersedes: #6b4dbd; --rel-resolves: #1f7f8f;
       --age-1: #6da7ec; --age-2: #3987e5; --age-3: #256abf; --age-4: #184f95; --age-5: #0d366b;
       --who-1: #2a78d6; --who-2: #eb6834; --who-3: #1baf7a;
     }
   }
+  :root[data-theme="light"] {
+      --bg: #f5f3ec; --panel: #fffef9; --panel-2: #eeeee4; --line: #dddfd3;
+      --ink: #233d34; --ink-dim: #5c6c61; --ink-faint: #6f7e73;
+      --label: #425b4f;
+      --accent: #286b56; --accent-contrast: #ffffff;
+      --rel-supports: #157f77; --rel-contradicts: #a83a70;
+      --rel-supersedes: #6b4dbd; --rel-resolves: #1f7f8f;
+      --age-1: #6da7ec; --age-2: #3987e5; --age-3: #256abf; --age-4: #184f95; --age-5: #0d366b;
+      --who-1: #2a78d6; --who-2: #eb6834; --who-3: #1baf7a;
+  }
+  :root { color-scheme: dark; --serif: "Iowan Old Style", Charter, Georgia, serif; }
+  :root[data-theme="light"] { color-scheme: light; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { color-scheme: light; } }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
@@ -270,7 +286,7 @@
      it is a thumbnail, and the node body carries the numbers. */
   .fig a { display: block; }
   .fig img {
-    display: block; width: 100%; height: auto; border-radius: 6px;
+    display: block; width: auto; max-width: 100%; margin: 0 auto; height: auto; border-radius: 6px;
     background: var(--panel-2); border: 1px solid var(--line);
   }
   /* An artifact is an address, and the two halves answer different questions:
@@ -514,49 +530,137 @@
   }
   .empty { padding: 60px; text-align: center; color: var(--ink-faint); }
   .empty code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; }
+
+  /* A quiet field notebook around the map. Graph encodings remain unchanged. */
+  .masthead { gap: 20px; padding: 16px 24px; min-height: 80px; }
+  .identity { display: flex; align-items: center; gap: 11px; min-width: 195px; }
+  .cairn-mark { width: 32px; height: 38px; fill: var(--accent); flex: none; cursor: default; }
+  .cairn-mark rect:first-child { opacity: .45; }
+  .cairn-mark rect:nth-child(2) { opacity: .7; }
+  header h1 { font: 600 25px/1.1 var(--serif); letter-spacing: -.05em; text-transform: none; color: var(--ink); }
+  .brand-caption { display: block; font-size: 10px; letter-spacing: .04em; color: var(--ink-dim); margin-top: 4px; }
+  .search-wrap { position: relative; width: clamp(200px, 32vw, 450px); }
+  #search { width: 100%; height: 42px; background: var(--bg); border-radius: 10px; padding: 9px 36px 9px 14px; font-size: 13px; }
+  .search-wrap kbd { position: absolute; right: 12px; top: 10px; color: var(--ink-faint); font-size: 12px; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+  #count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .viewbar { display: flex; align-items: center; gap: 12px; flex: none; padding: 11px 24px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .view-title { width: 195px; flex: none; font-size: 12px; font-weight: 650; color: var(--ink-dim); }
+  .toolbar-group { display: flex; align-items: center; gap: 7px; }
+  .toolbar-group label { font-size: 11px; color: var(--ink-faint); }
+  #colourBy, #layoutBy, #labelsBy { min-height: 32px; padding: 5px 9px; border-radius: 7px; background: var(--panel); color: var(--ink); }
+  .hbtn, #isolateOff { min-height: 32px; padding: 5px 11px; border-radius: 7px; background: var(--panel); white-space: nowrap; }
+  .hbtn:hover, #isolateOff:hover { background: var(--panel-2); border-color: var(--ink-faint); }
+  .hbtn.primary, .hbtn.on { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+  #needs::before { content: ''; display: inline-block; width: 6px; height: 6px; background: var(--pending); border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+  aside { width: 240px; padding: 20px 20px 32px; background: var(--panel); scrollbar-width: thin; }
+  .rail-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; font: 23px/1.2 var(--serif); letter-spacing: -.03em; }
+  aside h2 { margin: 24px 0 8px; color: var(--ink-dim); font-size: 10px; letter-spacing: .12em; }
+  .chk { min-height: 30px; gap: 9px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; }
+  .chk:hover { background: var(--panel-2); }
+  .chk input { width: 14px; height: 14px; flex: none; }
+  .chk .n { padding: 0 5px; min-width: 20px; text-align: center; background: var(--panel-2); border-radius: 4px; }
+  aside button { min-height: 34px; font-size: 12px; border-radius: 7px; }
+  #stage { background-image: radial-gradient(var(--line) .65px, transparent .65px); background-size: 20px 20px; }
+  .lane-band { opacity: .3; }
+  #gutter { background: color-mix(in srgb, var(--bg) 94%, transparent); }
+  #axis { background: var(--bg); }
+  .glane { color: var(--ink-dim); font-size: 10px; letter-spacing: .05em; }
+  .timebar { min-height: 58px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); flex: none; gap: 12px; }
+  .timebar input[type=range] { width: auto; min-width: 40px; max-width: 420px; flex: 1; }
+  .timeline-title { font-size: 11px; font-weight: 600; color: var(--ink-dim); margin-right: 4px; }
+  .map-hint { margin-left: auto; font-size: 10px; color: var(--ink-faint); white-space: nowrap; }
+  #panel { width: 420px; padding: 26px 28px 60px; box-shadow: -8px 0 28px color-mix(in srgb, var(--ink) 4%, transparent); }
+  #panel h3 { font: 26px/1.2 var(--serif); letter-spacing: -.025em; margin: 7px 0 14px; }
+  #panel h4, #panel h5, #panel h6 { color: var(--accent); font-size: 10px; margin: 25px 0 9px; letter-spacing: .1em; }
+  #panel .body { font-size: 14px; line-height: 1.75; }
+  #panel .body p { margin: 0 0 14px; }
+  .pillrow { gap: 7px; margin-bottom: 20px; }
+  .pill { padding: 3px 9px; font-size: 10.5px; }
+  .sect { margin-top: 24px; padding-top: 16px; }
+  .kv { gap: 6px 12px; line-height: 1.6; }
+  .hist li { position: relative; padding: 0 0 13px 16px; border-left: 1px solid var(--line); margin: 0 0 0 4px; }
+  .hist li::before { content: ''; position: absolute; left: -4px; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .hist li:last-child { padding-bottom: 0; }
+  #close { width: 32px; height: 32px; background: var(--panel-2); border-radius: 50%; font-size: 23px; }
+  .fig a { padding: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
+  .fig img { border: 0; border-radius: 4px; }
+  #hover { border-radius: 12px; padding: 15px 17px; box-shadow: 0 8px 30px color-mix(in srgb, var(--ink) 16%, transparent); }
+  #hover strong { font: 19px/1.25 var(--serif); margin-bottom: 9px; }
+  #filterToggle, #filterClose, #filterBackdrop { display: none; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  button, input, select, textarea { transition: background-color 140ms, border-color 140ms; }
+  @media (max-width: 1200px) {
+    .identity { min-width: 170px; } .view-title { width: 170px; }
+    aside { width: 215px; padding-inline: 18px; } #panel { width: 350px; padding-inline: 22px; }
+    .map-hint { display: none; }
+  }
+  @media (max-width: 960px) {
+    .view-title { display: none; }
+    .masthead { padding: 13px 18px; gap: 14px; }
+    .viewbar { padding-inline: 18px; }
+    #count { font-size: 10px; }
+  }
+  @media (max-width: 820px) {
+    .masthead { min-height: 72px; flex-wrap: wrap; gap: 12px; }
+    .identity { min-width: 0; flex: 1; } .brand-caption { font-size: 9px; }
+    .search-wrap { order: 5; width: 100%; } #search { width: 100%; }
+    .masthead > .grow { display: none; }
+    .viewbar { gap: 8px; flex-wrap: wrap; padding: 10px 14px; }
+    .viewbar > .grow { display: none; }
+    .toolbar-group { gap: 5px; } .toolbar-group label { display: none; }
+    #filterToggle { display: block; }
+    #filterClose { display: block; margin: 0; width: 32px; font-size: 20px; }
+    #filters { display: none; position: fixed; inset: 0 auto 0 0; z-index: 35; width: min(300px, 85vw); padding: 24px; box-shadow: 10px 0 40px #0003; }
+    body.filters-open #filters { display: block; }
+    body.filters-open #filterBackdrop { display: block; position: fixed; inset: 0; border: 0; background: #0005; z-index: 34; }
+    #panel { position: fixed; inset: 0; width: auto; z-index: 30; padding: 24px 24px 60px; }
+    .timebar { padding: 10px 14px; gap: 8px; min-height: 54px; }
+    .timeline-title { display: none; }
+    #timeLabel { font-size: 11px; min-width: 77px; }
+    #fitMap { margin-left: auto; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+
 </style>
 </head>
 <body>
 
-<header>
-  <h1>Cairn</h1>
-  <input id="search" type="search" placeholder="Search titles, bodies, notes…" autocomplete="off">
-  <span id="count" class="muted"></span>
-  <button id="isolateOff" hidden>show all</button>
-  <span class="grow"></span>
-  <button id="needs" class="hbtn" title="Only what needs attention (w)">needs you</button>
-  <button id="newNode" class="hbtn" title="Create a node — needs `cairn serve`" hidden>+ node</button>
-  <label class="muted" for="layoutBy">x</label>
-  <select id="layoutBy" title="What the horizontal axis means (l)">
-    <option value="time">time</option>
-    <option value="lineage">lineage</option>
-    <option value="spring">spring</option>
-  </select>
-  <label class="muted" for="labelsBy">labels</label>
-  <select id="labelsBy" title="What the glyph is labelled with (t)">
-    <option value="full">titles</option>
-    <option value="short">slugs</option>
-    <option value="none">none</option>
-  </select>
-  <label class="muted" for="colourBy">fill</label>
-  <select id="colourBy" title="What the glyph colour means">
-    <option value="status">status</option>
-    <option value="needs">needs you</option>
-    <option value="age">age</option>
-    <option value="author">author</option>
-    <option value="deadline">deadline</option>
-  </select>
-  <div class="timebar">
-    <label class="muted" for="time">as of</label>
-    <button id="play" class="hbtn" title="Replay history (space)">▶</button>
-    <input id="time" type="range" min="0" max="0" value="0">
-    <span id="timeLabel">—</span>
+<header class="masthead">
+  <div class="identity">
+    <svg class="cairn-mark" viewBox="0 0 36 40" aria-hidden="true"><rect x="3" y="28" width="30" height="9" rx="4.5"/><rect x="7" y="16" width="23" height="9" rx="4.5"/><rect x="12" y="4" width="14" height="9" rx="4.5"/></svg>
+    <div><h1>Cairn</h1><span class="brand-caption">A record of the work</span></div>
   </div>
+  <div class="search-wrap"><input id="search" type="search" aria-label="Search research" placeholder="Find a thread, result, or note…" autocomplete="off"><kbd>/</kbd></div>
+  <span id="count" class="muted" aria-live="polite"></span>
+  <span class="grow"></span>
+  <button id="themeToggle" class="hbtn" title="Change color theme" aria-label="Change color theme">◐</button>
+  <button id="newNode" class="hbtn primary" title="Create a node — needs `cairn serve`" hidden>+ New node</button>
 </header>
+<div class="viewbar" aria-label="Map controls">
+  <button id="filterToggle" class="hbtn" aria-controls="filters" aria-expanded="false">☰ Filters</button>
+  <span class="view-title">Research map</span>
+  <span class="toolbar-group"><label for="layoutBy">View</label>
+  <select id="layoutBy" title="What the horizontal axis means (l)">
+    <option value="time">Timeline</option><option value="lineage">Lineage</option><option value="spring">Network</option>
+  </select></span>
+  <span class="toolbar-group"><label for="labelsBy">Labels</label>
+  <select id="labelsBy" title="What the glyph is labelled with (t)">
+    <option value="full">Titles</option><option value="short">Slugs</option><option value="none">None</option>
+  </select></span>
+  <span class="toolbar-group"><label for="colourBy">Color</label>
+  <select id="colourBy" title="What the glyph colour means">
+    <option value="status">Status</option><option value="needs">Needs you</option><option value="age">Age</option><option value="author">Author</option><option value="deadline">Deadline</option>
+  </select></span>
+  <span class="grow"></span>
+  <button id="isolateOff" hidden>Show all</button>
+  <button id="needs" class="hbtn" title="Only what needs attention (w)">Needs you</button>
+  <button id="fitMap" class="hbtn" title="Fit all visible nodes in the map">Fit map ↗</button>
+</div>
 
 <main>
-  <aside>
-    <h2>Project</h2><div id="fProject"></div>
+  <aside id="filters" aria-label="Map filters">
+    <div class="rail-heading"><span>Explore</span><button id="filterClose" class="hbtn" aria-label="Close filters">×</button></div>
+    <h2>Projects</h2><div id="fProject"></div>
     <h2>Type</h2><div id="fType"></div>
     <h2>Status</h2><div id="fStatus"></div>
     <h2>Author</h2><div id="fAuthor"></div>
@@ -589,9 +693,10 @@
   <!-- The map, and under it the chat drawer when `cairn serve` offers one. A
        column, so the drawer takes height from the map and never covers the
        panel: both stay usable side by side. -->
+  <button id="filterBackdrop" aria-label="Close filters" hidden></button>
   <div id="mapcol">
   <div id="stage">
-    <svg id="svg"><g id="view"></g></svg>
+    <svg id="svg" aria-label="Research graph"><g id="view"></g></svg>
     <div id="gutter"></div>
     <div id="axis"></div>
     <div id="empty" class="empty" hidden>
@@ -599,6 +704,14 @@
       <p>Create one with <code>cairn new_node</code>, then <code>cairn build</code>.</p>
     </div>
     <div id="flash" hidden></div>
+  </div>
+  <div class="timebar">
+    <span class="timeline-title">History</span>
+    <button id="play" class="hbtn" title="Replay history (space)" aria-label="Play or pause history">▶</button>
+    <label class="muted" for="time">As of</label>
+    <input id="time" type="range" min="0" max="0" value="0">
+    <span id="timeLabel">—</span>
+    <span class="map-hint">Scroll to zoom · drag to explore</span>
   </div>
   </div>
 
@@ -614,6 +727,36 @@ const DATA = /*__CAIRN_DATA__*/null;
 const $ = s => document.querySelector(s);
 const svg = $('#svg'), view = $('#view'), panel = $('#panel');
 const byId = new Map(DATA.nodes.map(n => [n.id, n]));
+
+// Presentation controls never depend on the optional writer server.
+function setFiltersOpen(opened) {
+  document.body.classList.toggle('filters-open', opened);
+  $('#filterToggle').setAttribute('aria-expanded', String(opened));
+  $('#filterBackdrop').hidden = !opened;
+  if (opened) $('#filterClose').focus();
+  else $('#filterToggle').focus();
+}
+$('#filterToggle').addEventListener('click', () => setFiltersOpen(!document.body.classList.contains('filters-open')));
+$('#filterClose').addEventListener('click', () => setFiltersOpen(false));
+$('#filterBackdrop').addEventListener('click', () => setFiltersOpen(false));
+$('#fitMap').addEventListener('click', () => fit());
+function updateThemeLabel() {
+  const pinned = document.documentElement.dataset.theme;
+  const dark = pinned ? pinned === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  const label = dark ? 'Switch to light theme' : 'Switch to dark theme';
+  $('#themeToggle').setAttribute('aria-label', label);
+  $('#themeToggle').title = label;
+}
+updateThemeLabel();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeLabel);
+$('#themeToggle').addEventListener('click', () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('cairn-theme', root.dataset.theme); } catch (_) {}
+  updateThemeLabel();
+});
+
 
 const state = {
   project: new Set(DATA.nodes.map(n => n.project)),
@@ -3595,11 +3738,19 @@ function toggleHelp(on) {
 
 const TYPING = () => {
   const el = document.activeElement;
-  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.tagName === 'BUTTON');
 };
 
 document.addEventListener('keydown', e => {
+  if (e.key === 'Tab' && document.body.classList.contains('filters-open')) {
+    const controls = [...$('#filters').querySelectorAll('button, input, select, [tabindex="0"]')].filter(el => el.getClientRects().length && !el.disabled);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    return;
+  }
   if (e.key === 'Escape') {
+    if (document.body.classList.contains('filters-open')) return setFiltersOpen(false);
     if (!$('#help').hidden) return toggleHelp(false);
     if (TYPING()) return document.activeElement.blur();
     stopPlay();
