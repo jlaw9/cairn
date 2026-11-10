@@ -646,7 +646,7 @@ it away; it also means node positions are stable between builds, so the map
 stays memorable. Within a lane a row is a thread: a child joins its parent's row
 when there is room, so what sits on one line is one line of work.
 
-The `x` control in the header (or `l`) swaps that axis for **lineage**: x is
+The **View** control above the map (or `l`) swaps that axis for **lineage**: x is
 how many hops a node is from a root, y packs each lane as a tree, and no dates
 are involved. A project planned in one sitting has every node created today, and
 on the time axis that is one column with the edges crumpled into the glyphs —
@@ -662,12 +662,14 @@ children gather around it instead of each taking a row below the last. It is
 confined to the hop axis on purpose — a force layout would throw away the time
 axis, which is the one thing this map has that a force layout does not.
 
-The `labels` control (or `t`) chooses what a glyph is labelled with: the
+The **Labels** control (or `t`) chooses what a glyph is labelled with: the
 **title**, wrapped; the **slug** — the id minus its date and project key, which
 is the one- or two-word handle somebody already chose for the node, so no field
 has to be filled in; or **none**, a map of dots with the hover card and the
-open node for the words. The hop layouts size their columns to the label, so
-slugs or none make them a good deal more compact.
+open node for the words. The default, **auto**, is titles until the map is
+zoomed out past the point a title can be read; then only the hovered, the open
+and the needs-you nodes keep theirs. The hop layouts size their columns to the
+label, so slugs or none make them a good deal more compact.
 
 It's a full interactive app, just one served from disk instead of a server:
 
@@ -682,7 +684,8 @@ It's a full interactive app, just one served from disk instead of a server:
   `only`, or alt/⌘-click the row. The same click on the lone project shows
   everything again. The filters are written to the URL (`?project=polyid`) as
   you change them, and hidden projects' lanes take no room
-- **click** → side panel: the node's figures (if any) under its status, rendered body,
+- **click** → side panel: rendered body with the node's figures (if any) after
+  its claim — the first as a thumbnail, the rest behind "+N more" —
   clickable commit link, DOI links, artifacts split into host and path (click to
   copy the path), parent/child links you can navigate, and a link to the node's
   markdown source
@@ -726,6 +729,12 @@ It's a full interactive app, just one served from disk instead of a server:
   that — titles are claims, and 95% of the ones this was measured on ran past
   the old one-line cut. A node is half as wide as it was, so more of a lane
   fits on screen
+- **opens on the newest work** — when the graph is too big to fit at a readable
+  zoom, the first view (and **Fit map**, or `f`) frames the most recently active
+  nodes rather than the middle of the canvas
+- **the rail folds** — each section (projects, type, status, …) collapses from
+  its heading and stays collapsed in this browser; past a dozen projects a box
+  above the list narrows it by name
 - **colour by** status, needs-you, age, author or deadline — fill changes
   meaning, the legend says which, and nothing else is repainted. The status key
   lists the five colours with the statuses that share each. The deadline fill
@@ -733,17 +742,19 @@ It's a full interactive app, just one served from disk instead of a server:
 - **fold a lane** to a strip of ticks at their real dates, keeping the time axis
   and every edge that leaves the lane
 - **keyboard navigation** — arrow keys walk the layout (x is time, y is a project
-  lane), `p`/`c` walk the edges, `i` isolates, `l` cycles time / lineage /
-  spring on x, `t` cycles title / slug / no labels, `n` writes a note, `w` toggles
-  needs-you, `space` plays the replay, `/` searches, `k` opens the chat (under
-  `cairn serve`), `Esc` closes, and `?` lists every key
+  lane), `p`/`c` walk the edges, `i` isolates, `l` cycles the timeline / lineage /
+  spring layouts, `t` cycles auto / title / slug / no labels, `f` fits the map,
+  `n` writes a note, `w` toggles needs-you, `space` plays the replay, `/` searches,
+  `k` opens the chat (under `cairn serve`), `Esc` closes, and `?` lists every key.
+  Keys are ignored only while you type in a text field; a focused button keeps
+  Space and Enter, and the menus and the slider keep their arrows
 - a ring marks a node that needs you; a dot marks one carrying a note —
   decorations on the glyph, because shape already means type and fill status.
   The legend draws the map's own glyphs
 - filter by project / type / status / author (statuses nobody holds are left
   out of the list), pan, wheel-zoom
 - URL params: `?since=YYYY-MM-DD`, `?project=a,b` (and `type`, `status`,
-  `author`), `?q=`, `?colour=`, `?layout=lineage|spring`, `?labels=short|none`,
+  `author`), `?q=`, `?colour=`, `?layout=lineage|spring`, `?labels=full|short|none`,
   `?folded=a,b`, `?needs=1`, `?iso=<id>`,
   `#<node-id>`
 

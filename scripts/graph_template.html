@@ -16,6 +16,9 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
     --label: #c7d3ca;
     --good: #35a06a; --bad: #c0504a; --active: #3d86cc; --pending: #c99a2e; --idle: #6b7280;
     --accent: #8fcbbb; --accent-contrast: #142520;
+    /* Shadows are dark in both themes: a shadow mixed from --ink turns into a
+       pale halo on the dark surface. */
+    --shadow-panel: -8px 0 28px rgba(0, 0, 0, .22); --shadow-pop: 0 8px 30px rgba(0, 0, 0, .45);
     /* Relation hues sit off the status palette (green/red/blue/amber) on
        purpose, so a typed edge never reads as a status. */
     --rel-supports: #2aa198; --rel-contradicts: #cc5490;
@@ -43,9 +46,10 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
       --bg: #f5f3ec; --panel: #fffef9; --panel-2: #eeeee4; --line: #dddfd3;
-      --ink: #233d34; --ink-dim: #5c6c61; --ink-faint: #6f7e73;
+      --ink: #233d34; --ink-dim: #5c6c61; --ink-faint: #627167;
       --label: #425b4f;
       --accent: #286b56; --accent-contrast: #ffffff;
+      --shadow-panel: -8px 0 28px rgba(35, 61, 52, .04); --shadow-pop: 0 8px 30px rgba(35, 61, 52, .16);
       --rel-supports: #157f77; --rel-contradicts: #a83a70;
       --rel-supersedes: #6b4dbd; --rel-resolves: #1f7f8f;
       --age-1: #6da7ec; --age-2: #3987e5; --age-3: #256abf; --age-4: #184f95; --age-5: #0d366b;
@@ -54,9 +58,10 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   }
   :root[data-theme="light"] {
       --bg: #f5f3ec; --panel: #fffef9; --panel-2: #eeeee4; --line: #dddfd3;
-      --ink: #233d34; --ink-dim: #5c6c61; --ink-faint: #6f7e73;
+      --ink: #233d34; --ink-dim: #5c6c61; --ink-faint: #627167;
       --label: #425b4f;
       --accent: #286b56; --accent-contrast: #ffffff;
+      --shadow-panel: -8px 0 28px rgba(35, 61, 52, .04); --shadow-pop: 0 8px 30px rgba(35, 61, 52, .16);
       --rel-supports: #157f77; --rel-contradicts: #a83a70;
       --rel-supersedes: #6b4dbd; --rel-resolves: #1f7f8f;
       --age-1: #6da7ec; --age-2: #3987e5; --age-3: #256abf; --age-4: #184f95; --age-5: #0d366b;
@@ -74,51 +79,66 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   }
   code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
 
+  /* The masthead (`header.masthead`): mark, search, count, theme and writer
+     buttons. The map controls sit in `.viewbar` under it. */
   header {
-    display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+    display: flex; align-items: center; gap: 20px; padding: 16px 24px; min-height: 80px;
     border-bottom: 1px solid var(--line); background: var(--panel); flex: none;
   }
-  header h1 { font-size: 15px; margin: 0; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-dim); }
+  header h1 { margin: 0; font: 600 25px/1.1 var(--serif); letter-spacing: -.05em; color: var(--ink); }
   #search {
-    background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
-    border-radius: 6px; padding: 6px 10px; width: 260px; font: inherit;
+    background: var(--bg); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 10px; padding: 9px 36px 9px 14px; width: 100%; height: 42px; font: inherit; font-size: 13px;
   }
   #search:focus { outline: 1px solid var(--accent); }
   .grow { flex: 1; }
   .muted { color: var(--ink-faint); font-size: 12px; }
 
-  .timebar { display: flex; align-items: center; gap: 10px; }
-  .timebar input[type=range] { width: 240px; accent-color: var(--accent); }
+  .timebar {
+    display: flex; align-items: center; gap: 12px; flex: none; min-height: 58px; padding: 12px 20px;
+    border-top: 1px solid var(--line); background: var(--panel);
+  }
+  .timebar input[type=range] { width: auto; min-width: 40px; max-width: 420px; flex: 1; accent-color: var(--accent); }
   #timeLabel { font-variant-numeric: tabular-nums; min-width: 90px; color: var(--ink-dim); font-size: 12px; }
 
   main { flex: 1; display: flex; min-height: 0; }
 
   aside {
-    width: 208px; flex: none; border-right: 1px solid var(--line); background: var(--panel);
-    overflow-y: auto; padding: 12px 14px 40px;
+    width: 240px; flex: none; border-right: 1px solid var(--line); background: var(--panel);
+    overflow-y: auto; padding: 20px 20px 32px; scrollbar-width: thin;
   }
   aside h2 {
-    font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
-    color: var(--ink-faint); margin: 16px 0 7px; font-weight: 600;
+    font-size: 10px; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--ink-dim); margin: 24px 0 8px; font-weight: 600;
   }
   aside h2:first-child { margin-top: 0; }
-  .chk { display: flex; align-items: center; gap: 7px; padding: 2px 0; cursor: pointer; font-size: 13px; }
-  .chk input { accent-color: var(--accent); margin: 0; }
-  .chk .n { margin-left: auto; color: var(--ink-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .chk {
+    display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 4px 6px; margin: 0 -6px;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .chk:hover { background: var(--panel-2); }
+  .chk input { accent-color: var(--accent); margin: 0; width: 14px; height: 14px; flex: none; }
+  .chk .n {
+    margin-left: auto; color: var(--ink-faint); font-size: 11px; font-variant-numeric: tabular-nums;
+    padding: 0 5px; min-width: 20px; text-align: center; background: var(--panel-2); border-radius: 4px;
+  }
   .swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; }
   aside button {
-    margin-top: 14px; width: 100%; background: var(--panel-2); color: var(--ink-dim);
-    border: 1px solid var(--line); border-radius: 6px; padding: 5px; font: inherit; cursor: pointer;
+    margin-top: 14px; width: 100%; min-height: 34px; background: var(--panel-2); color: var(--ink-dim);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px; font: inherit; font-size: 12px; cursor: pointer;
   }
   aside button:hover { color: var(--ink); }
 
   #mapcol { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  #stage { flex: 1; position: relative; overflow: hidden; min-height: 0; }
+  #stage {
+    flex: 1; position: relative; overflow: hidden; min-height: 0;
+    background-image: radial-gradient(var(--line) .65px, transparent .65px); background-size: 20px 20px;
+  }
 
   /* The chat drawer. Built only when /api/health names an installed backend;
      over file:// or under --no-chat none of this exists in the DOM. */
   #chat {
-    flex: none; height: min(340px, 44vh); display: flex; flex-direction: column;
+    flex: none; height: min(320px, 38vh); display: flex; flex-direction: column;
     border-top: 1px solid var(--line); background: var(--panel); min-height: 0;
   }
   #chat[hidden] { display: none; }
@@ -166,7 +186,7 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   #chat .cbtns button:disabled { opacity: .45; cursor: default; }
   svg { width: 100%; height: 100%; display: block; cursor: grab; }
   svg.dragging { cursor: grabbing; }
-  .lane-band { fill: var(--panel); opacity: .45; }
+  .lane-band { fill: var(--panel); opacity: .3; }
   .lane-label {
     fill: var(--ink-faint); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
   }
@@ -175,7 +195,10 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   /* Edges are decoration. Letting a fat bezier eat a click aimed at the
      canvas (or at a node it happens to pass over) is maddening. */
   .edge { fill: none; stroke: var(--line); stroke-width: 1.4; pointer-events: none; }
-  .edge.lit { stroke: var(--accent); stroke-width: 2.2; }
+  /* Lit lineage is ink, not the accent: the accent is teal-green, the hue the
+     `supports` relation owns, and a lit parent edge must not read as one. A
+     typed edge keeps its own hue when lit (its rule below comes later). */
+  .edge.lit { stroke: var(--ink-dim); stroke-width: 2.2; }
   /* Typed relations. Colour carries the type and dash carries it again, so the
      map stays readable in greyscale and for colour-vision deficiency — status
      already owns colour on the glyphs, and edges must not compete with it. */
@@ -211,17 +234,17 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   #gutter, #axis { position: absolute; pointer-events: none; overflow: hidden; }
   #gutter {
     left: 0; top: 0; bottom: 0; z-index: 5; width: var(--gutter, 118px);
-    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
     border-right: 1px solid var(--line);
   }
   #axis {
     left: 0; right: 0; top: 0; height: 22px; z-index: 6;
-    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    background: var(--bg);
     border-bottom: 1px solid var(--line);
   }
   .glane {
     position: absolute; left: 0; right: 0; padding: 0 8px 0 10px; height: 16px; line-height: 16px;
-    font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint);
+    font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-dim);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     pointer-events: auto; cursor: pointer; user-select: none;
   }
@@ -235,7 +258,7 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   .node .glyph { stroke: var(--bg); stroke-width: 1.5; }
   /* Clickable: the label is a bigger target than the glyph, and people aim at words. */
   .node .label { fill: var(--label); font-size: 12px; }
-  .node.sel .glyph { stroke: var(--accent); stroke-width: 2.5; }
+  .node.sel .glyph { stroke: var(--ink); stroke-width: 2.5; }
   .node.sel .label { fill: var(--ink); }
   .node.dim { opacity: .12; }
   .node.terminal .glyph { stroke-dasharray: none; }
@@ -244,11 +267,13 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
 
   #panel {
     width: 420px; flex: none; border-left: 1px solid var(--line); background: var(--panel);
-    overflow-y: auto; padding: 18px 20px 60px; display: none;
+    overflow-y: auto; padding: 26px 28px 60px; display: none; box-shadow: var(--shadow-panel);
   }
   #panel.open { display: block; }
-  #panel h3 { margin: 0 0 4px; font-size: 17px; line-height: 1.3; }
-  #panel h4, #panel h5, #panel h6 { margin: 18px 0 5px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); }
+  #panel h3 { margin: 7px 0 14px; font: 26px/1.2 var(--serif); letter-spacing: -.025em; }
+  #panel h4, #panel h5, #panel h6 { margin: 25px 0 9px; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); }
+  #panel .body { font-size: 14px; line-height: 1.75; }
+  #panel .body p { margin: 0 0 14px; }
   #panel p, #panel li { color: var(--ink); }
   #panel pre { background: var(--panel-2); padding: 10px; border-radius: 6px; overflow-x: auto; }
   /* A `host:/long/path` in running text has no spaces to break at. */
@@ -257,23 +282,23 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   #panel blockquote { border-left: 2px solid var(--line); margin: 8px 0; padding-left: 12px; color: var(--ink-dim); }
   #panel a { color: var(--accent); }
   #panel hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
-  .pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+  .pillrow { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0 20px; }
   .pill {
-    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    font-size: 10.5px; padding: 3px 9px; border-radius: 999px;
     background: var(--panel-2); color: var(--ink-dim); border: 1px solid var(--line);
   }
   .pill.status { color: #fff; border: 0; }
-  .kv { display: grid; grid-template-columns: 88px 1fr; gap: 3px 10px; font-size: 12.5px; margin: 10px 0; }
+  .kv { display: grid; grid-template-columns: 88px 1fr; gap: 6px 12px; font-size: 12.5px; line-height: 1.6; margin: 10px 0; }
   .kv dt { color: var(--ink-faint); }
   .kv dd { margin: 0; word-break: break-word; }
-  .sect { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 12px; }
+  .sect { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 16px; }
   .sect > .hd { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); margin-bottom: 7px; }
   .lnk { display: block; padding: 3px 0; color: var(--accent); cursor: pointer; font-size: 13px; }
   .lnk:hover { text-decoration: underline; }
   /* A [[node-id]] link sits mid-sentence, so it can't be a block the way the
      parent and relation lists are. */
   .body .lnk { display: inline; padding: 0; font-size: inherit; }
-  .lnk.broken { color: var(--muted); cursor: help; text-decoration: underline dotted; }
+  .lnk.broken { color: var(--ink-faint); cursor: help; text-decoration: underline dotted; }
   /* A figure is referenced, not embedded: `../assets/<file>`, resolved the same
      way the `source` link resolves `../nodes/<id>.md`. So the payload never
      carries image bytes, and `assets/` can hold an SVG that themes itself —
@@ -284,17 +309,24 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
      which is the right trade for a record you are supposed to be able to trust.
      The cost is that a figure cannot be interactive, and that is acceptable —
      it is a thumbnail, and the node body carries the numbers. */
-  /* A node's figures sit directly under the pill row: a summary image is the
-     fastest read of how the work came out, so it comes before the prose. Each is
-     capped in height so a tall screenshot cannot push the claim off-screen; the
-     full image is one click away. */
-  .figs { margin: 10px 0 4px; display: grid; gap: 10px; }
+  /* A node's figures sit after its claim (the body's first section): the claim
+     says what was tested, the figure how it came out. Thumbnails are capped in
+     height and only the first is shown, with "+N more" to open the rest in
+     place, so two tall plots cannot push the metadata and the claim
+     off-screen. The full image is one click away. */
+  .figs { margin: 4px 0 18px; display: grid; gap: 10px; }
   .fig { margin: 0; }
-  .fig a { display: block; }
+  .fig a { display: block; padding: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
+  .fig[hidden] { display: none; }
   .fig img {
-    display: block; width: auto; max-width: 100%; margin: 0 auto; height: auto; max-height: 52vh; object-fit: contain;
-    border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line);
+    display: block; width: auto; max-width: 100%; margin: 0 auto; height: auto; max-height: 220px; object-fit: contain;
+    border-radius: 4px; background: var(--panel-2); border: 0;
   }
+  .figmore {
+    justify-self: start; background: none; border: 0; padding: 0; font: inherit; font-size: 12px;
+    color: var(--accent); cursor: pointer;
+  }
+  .figmore:hover { text-decoration: underline; }
   .fig figcaption { font-size: 12px; color: var(--ink-dim); margin-top: 5px; line-height: 1.45; }
   /* The drop zone. Only rendered while `cairn serve` offers `figure`. */
   .figbox .drop {
@@ -333,30 +365,39 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
     font-size: 10.5px; color: var(--good);
   }
   .hist { font-size: 12.5px; }
-  .hist li { margin-bottom: 4px; list-style: none; }
+  .hist li {
+    list-style: none; position: relative; padding: 0 0 13px 16px; margin: 0 0 0 4px;
+    border-left: 1px solid var(--line);
+  }
+  .hist li::before { content: ''; position: absolute; left: -4px; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .hist li:last-child { padding-bottom: 0; }
   .hist .d { color: var(--ink-faint); font-variant-numeric: tabular-nums; margin-right: 6px; }
   .hist .future { opacity: .35; } /* entries after the slider's cutoff */
-  #close { float: right; background: none; border: 0; color: var(--ink-faint); font-size: 20px; cursor: pointer; line-height: 1; }
+  #close {
+    float: right; width: 32px; height: 32px; background: var(--panel-2); border: 0; border-radius: 50%;
+    color: var(--ink-faint); font-size: 23px; cursor: pointer; line-height: 1;
+  }
   #close:hover { color: var(--ink); }
   .actions { display: flex; gap: 14px; margin: 8px 0 2px; font-size: 12px; }
   .actions a, .actions span { color: var(--accent); cursor: pointer; text-decoration: none; }
   .actions a:hover, .actions span:hover { text-decoration: underline; }
-  #isolateOff {
-    background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim);
-    border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  /* Header buttons share one look with #isolateOff; `.on` is the pressed state,
+     `.primary` the one call to action. */
+  .hbtn, #isolateOff {
+    min-height: 32px; background: var(--panel); border: 1px solid var(--line); color: var(--ink-dim);
+    border-radius: 7px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
   }
-  #isolateOff:hover { color: var(--ink); }
-
-  /* Header buttons share one look with #isolateOff; `.on` is the pressed state. */
-  .hbtn {
-    background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim);
-    border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  .hbtn:hover, #isolateOff:hover { color: var(--ink); background: var(--panel-2); border-color: var(--ink-faint); }
+  .hbtn.primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+  /* Pressed, for the toggles (needs you, play, chat): tinted and outlined, so it
+     never looks like the one filled call to action. */
+  .hbtn.on, .hbtn.on:hover {
+    background: color-mix(in srgb, var(--accent) 20%, var(--panel)); color: var(--ink);
+    border-color: var(--accent);
   }
-  .hbtn:hover { color: var(--ink); }
-  .hbtn.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   #colourBy, #layoutBy, #labelsBy {
-    background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim);
-    border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px; cursor: pointer;
+    min-height: 32px; background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 7px; padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer;
   }
   /* One key at a time. When fill stops meaning status, the swatches beside the
      status filter stop being true — and the age ramp is blue, which is exactly
@@ -527,8 +568,8 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
 
   #hover {
     position: fixed; z-index: 20; max-width: 330px; pointer-events: none;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-    padding: 9px 12px; box-shadow: 0 8px 26px rgba(0,0,0,.35);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 15px 17px; box-shadow: var(--shadow-pop);
   }
   /* A fixed height, so the card is measured (and flipped at the viewport edge)
      correctly before the image has loaded. */
@@ -536,7 +577,7 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
     display: block; width: 100%; height: 120px; object-fit: contain; margin-bottom: 7px;
     background: var(--panel-2); border-radius: 5px;
   }
-  #hover strong { display: block; font-size: 13px; line-height: 1.35; margin-bottom: 4px; }
+  #hover strong { display: block; font: 19px/1.25 var(--serif); margin-bottom: 9px; }
   #hover .meta { font-size: 11.5px; color: var(--ink-dim); display: flex; align-items: center; gap: 6px; }
   #hover .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   #hover .note { font-size: 12px; color: var(--ink); margin-top: 6px; font-style: italic; }
@@ -546,76 +587,47 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   #hover .hit { font-size: 12px; color: var(--ink-dim); margin-top: 6px; }
   #hover .hit b { color: var(--ink); background: color-mix(in srgb, var(--pending) 30%, transparent); font-weight: 600; }
 
-  /* Narrow viewports: the filter rail and the detail panel can't both keep a
-     fixed width or the graph disappears between them. */
-  @media (max-width: 1100px) {
-    aside { width: 168px; }
-    #panel { width: 340px; }
-  }
-  @media (max-width: 820px) {
-    aside { display: none; }
-    #panel { position: fixed; inset: 0; width: auto; z-index: 30; }
-    #search { width: 150px; }
-    .timebar input[type=range] { width: 120px; }
-  }
   .empty { padding: 60px; text-align: center; color: var(--ink-faint); }
   .empty code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; }
 
-  /* A quiet field notebook around the map. Graph encodings remain unchanged. */
-  .masthead { gap: 20px; padding: 16px 24px; min-height: 80px; }
+  /* The chrome around the map: masthead identity, the view bar, the rail
+     heading, the history bar, and the narrow-viewport layouts. */
   .identity { display: flex; align-items: center; gap: 11px; min-width: 195px; }
   .cairn-mark { width: 32px; height: 38px; fill: var(--accent); flex: none; cursor: default; }
   .cairn-mark rect:first-child { opacity: .45; }
   .cairn-mark rect:nth-child(2) { opacity: .7; }
-  header h1 { font: 600 25px/1.1 var(--serif); letter-spacing: -.05em; text-transform: none; color: var(--ink); }
   .brand-caption { display: block; font-size: 10px; letter-spacing: .04em; color: var(--ink-dim); margin-top: 4px; }
   .search-wrap { position: relative; width: clamp(200px, 32vw, 450px); }
-  #search { width: 100%; height: 42px; background: var(--bg); border-radius: 10px; padding: 9px 36px 9px 14px; font-size: 13px; }
   .search-wrap kbd { position: absolute; right: 12px; top: 10px; color: var(--ink-faint); font-size: 12px; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
   #count { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .viewbar { display: flex; align-items: center; gap: 12px; flex: none; padding: 11px 24px; background: var(--panel); border-bottom: 1px solid var(--line); }
   .view-title { width: 195px; flex: none; font-size: 12px; font-weight: 650; color: var(--ink-dim); }
   .toolbar-group { display: flex; align-items: center; gap: 7px; }
   .toolbar-group label { font-size: 11px; color: var(--ink-faint); }
-  #colourBy, #layoutBy, #labelsBy { min-height: 32px; padding: 5px 9px; border-radius: 7px; background: var(--panel); color: var(--ink); }
-  .hbtn, #isolateOff { min-height: 32px; padding: 5px 11px; border-radius: 7px; background: var(--panel); white-space: nowrap; }
-  .hbtn:hover, #isolateOff:hover { background: var(--panel-2); border-color: var(--ink-faint); }
-  .hbtn.primary, .hbtn.on { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
   #needs::before { content: ''; display: inline-block; width: 6px; height: 6px; background: var(--pending); border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
-  aside { width: 240px; padding: 20px 20px 32px; background: var(--panel); scrollbar-width: thin; }
   .rail-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; font: 23px/1.2 var(--serif); letter-spacing: -.03em; }
-  aside h2 { margin: 24px 0 8px; color: var(--ink-dim); font-size: 10px; letter-spacing: .12em; }
-  .chk { min-height: 30px; gap: 9px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; }
-  .chk:hover { background: var(--panel-2); }
-  .chk input { width: 14px; height: 14px; flex: none; }
-  .chk .n { padding: 0 5px; min-width: 20px; text-align: center; background: var(--panel-2); border-radius: 4px; }
-  aside button { min-height: 34px; font-size: 12px; border-radius: 7px; }
-  #stage { background-image: radial-gradient(var(--line) .65px, transparent .65px); background-size: 20px 20px; }
-  .lane-band { opacity: .3; }
-  #gutter { background: color-mix(in srgb, var(--bg) 94%, transparent); }
-  #axis { background: var(--bg); }
-  .glane { color: var(--ink-dim); font-size: 10px; letter-spacing: .05em; }
-  .timebar { min-height: 58px; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); flex: none; gap: 12px; }
-  .timebar input[type=range] { width: auto; min-width: 40px; max-width: 420px; flex: 1; }
   .timeline-title { font-size: 11px; font-weight: 600; color: var(--ink-dim); margin-right: 4px; }
   .map-hint { margin-left: auto; font-size: 10px; color: var(--ink-faint); white-space: nowrap; }
-  #panel { width: 420px; padding: 26px 28px 60px; box-shadow: -8px 0 28px color-mix(in srgb, var(--ink) 4%, transparent); }
-  #panel h3 { font: 26px/1.2 var(--serif); letter-spacing: -.025em; margin: 7px 0 14px; }
-  #panel h4, #panel h5, #panel h6 { color: var(--accent); font-size: 10px; margin: 25px 0 9px; letter-spacing: .1em; }
-  #panel .body { font-size: 14px; line-height: 1.75; }
-  #panel .body p { margin: 0 0 14px; }
-  .pillrow { gap: 7px; margin-bottom: 20px; }
-  .pill { padding: 3px 9px; font-size: 10.5px; }
-  .sect { margin-top: 24px; padding-top: 16px; }
-  .kv { gap: 6px 12px; line-height: 1.6; }
-  .hist li { position: relative; padding: 0 0 13px 16px; border-left: 1px solid var(--line); margin: 0 0 0 4px; }
-  .hist li::before { content: ''; position: absolute; left: -4px; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-  .hist li:last-child { padding-bottom: 0; }
-  #close { width: 32px; height: 32px; background: var(--panel-2); border-radius: 50%; font-size: 23px; }
-  .fig a { padding: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
-  .fig img { border: 0; border-radius: 4px; }
-  #hover { border-radius: 12px; padding: 15px 17px; box-shadow: 0 8px 30px color-mix(in srgb, var(--ink) 16%, transparent); }
-  #hover strong { font: 19px/1.25 var(--serif); margin-bottom: 9px; }
+  /* Labels "auto": below the zoom where 12px titles are legible, only the
+     hovered, the open and the needs-you nodes keep theirs (toggled in
+     applyTransform). An explicit Titles/Slugs/None choice is never overridden. */
+  #svg.far .node:not(.sel):not(.needs):not(.hov) .label { display: none; }
+  /* Rail sections fold from their heading; the state is remembered per browser. */
+  aside h2 .rtog {
+    all: unset; box-sizing: border-box; display: flex; align-items: center; width: 100%; cursor: pointer;
+  }
+  /* The disclosure caret leads, so it never lines up with the lane-fold carets
+     at the right end of the project rows, which do something else. */
+  aside h2 .rtog::before { content: '\25be'; width: 12px; flex: none; font-size: 10px; color: var(--ink-faint); }
+  aside h2 .rtog[aria-expanded="false"]::before { content: '\25b8'; }
+  aside h2 .rtog:hover { color: var(--ink); }
+  aside h2 .rtog:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+  .rbody[hidden] { display: none; }
+  #projFilter {
+    width: 100%; margin: 0 0 6px; padding: 5px 8px; font: inherit; font-size: 12px;
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .chk.pf-out { display: none; }
   #filterToggle, #filterClose, #filterBackdrop { display: none; }
   button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   button, input, select, textarea { transition: background-color 140ms, border-color 140ms; }
@@ -623,6 +635,9 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
     .identity { min-width: 170px; } .view-title { width: 170px; }
     aside { width: 215px; padding-inline: 18px; } #panel { width: 350px; padding-inline: 22px; }
     .map-hint { display: none; }
+  }
+  @media (max-width: 1100px) {
+    aside { width: 200px; padding-inline: 14px; } #panel { width: 330px; }
   }
   @media (max-width: 960px) {
     .view-title { display: none; }
@@ -649,6 +664,19 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
     #timeLabel { font-size: 11px; min-width: 77px; }
     #fitMap { margin-left: auto; }
   }
+  /* Short screens (a 13" laptop, a browser with toolbars): every bar gives back
+     height to the map, and the chat drawer takes less of what is left. */
+  @media (max-height: 760px) and (min-width: 821px) {
+    .masthead { min-height: 0; padding-block: 8px; }
+    .cairn-mark { width: 24px; height: 28px; }
+    header h1 { font-size: 20px; }
+    .brand-caption { display: none; }
+    #search { height: 34px; padding-top: 6px; padding-bottom: 6px; }
+    .search-wrap kbd { top: 7px; }
+    .viewbar { padding-block: 6px; }
+    .timebar { min-height: 0; padding-block: 6px; }
+    #chat { height: min(240px, 34vh); }
+  }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 
 </style>
@@ -666,16 +694,16 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   <button id="themeToggle" class="hbtn" title="Change color theme" aria-label="Change color theme">◐</button>
   <button id="newNode" class="hbtn primary" title="Create a node — needs `cairn serve`" hidden>+ New node</button>
 </header>
-<div class="viewbar" aria-label="Map controls">
+<div class="viewbar" role="toolbar" aria-label="Map controls">
   <button id="filterToggle" class="hbtn" aria-controls="filters" aria-expanded="false">☰ Filters</button>
   <span class="view-title">Research map</span>
   <span class="toolbar-group"><label for="layoutBy">View</label>
   <select id="layoutBy" title="What the horizontal axis means (l)">
-    <option value="time">Timeline</option><option value="lineage">Lineage</option><option value="spring">Network</option>
+    <option value="time">Timeline</option><option value="lineage">Lineage</option><option value="spring">Spring</option>
   </select></span>
   <span class="toolbar-group"><label for="labelsBy">Labels</label>
-  <select id="labelsBy" title="What the glyph is labelled with (t)">
-    <option value="full">Titles</option><option value="short">Slugs</option><option value="none">None</option>
+  <select id="labelsBy" title="What the glyph is labelled with (t). Auto: titles, hidden when zoomed out too far to read">
+    <option value="auto">Auto</option><option value="full">Titles</option><option value="short">Slugs</option><option value="none">None</option>
   </select></span>
   <span class="toolbar-group"><label for="colourBy">Color</label>
   <select id="colourBy" title="What the glyph colour means">
@@ -684,30 +712,40 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
   <span class="grow"></span>
   <button id="isolateOff" hidden>Show all</button>
   <button id="needs" class="hbtn" title="Only what needs attention (w)">Needs you</button>
-  <button id="fitMap" class="hbtn" title="Fit all visible nodes in the map">Fit map ↗</button>
+  <button id="fitMap" class="hbtn" title="Fit all visible nodes in the map (f)">Fit map</button>
 </div>
 
 <main>
   <aside id="filters" aria-label="Map filters">
     <div class="rail-heading"><span>Explore</span><button id="filterClose" class="hbtn" aria-label="Close filters">×</button></div>
-    <h2>Projects</h2><div id="fProject"></div>
-    <h2>Type</h2><div id="fType"></div>
-    <h2>Status</h2><div id="fStatus"></div>
-    <h2>Author</h2><div id="fAuthor"></div>
+    <h2><button class="rtog" aria-expanded="true" aria-controls="rsProject">Projects</button></h2>
+    <div class="rbody" id="rsProject">
+      <input id="projFilter" type="search" placeholder="Filter projects…" aria-label="Filter the project list" autocomplete="off" hidden>
+      <div id="fProject"></div>
+    </div>
+    <h2><button class="rtog" aria-expanded="true" aria-controls="rsType">Type</button></h2>
+    <div class="rbody" id="rsType"><div id="fType"></div></div>
+    <h2><button class="rtog" aria-expanded="true" aria-controls="rsStatus">Status</button></h2>
+    <div class="rbody" id="rsStatus"><div id="fStatus"></div></div>
+    <h2><button class="rtog" aria-expanded="true" aria-controls="rsAuthor">Author</button></h2>
+    <div class="rbody" id="rsAuthor"><div id="fAuthor"></div></div>
     <button id="reset">Reset filters</button>
     <button id="foldAll">Collapse all lanes</button>
     <div id="deadlines" hidden></div>
-    <h2>Keys</h2>
-    <div class="keys">
+    <h2><button class="rtog" aria-expanded="true" aria-controls="rsKeys">Keys</button></h2>
+    <div class="rbody keys" id="rsKeys">
       <kbd>&larr;</kbd><kbd>&rarr;</kbd> along time ·
       <kbd>&uarr;</kbd><kbd>&darr;</kbd> across lanes<br>
       <kbd>p</kbd> parent · <kbd>c</kbd> child · <kbd>i</kbd> isolate<br>
       <kbd>n</kbd> write a note · <kbd>w</kbd> needs you<br>
-      <kbd>l</kbd> time / lineage / spring on x · <kbd>t</kbd> labels<br>
-      <kbd>space</kbd> replay · <kbd>/</kbd> search · <kbd>esc</kbd> close<br>
+      <kbd>l</kbd> timeline / lineage / spring · <kbd>t</kbd> labels<br>
+      <kbd>f</kbd> fit the map ·
+      <kbd>space</kbd> replay<br>
+      <kbd>/</kbd> search · <kbd>esc</kbd> close<br>
       <span class="more" data-help="1"><kbd>?</kbd> every key</span>
     </div>
-    <h2>Legend</h2>
+    <h2><button class="rtog" aria-expanded="true" aria-controls="rsLegend">Legend</button></h2>
+    <div class="rbody" id="rsLegend">
     <div id="shapeKey"></div>
     <div class="muted" style="line-height:1.6;margin-top:8px">
       shape = type · size = work downstream<br>
@@ -715,10 +753,11 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
       hollow dot = not committed yet<br>
       corner tab = has a figure
     </div>
-    <h2>Fill</h2>
-    <div id="fillKey"></div>
-    <h2>Edges</h2>
-    <div id="relKey"></div>
+    </div>
+    <h2><button class="rtog" aria-expanded="true" aria-controls="rsFill">Fill</button></h2>
+    <div class="rbody" id="rsFill"><div id="fillKey"></div></div>
+    <h2><button class="rtog" aria-expanded="true" aria-controls="rsEdges">Edges</button></h2>
+    <div class="rbody" id="rsEdges"><div id="relKey"></div></div>
   </aside>
 
   <!-- The map, and under it the chat drawer when `cairn serve` offers one. A
@@ -756,17 +795,31 @@ try { const theme = localStorage.getItem('cairn-theme'); if (theme === 'light' |
 const DATA = /*__CAIRN_DATA__*/null;
 
 const $ = s => document.querySelector(s);
+/* The address bar is a convenience — links, Back and Forward. In a sandboxed
+   srcdoc frame (how the map is embedded elsewhere) the history API refuses
+   every URL, and the map must keep working without it. */
+function setUrl(url, push = false, st = null) {
+  try { history[push ? 'pushState' : 'replaceState'](st, '', url); } catch (err) { /* not addressable here */ }
+}
 const svg = $('#svg'), view = $('#view'), panel = $('#panel');
 const byId = new Map(DATA.nodes.map(n => [n.id, n]));
 
 // Presentation controls never depend on the optional writer server.
-function setFiltersOpen(opened) {
+function setFiltersOpen(opened, moveFocus = true) {
   document.body.classList.toggle('filters-open', opened);
   $('#filterToggle').setAttribute('aria-expanded', String(opened));
   $('#filterBackdrop').hidden = !opened;
+  if (!moveFocus) return;
   if (opened) $('#filterClose').focus();
   else $('#filterToggle').focus();
 }
+// The drawer exists only below the breakpoint. Widening past it with the drawer
+// open would leave its state behind: an Esc spent closing nothing, Tab trapped
+// in a rail that is now just the rail. Must match the CSS breakpoint.
+const DRAWER_MQ = matchMedia('(max-width: 820px)');
+DRAWER_MQ.addEventListener('change', e => {
+  if (!e.matches && document.body.classList.contains('filters-open')) setFiltersOpen(false, false);
+});
 $('#filterToggle').addEventListener('click', () => setFiltersOpen(!document.body.classList.contains('filters-open')));
 $('#filterClose').addEventListener('click', () => setFiltersOpen(false));
 $('#filterBackdrop').addEventListener('click', () => setFiltersOpen(false));
@@ -801,7 +854,9 @@ const state = {
   needs: false,
   colour: 'status',
   layout: 'time',      // what x means: 'time' (created), 'lineage' or 'spring' (hops from a root)
-  labels: 'full',      // what a glyph is labelled with: 'full' title, 'short' slug, 'none'
+  // What a glyph is labelled with: 'full' title, 'short' slug, 'none', or
+  // 'auto' — titles, hidden below LABEL_MIN_SCALE except where they matter.
+  labels: 'auto',
   collapsed: new Set(),
   creating: false,
   draft: null,
@@ -1367,7 +1422,8 @@ const slugOf = n => {
 };
 
 /** The lines drawn beside a glyph under the current label mode. The open
-    node always gets its title, whatever the mode. */
+    node always gets its title, whatever the mode. 'auto' draws titles; which
+    of them show when zoomed out is CSS (`#svg.far`), so zooming never redraws. */
 function labelLines(n) {
   if (n.id !== state.selected) {
     if (state.labels === 'none') return [];
@@ -1795,7 +1851,7 @@ function syncFilterUrl() {
     else p.set(key, [...state[key]].filter(v => all.has(v)).join(','));
   }
   const q = p.toString();
-  history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
+  setUrl(location.pathname + (q ? '?' + q : '') + location.hash);
 }
 
 function refreshCounts() {
@@ -1852,6 +1908,8 @@ function noteBox(n) {
    is what a page built before a node could have more than one carries. */
 function figuresOf(n) { return n.assets || (n.asset ? [n.asset] : []); }
 
+/** The figures as capped thumbnails. Only the first shows; the rest wait
+    behind "+N more", which opens them in place (`data-figmore`). */
 function figureStrip(n) {
   const figs = figuresOf(n);
   if (!figs.length) return '';
@@ -1859,10 +1917,28 @@ function figureStrip(n) {
   return `<div class="figs">` + figs.map((f, i) => {
     const src = `../assets/${encodeURIComponent(f)}`;
     const cap = caps[f] || '';
-    return `<figure class="fig"><a href="${src}" target="_blank" rel="noopener">` +
+    return `<figure class="fig"${i ? ' hidden' : ''}><a href="${src}" target="_blank" rel="noopener">` +
       `<img src="${src}" loading="lazy" alt="${esc(cap || `Figure ${i + 1} for ${n.title}`)}"></a>` +
       (cap ? `<figcaption>${esc(cap)}</figcaption>` : '') + `</figure>`;
-  }).join('') + `</div>`;
+  }).join('') +
+  (figs.length > 1 ? `<button class="figmore" data-figmore="1">+${figs.length - 1} more figure${figs.length > 2 ? 's' : ''}</button>` : '') +
+  `</div>`;
+}
+
+/** The body with the figures after its claim: before the body's second
+    section heading, or after its first paragraph when it has no sections, or
+    at its end. The claim says what was tested; the figure, how it came out. */
+function bodyWithFigures(n) {
+  const figs = figureStrip(n);
+  if (!figs) return n.body;
+  const body = n.body || '';
+  const heads = [...body.matchAll(/<h4[\s>]/g)];
+  let at = heads.length >= 2 ? heads[1].index : -1;
+  if (at < 0 && !heads.length) {
+    const p = body.indexOf('</p>');
+    if (p >= 0) at = p + 4;
+  }
+  return at < 0 ? body + figs : body.slice(0, at) + figs + body.slice(at);
 }
 
 /* Adding one, while `cairn serve` offers `figure`. Drop, paste or pick an
@@ -2086,7 +2162,8 @@ function initChat(info) {
   const btn = document.createElement('button');
   btn.id = 'chatBtn';
   btn.className = 'hbtn';
-  btn.textContent = 'chat';
+  btn.textContent = 'Chat';
+  btn.setAttribute('aria-pressed', 'false');
   btn.title = 'Ask about the graph — your own CLI, through bin/cairn (k)';
   btn.onclick = () => toggleChat();
   $('#newNode').after(btn);
@@ -2127,6 +2204,7 @@ function toggleChat(on, focus = true) {
   const show = on === undefined ? drawer.hidden : on;
   drawer.hidden = !show;
   $('#chatBtn').classList.toggle('on', show);
+  $('#chatBtn').setAttribute('aria-pressed', String(show));
   ss.set(CHAT_OPEN, show ? '1' : null);
   positionChrome();                  // the stage just changed height
   if (show) {
@@ -2441,7 +2519,7 @@ function viewParams(reveal) {
   if (q && !(reveal && reveal.dropQuery)) p.set('q', q);
   if (state.colour !== 'status') p.set('colour', state.colour);
   if (state.layout !== 'time') p.set('layout', state.layout);
-  if (state.labels !== 'full') p.set('labels', state.labels);
+  if (state.labels !== 'auto') p.set('labels', state.labels);
   if (state.collapsed.size) p.set('folded', [...state.collapsed].join(','));
   if (!isLive()) p.set('since', DATA.dates[state.t]);
   if (state.needs) p.set('needs', '1');
@@ -2454,8 +2532,7 @@ function viewParams(reveal) {
 
 function reloadKeepingView(openId, reveal) {
   const q = viewParams(reveal).toString();
-  history.replaceState(null, '', location.pathname + (q ? '?' + q : '') +
-                                 (openId ? '#' + openId : ''));
+  setUrl(location.pathname + (q ? '?' + q : '') + (openId ? '#' + openId : ''));
   location.reload();
 }
 
@@ -3281,11 +3358,10 @@ function open(id, opts = {}) {
       `<span class="pill">${esc(n.type)}</span><span class="pill">${esc(n.project)}</span>` +
       (isLive() ? '' : `<span class="pill">as of ${esc(when)}</span>`) +
     `</div>` +
-    figureStrip(n) +
     (needsYou(n, when) ? `<div class="needs-why">needs you — ${esc(needsYou(n, when))}</div>` : '') +
     gitBanner(n) +
     `<dl class="kv">${rows.join('')}</dl>` +
-    `<div class="body">${n.body}</div>` +
+    `<div class="body">${bodyWithFigures(n)}</div>` +
     section('Parents', links(n.parents)) +
     section('Children', links(n.children)) +
     // Phrased from this node's side in both directions, so a contradiction is
@@ -3334,9 +3410,9 @@ function open(id, opts = {}) {
   // server probe, a restore after a reload) replaces, or Back would stutter.
   const hash = '#' + id;
   if (opts.replace || decodeURIComponent(location.hash) === hash) {
-    history.replaceState(null, '', hash);
+    setUrl(hash);
   } else {
-    history.pushState(null, '', hash);
+    setUrl(hash, true);
   }
   draw();
   syncStatusBox();
@@ -3356,14 +3432,22 @@ function close() {
   state.creating = false;
   state.editing = null;
   panel.classList.remove('open');
-  history.replaceState(null, '', location.pathname + location.search);
+  setUrl(location.pathname + location.search);
   draw();
 }
 
 /* ---------- pan / zoom ---------- */
 let tx = 0, ty = 0, scale = 1;
+/* Below this zoom a 12px title renders under ~8.5px: noise, not a label. In
+   'auto' the map then keeps titles only on the hovered, open and needs-you
+   nodes. The explicit modes are what the user asked for and are left alone. */
+const LABEL_MIN_SCALE = 0.7;
+function syncFarLabels() {
+  svg.classList.toggle('far', state.labels === 'auto' && scale < LABEL_MIN_SCALE);
+}
 const applyTransform = () => {
   view.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+  syncFarLabels();
   positionChrome();
 };
 
@@ -3424,12 +3508,36 @@ function fit() {
   // Floor the auto-fit: past a point, shrinking to fit just makes the labels
   // illegible. Content wider than the viewport is a job for panning.
   scale = Math.max(0.5, Math.min(1, (freeW - 40) / w, (freeH - 40) / h));
-  // Centre the content in the free area rather than pinning it to a corner —
-  // unless it is wider than that even at the floor, when centring would push
-  // the oldest nodes under the gutter. Then it starts at the gutter's edge.
-  tx = w * scale > freeW ? gw + 12 - x0 * scale : gw + (freeW - w * scale) / 2 - x0 * scale;
-  ty = AXIS_H + (freeH - h * scale) / 2 - y0 * scale;
+  // Centre the content in the free area on an axis where it fits. Where it does
+  // not, even at the floor, centring frames the middle of the canvas — on a big
+  // graph that is months-old, mostly empty lanes, and on a phone often nothing
+  // at all. So on that axis, aim at the newest work instead, clamped so the
+  // canvas never pulls away from the edge of the view.
+  const focus = recentFocus(shown);
+  const aim = (fits, lo, hi, free, start, at) => {
+    if (fits) return start + (free - (hi - lo) * scale) / 2 - lo * scale;
+    const t = start + free / 2 - at * scale;
+    return Math.min(start + 12 - lo * scale, Math.max(start + free - 12 - hi * scale, t));
+  };
+  tx = aim(w * scale <= freeW, x0, x1, freeW, gw, focus.x);
+  ty = aim(h * scale <= freeH, y0, y1, freeH, AXIS_H, focus.y);
   applyTransform();
+}
+
+/** Where the newest work is: the median position of the few most recently
+    active shown nodes (as of the slider). The median rather than the mean, so
+    two busy lanes far apart frame one of them rather than the gap between. */
+function recentFocus(shown) {
+  if (!shown.length) return { x: 0, y: 0 };
+  const when = cutoff();
+  const last = n => {
+    let d = n.created || '';
+    for (const h of n.history || []) if (h.date <= when && h.date > d) d = h.date;
+    return d;
+  };
+  const recent = [...shown].sort((a, b) => last(b) < last(a) ? -1 : last(b) > last(a) ? 1 : 0).slice(0, 9);
+  const mid = xs => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  return { x: mid(recent.map(X)), y: mid(recent.map(Y)) };
 }
 
 /** Pan only if the node is outside the stage area the panel leaves free.
@@ -3461,6 +3569,40 @@ chk($('#fProject'), [...new Set(DATA.nodes.map(n => n.project))].sort(), 'projec
 chk($('#fType'), DATA.types, 'type', false);
 chk($('#fStatus'), DATA.statuses, 'status', true);
 chk($('#fAuthor'), DATA.authors, 'author', false);
+
+/* Rail sections fold from their headings, and stay folded across reloads.
+   localStorage can throw outright (a sandboxed iframe, a locked-down profile),
+   so every touch is guarded and a failure only means the rail forgets. */
+const RAIL_KEY = 'cairn.rail.folded';
+const railFolded = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem(RAIL_KEY) || '[]')); } catch (err) { return new Set(); }
+})();
+function setRailSection(btn, open) {
+  btn.setAttribute('aria-expanded', String(open));
+  $('#' + btn.getAttribute('aria-controls')).hidden = !open;
+}
+document.querySelectorAll('aside .rtog').forEach(btn => {
+  const id = btn.getAttribute('aria-controls');
+  setRailSection(btn, !railFolded.has(id));
+  btn.addEventListener('click', () => {
+    const open = btn.getAttribute('aria-expanded') !== 'true';
+    setRailSection(btn, open);
+    if (open) railFolded.delete(id); else railFolded.add(id);
+    try { localStorage.setItem(RAIL_KEY, JSON.stringify([...railFolded])); } catch (err) { /* forget */ }
+  });
+});
+
+// A long project list gets a filter box. It narrows the list, not the map:
+// ticking boxes is still what filters.
+const PROJ_FILTER_MIN = 12;
+const projFilter = $('#projFilter');
+projFilter.hidden = $('#fProject').children.length <= PROJ_FILTER_MIN;
+projFilter.addEventListener('input', () => {
+  const q = projFilter.value.trim().toLowerCase();
+  $('#fProject').querySelectorAll('.chk').forEach(row => {
+    row.classList.toggle('pf-out', !!q && !row.querySelector('input').value.toLowerCase().includes(q));
+  });
+});
 
 // Shape key: the glyph() the map uses, at the map's base radius.
 $('#shapeKey').innerHTML = DATA.types.map(t =>
@@ -3631,6 +3773,11 @@ document.addEventListener('click', e => {
     }).then(done => { if (!done.ok) { b.disabled = false; disarm(); } });
     return;
   }
+  if (d.figmore) {
+    const strip = e.target.closest('.figs');
+    strip.querySelectorAll('.fig[hidden]').forEach(f => { f.hidden = false; });
+    return e.target.remove();
+  }
   if (e.target.closest?.('[data-figpick]')) return $('#figFile')?.click();
   if (d.figclear) return clearFigStage();
   if (d.figsave) return saveFigure(e.target);
@@ -3734,13 +3881,13 @@ $('#colourBy').addEventListener('change', e => {
 /** Switch what x means. Refits, because the two canvases are different sizes
     and a pan that framed June frames nothing in a column of hops. */
 const LAYOUTS = ['time', 'lineage', 'spring'];
-const LABEL_MODES = ['full', 'short', 'none'];
+const LABEL_MODES = ['auto', 'full', 'short', 'none'];
 
 /** One view setting into the URL, dropped when it is the default. */
 function urlSet(key, value, dflt) {
   const p = new URLSearchParams(location.search);
   if (value === dflt) p.delete(key); else p.set(key, value);
-  history.replaceState(history.state, '', location.pathname + (p.toString() ? '?' + p : '') + location.hash);
+  setUrl(location.pathname + (p.toString() ? '?' + p : '') + location.hash);
 }
 
 function setLayout(layout) {
@@ -3756,10 +3903,11 @@ $('#layoutBy').addEventListener('change', e => setLayout(e.target.value));
 /** Switch what a glyph is labelled with. The hop layouts size their columns
     to the label, so they are recomputed and refitted; time keeps its canvas. */
 function setLabels(mode) {
-  state.labels = LABEL_MODES.includes(mode) ? mode : 'full';
+  state.labels = LABEL_MODES.includes(mode) ? mode : 'auto';
   $('#labelsBy').value = state.labels;
-  urlSet('labels', state.labels, 'full');
+  urlSet('labels', state.labels, 'auto');
   if (state.layout !== 'time') { relayout(); draw(); fit(); } else draw();
+  syncFarLabels();
 }
 $('#labelsBy').addEventListener('change', e => setLabels(e.target.value));
 
@@ -3803,14 +3951,21 @@ function showHover(g, clientX, clientY) {
   hover.style.top = Math.max(6, y) + 'px';
 }
 
+/** `.hov` on the node under the pointer: its label shows even when zoomed out.
+    Set on every move, since a redraw replaces the element. */
+function markHover(g) {
+  for (const el of view.querySelectorAll('.node.hov')) if (el !== g) el.classList.remove('hov');
+  g?.classList.add('hov');
+}
 svg.addEventListener('pointermove', e => {
-  if (dragging) { hover.hidden = true; hoverId = null; return; }
+  if (dragging) { hover.hidden = true; hoverId = null; markHover(null); return; }
   const g = e.target.closest('.node');
+  markHover(g);
   if (!g) { hover.hidden = true; hoverId = null; lightEdges(null); return; }
   if (g.dataset.id !== hoverId) { hoverId = g.dataset.id; showHover(g, e.clientX, e.clientY); lightEdges(hoverId); }
   else { hover.style.left = Math.max(6, e.clientX + 16) + 'px'; }
 });
-svg.addEventListener('pointerleave', () => { hover.hidden = true; hoverId = null; lightEdges(null); });
+svg.addEventListener('pointerleave', () => { hover.hidden = true; hoverId = null; markHover(null); lightEdges(null); });
 
 /** Full strength for every edge touching `id`; relations are faint otherwise. */
 function lightEdges(id) {
@@ -3838,11 +3993,16 @@ needsBtn.onclick = () => setNeeds(!state.needs);
 const playBtn = $('#play');
 let playTimer = null;
 
+/* The count is a live region, and replay redraws ten times a second: it would
+   read out every frame. Silent while the slider moves, polite again after. */
+const liveCount = on => $('#count').setAttribute('aria-live', on ? 'polite' : 'off');
+
 function stopPlay() {
   clearInterval(playTimer);
   playTimer = null;
   playBtn.textContent = '▶';
   playBtn.classList.remove('on');
+  liveCount(true);
 }
 
 function startPlay() {
@@ -3852,6 +4012,7 @@ function startPlay() {
   if (isLive()) { state.t = 0; }
   playBtn.textContent = '❚❚';
   playBtn.classList.add('on');
+  liveCount(false);
   // Fixed total duration rather than fixed step time: a 40-date graph and a
   // 400-date graph should both take about ten seconds to watch.
   const step = Math.max(1, Math.round(DATA.dates.length / 120));
@@ -3867,7 +4028,8 @@ function startPlay() {
 
 const togglePlay = () => playTimer ? stopPlay() : startPlay();
 playBtn.onclick = togglePlay;
-timeInput.addEventListener('pointerdown', stopPlay);
+timeInput.addEventListener('pointerdown', () => { stopPlay(); liveCount(false); });
+timeInput.addEventListener('change', () => liveCount(true));
 
 /* ---------- keyboard navigation ----------
    The map was mouse-only, which meant reading a lineage was a sequence of aimed
@@ -3919,14 +4081,15 @@ function helpRows() {
     ['<kbd>i</kbd>', 'isolate the open node’s lineage (again to show all)'],
     ['<kbd>n</kbd>', 'write a note on the open node'],
     ['<kbd>w</kbd>', 'the needs-you lens'],
-    ['<kbd>l</kbd>', 'x is time / hops from a root / hops with y relaxed by springs'],
-    ['<kbd>t</kbd>', 'labels: titles / slugs / none'],
+    ['<kbd>l</kbd>', 'layout: timeline (x is time) / lineage (x is hops from a root) / spring (hops, y relaxed by springs)'],
+    ['<kbd>t</kbd>', 'labels: auto (hidden when zoomed out) / titles / slugs / none'],
+    ['<kbd>f</kbd>', 'fit the map to what is shown'],
     ['<kbd>space</kbd>', 'play / pause the replay'],
     ['<kbd>/</kbd>', 'search'],
   ];
   if (chat.enabled) rows.push(['<kbd>k</kbd>', 'open / close the chat']);
   rows.push(
-    ['<kbd>esc</kbd>', 'leave a field, close this, close the panel'],
+    ['<kbd>esc</kbd>', 'leave a text field; otherwise close the drawer, this, or the panel'],
     ['<kbd>?</kbd>', 'this list'],
     ['alt / ⌘-click', 'a project in the rail: show only it'],
     ['Back / Forward', 'the nodes you opened, in order'],
@@ -3941,15 +4104,35 @@ function toggleHelp(on) {
       `<button class="xbtn" style="float:right" data-helpx="1" title="Close (Esc)">×</button>` +
       `<h3>Keys</h3><dl>` +
       helpRows().map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') +
-      `</dl><div class="foot">Keys are ignored while you type in a field.</div></div>`;
+      `</dl><div class="foot">Keys are ignored while you type in a text field. ` +
+      `A focused button keeps Space and Enter; a menu or the slider keeps its arrows.</div></div>`;
   }
   box.hidden = !on;
 }
 
-const TYPING = () => {
-  const el = document.activeElement;
-  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.tagName === 'BUTTON');
-};
+/* Who owns a key. Only text entry swallows every key — a shortcut letter in the
+   middle of a sentence is a typo waiting to happen. Any other focused control
+   keeps just the keys it acts on itself, and the shortcuts work around it:
+   clicking "Needs you" and then pressing `w` must still toggle the lens. */
+const TEXT_TYPES = /^(text|search|email|url|tel|password|number|date|datetime-local|month|week|time)$/;
+const TYPING = (el = document.activeElement) => !!el && (
+  el.isContentEditable || el.tagName === 'TEXTAREA' ||
+  (el.tagName === 'INPUT' && TEXT_TYPES.test(el.type)));
+
+function controlKeeps(e, el = document.activeElement) {
+  if (!el || el === document.body) return false;
+  const tag = el.tagName, k = e.key;
+  const pressable = tag === 'BUTTON' || tag === 'SUMMARY' || (tag === 'A' && el.hasAttribute('href')) ||
+    (tag === 'INPUT' && /^(checkbox|radio|button|submit|reset|file|color)$/.test(el.type));
+  if (pressable) return k === ' ' || k === 'Enter';
+  // A select keeps its arrows, Space/Enter to open, and type-ahead on letters
+  // that are not shortcuts (the shortcut handler preventDefaults its own).
+  if (tag === 'SELECT') return k === ' ' || k === 'Enter' || k.startsWith('Arrow') || k === 'Home' || k === 'End';
+  if (tag === 'INPUT' && el.type === 'range') {
+    return k.startsWith('Arrow') || k === 'Home' || k === 'End' || k === 'PageUp' || k === 'PageDown';
+  }
+  return false;
+}
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Tab' && document.body.classList.contains('filters-open')) {
@@ -3962,11 +4145,16 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (document.body.classList.contains('filters-open')) return setFiltersOpen(false);
     if (!$('#help').hidden) return toggleHelp(false);
+    // In a text field Esc only leaves it, so a half-written note is never one
+    // keypress from a closed panel. A focused button or menu is just where the
+    // last click landed: let go of it, and close what is open as well.
     if (TYPING()) return document.activeElement.blur();
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     stopPlay();
     return close();
   }
   if (TYPING()) return;                        // never hijack a key mid-sentence
+  if (controlKeeps(e)) return;                 // Space on a button presses it, arrows move a slider
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
   if (e.key === '?') { e.preventDefault(); return toggleHelp($('#help').hidden); }
@@ -3977,6 +4165,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'l') { e.preventDefault(); return setLayout(LAYOUTS[(LAYOUTS.indexOf(state.layout) + 1) % LAYOUTS.length]); }
   if (e.key === 't') { e.preventDefault(); return setLabels(LABEL_MODES[(LABEL_MODES.indexOf(state.labels) + 1) % LABEL_MODES.length]); }
   if (e.key === 'k' && chat.enabled) { e.preventDefault(); return toggleChat(); }
+  if (e.key === 'f') { e.preventDefault(); return fit(); }
   if (e.key === 'n') {
     if (!state.selected) return;
     e.preventDefault();
@@ -4001,7 +4190,7 @@ document.addEventListener('keydown', e => {
 /* URL: #node-id selects, ?since=YYYY-MM-DD or ?t= rewinds, ?project=a,b filters
    (type/status/author too), ?q= searches, ?colour= fills, ?folded= folds,
    ?needs=1, ?iso=<id> isolates, ?layout=lineage|spring puts hops on x,
-   ?labels=short|none changes what a glyph is labelled with, ?tx&ty&scale pan —
+   ?labels=full|short|none changes what a glyph is labelled with, ?tx&ty&scale pan —
    the last three written by a write's reload, so the view survives it. */
 let savedView = null;
 (function initFromUrl() {
@@ -4060,7 +4249,7 @@ if (savedView) {
   applyTransform();
   const p = new URLSearchParams(location.search);
   ['tx', 'ty', 'scale'].forEach(k => p.delete(k));
-  history.replaceState(null, '', location.pathname + (p.toString() ? '?' + p : '') + location.hash);
+  setUrl(location.pathname + (p.toString() ? '?' + p : '') + location.hash);
 }
 if (location.hash.length > 1) open(decodeURIComponent(location.hash.slice(1)));
 (function reshowFlash() {
